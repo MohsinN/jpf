@@ -1,0 +1,11 @@
+#Expected result: The SUT enter the branch such that k = i + j = 10
+# No error detected
+@using jpf-symbc
+target=finite.eventually.Eventually
+target_args=5,5
+finite=true
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+

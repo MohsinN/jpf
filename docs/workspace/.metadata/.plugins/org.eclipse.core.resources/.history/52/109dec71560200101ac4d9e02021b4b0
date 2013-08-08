@@ -1,0 +1,26 @@
+
+
+/**
+ * @author Khanh Bui
+ * @version 1.0
+ * @created 07-Dec-2010 9:30:15 PM
+ */
+public class Window1 {
+
+	public Window1(){
+
+	}
+
+	public void finalize() throws Throwable {
+
+	}
+
+	/**
+	 * 
+	 * @param self
+	 */
+	public void add(Line self){
+
+	}
+
+}

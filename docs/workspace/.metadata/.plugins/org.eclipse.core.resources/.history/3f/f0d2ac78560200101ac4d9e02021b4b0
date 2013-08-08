@@ -1,0 +1,22 @@
+
+
+/**
+ * @author Khanh Bui
+ * @version 1.0
+ * @created 07-Dec-2010 9:30:13 PM
+ */
+public class Controller {
+
+	public Controller(){
+
+	}
+
+	public void finalize() throws Throwable {
+
+	}
+
+	public void redisplay(){
+
+	}
+
+}

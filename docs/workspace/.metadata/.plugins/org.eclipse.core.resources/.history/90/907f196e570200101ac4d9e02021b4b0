@@ -1,0 +1,40 @@
+
+
+/**
+ * @author Khanh Bui
+ * @version 1.0
+ * @created 07-Dec-2010 9:30:13 PM
+ */
+public class Controller {
+
+	private Window window;
+	private Wire wire;
+
+	public Controller(){
+	}
+
+	public void finalize() throws Throwable {
+
+	}
+
+	public void redisplay(){
+
+	}
+
+	public void setWindow(Window window) {
+		this.window = window;
+	}
+
+	public Window getWindow() {
+		return window;
+	}
+
+	public void setWire(Wire wire) {
+		this.wire = wire;
+	}
+
+	public Wire getWire() {
+		return wire;
+	}
+
+}

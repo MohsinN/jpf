@@ -1,0 +1,2 @@
+TLT to buchi automata
+http://www.inf.ethz.ch/personal/kroening/classes/251-0247-00/ws2006-2007/

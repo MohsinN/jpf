@@ -1,0 +1,8 @@
+@using jpf-symbc
+target=FormulaSample
+finite=true
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+
+symbolic.method= FormulaSample.test(sym#con)

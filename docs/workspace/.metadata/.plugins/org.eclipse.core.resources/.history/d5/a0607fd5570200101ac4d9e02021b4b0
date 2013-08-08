@@ -1,0 +1,34 @@
+
+
+/**
+ * @author Khanh Bui
+ * @version 1.0
+ * @created 07-Dec-2010 9:30:17 PM
+ */
+public class Wire {
+
+	public Wire(){
+
+	}
+
+	public void finalize() throws Throwable {
+
+	}
+
+	/**
+	 * 
+	 * @param window
+	 */
+	public void displayPositions(Window window){
+		
+	}
+
+	/**
+	 * 
+	 * @param i
+	 */
+	public void drawSegment(int i){
+
+	}
+
+}

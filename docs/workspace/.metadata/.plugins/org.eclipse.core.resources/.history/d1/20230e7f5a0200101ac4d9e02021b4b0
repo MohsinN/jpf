@@ -1,0 +1,49 @@
+
+
+/**
+ * @author Khanh Bui
+ * @version 1.0
+ * @created 07-Dec-2010 9:30:17 PM
+ */
+public class Wire {
+
+	private int n;
+	private Bead beads[];
+	private Bead left, right;
+	
+	public Wire(){
+
+	}
+
+	public void finalize() throws Throwable {
+
+	}
+
+	/**
+	 * 
+	 * @param window
+	 */
+	public void displayPositions(Window window){
+		for(int i = 1; i <= n; ++i)
+		{
+			drawSegment(i);
+		}
+	}
+
+	/**
+	 * 
+	 * @param i
+	 */
+	public void drawSegment(int i){
+		left = beads[i-1];
+		right = beads[i];
+		
+		Position r0 = left.position();
+		Position r1 = right.position();
+		
+		Line line = new Line();
+		line.create(r0, r1);
+		line.display(window);
+	}
+
+}

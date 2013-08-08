@@ -1,0 +1,35 @@
+
+
+/**
+ * @author Khanh Bui
+ * @version 1.0
+ * @created 07-Dec-2010 9:30:18 PM
+ */
+public class Line {
+
+	public Line(){
+
+	}
+
+	public void finalize() throws Throwable {
+
+	}
+
+	/**
+	 * 
+	 * @param r1
+	 * @param r0
+	 */
+	public Line create(Bead r1, Bead r0){
+		return null;
+	}
+
+	/**
+	 * 
+	 * @param window
+	 */
+	public void display(Window window){
+
+	}
+
+}
