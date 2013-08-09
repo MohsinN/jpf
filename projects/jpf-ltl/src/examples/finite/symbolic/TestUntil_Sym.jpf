@@ -1,0 +1,13 @@
+@using jpf-symbc
+
+target=finite.symbolic.Until_Sym
+
+finite=true
+
+symbolic.method=finite.symbolic.Until_Sym.myMethod(sym)
+
+#show_buchi=true
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples

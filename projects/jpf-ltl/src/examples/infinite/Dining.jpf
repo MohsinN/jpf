@@ -1,0 +1,6 @@
+@using jpf-symbc
+target = infinite.Dining
+finite=false
+search.class=gov.nasa.jpf.ltl.ddfs.DDFSearch
+vm.storage.class=gov.nasa.jpf.jvm.FullStateSet
+vm.serializer=gov.nasa.jpf.ltl.ddfs.SymbolicFilteringSerializer

@@ -1,0 +1,11 @@
+@using jpf-symbc
+target=McCarthy91
+
+target_args 5 6
+finite=true
+show_buchi=false
+cg.enumerate_random=true
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+

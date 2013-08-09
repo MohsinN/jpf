@@ -1,0 +1,15 @@
+# Expected result: error because the value of k reach 15 first. 
+# Current: the value of k is initiate to 0, so it comformances with the formular
+# ** Bug here **
+@using jpf-symbc
+target=finite.weakuntil.WeakUntil
+
+target_args=-9,-16
+
+finite=true
+#symbolic.method=WeakUntil.test(sym#sym)
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+printTrace=true
