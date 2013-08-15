@@ -9,4 +9,5 @@ if test -z "$JVM_FLAGS"; then
   JVM_FLAGS="-Xmx1024m -ea"
 fi
 
-java $JVM_FLAGS -jar "$JPF_HOME/build/jpf.jar" "$@"
+java $JVM_FLAGS -jar "$JPF_HOME/build/RunJPF.jar" "$@"
+
