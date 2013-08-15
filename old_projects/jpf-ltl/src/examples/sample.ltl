@@ -1,0 +1,3 @@
+!<>(FormulaSample.declared + FormulaSample.test(float ,String).localInit > 3.0 
+/\ 
+<> (FormulaSample.test(float ,String).local1 > (3.2)))

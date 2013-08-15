@@ -1,0 +1,11 @@
+#Expected result: the value of k did not change after the foo() method is call
+# SUT violated the LTL property
+@using jpf-symbc
+target=finite.eventually.Eventually
+target_args=3,5
+finite=true
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+

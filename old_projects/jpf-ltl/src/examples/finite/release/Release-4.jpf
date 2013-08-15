@@ -1,0 +1,9 @@
+@using jpf-symbc
+target=finite.release.Release
+target_args=-5,21
+#symbolic.method=Eventually.foo(sym)
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+

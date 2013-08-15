@@ -1,0 +1,7 @@
+#Expected Result: No error detected
+
+@using jpf-symbc
+target=Next
+
+finite=true
+printTrace=true
