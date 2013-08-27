@@ -1,6 +1,0 @@
-@using jpf-symbc
-target=Count
-finite=true
-classpath=${jpf-ltl}/build/examples
-
-sourcepath=${jpf-ltl}/src/examples

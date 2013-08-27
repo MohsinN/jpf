@@ -1,0 +1,10 @@
+@using jpf-ltl
+target=finite.AlwaysDoubleEventuallyFinite1
+finite=true
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+listener=gov.nasa.jpf.ltl.ddfs.FiniteListener
+vm.storage.class=gov.nasa.jpf.vm.FullStateSet
+#vm.serializer=gov.nasa.jpf.ltl.ddfs.SymbolicFilteringSerializer
+cg.enumerate_random=true

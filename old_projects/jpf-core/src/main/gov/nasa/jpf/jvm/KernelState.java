@@ -19,52 +19,35 @@
 package gov.nasa.jpf.jvm;
 
 import gov.nasa.jpf.Config;
+import gov.nasa.jpf.util.Debug;
 import gov.nasa.jpf.util.HashData;
 
 import java.util.Stack;
 
 
 /**
- * This class represents the SUT program state (statics, heap and threads)
+ * This class represents the application state (memory and threads, but not scheduling)
  */
-public class KernelState implements Restorable<KernelState> {
+public class KernelState {
+  /**
+   * The area containing the classes.
+   */
+  public StaticArea sa;
 
-  /** The area containing static fields and  classes */
-  public StaticArea statics;
+  /**
+   * The area containing the objects.
+   */
+  public DynamicArea da;
 
-  /** The area containing the heap */
-  public Heap heap;
-
-  /** The list of the threads */
-  public ThreadList threads;
+  /**
+   * The list of the threads.
+   */
+  public ThreadList tl;
 
   /**
    * current listeners waiting for notification of next change.
    */
   private Stack<ChangeListener> listeners = new Stack<ChangeListener>();
-
-
-  static class KsMemento implements Memento<KernelState> {
-    // note - order does matter: threads need to be restored before the heap
-    Memento<ThreadList> threadsMemento;
-    Memento<StaticArea> staticsMemento;
-    Memento<Heap> heapMemento;
-
-    KsMemento (KernelState ks){
-      threadsMemento = ks.threads.getMemento();
-      staticsMemento = ks.statics.getMemento();
-      heapMemento = ks.heap.getMemento();
-    }
-
-    public KernelState restore (KernelState ks) {
-      // those are all in-situ objects, no need to set them in ks
-      threadsMemento.restore(ks.threads);
-      staticsMemento.restore(ks.statics);
-      heapMemento.restore(ks.heap);
-
-      return ks;
-    }
-  }
 
   /**
    * Creates a new kernel state object.
@@ -73,29 +56,10 @@ public class KernelState implements Restorable<KernelState> {
     Class<?>[] argTypes = { Config.class, KernelState.class };
     Object[] args = { config, this };
 
-    statics = config.getEssentialInstance("vm.static.class", StaticArea.class, argTypes, args);
-    heap = config.getEssentialInstance("vm.heap.class", Heap.class, argTypes, args);
-    threads = config.getEssentialInstance("vm.threadlist.class", ThreadList.class, argTypes, args);
-  }
+    sa = config.getEssentialInstance("vm.static_area.class", StaticArea.class, argTypes, args);
+    da = config.getEssentialInstance("vm.dynamic_area.class", DynamicArea.class, argTypes, args);
 
-  public Memento<KernelState> getMemento(MementoFactory factory) {
-    return factory.getMemento(this);
-  }
-
-  public Memento<KernelState> getMemento(){
-    return new KsMemento(this);
-  }
-
-  public StaticArea getStaticArea() {
-    return statics;
-  }
-
-  public Heap getHeap() {
-    return heap;
-  }
-
-  public ThreadList getThreadList() {
-    return threads;
+    tl = new ThreadList(config,this);
   }
 
   /**
@@ -132,7 +96,7 @@ public class KernelState implements Restorable<KernelState> {
   }
 
   boolean isDeadlocked () {
-    return threads.isDeadlocked();
+    return tl.isDeadlocked();
   }
 
   /**
@@ -143,28 +107,40 @@ public class KernelState implements Restorable<KernelState> {
    * actually might want to check for
    */
   public boolean isTerminated () {
-    //return !threads.anyAliveThread();
-    return !threads.hasMoreThreadsToRun();
+    //return !tl.anyAliveThread();
+    return !tl.hasMoreThreadsToRun();
   }
 
   public int getThreadCount () {
-    return threads.length();
+    return tl.length();
   }
+
+  @Deprecated
+  public ThreadInfo getThreadInfo (int index) {
+    return tl.get(index);
+  }
+
 
   public void gc () {
         
-    heap.gc();
+    da.gc();
 
     // we might have stored stale references in live objects
-    // (outside of reference fields)
-    // <2do> get rid of this by storing objects instead of ref/id values that are reused
-    heap.cleanUpDanglingReferences();
-    statics.cleanUpDanglingReferences(heap);
+    da.cleanUpDanglingReferences();
+    sa.cleanUpDanglingReferences();
   }
 
   public void hash (HashData hd) {
-    heap.hash(hd);
-    statics.hash(hd);
-    threads.hash(hd);
+    da.hash(hd);
+    sa.hash(hd);
+
+    for (int i = 0, l = tl.length(); i < l; i++) {
+      tl.get(i).hash(hd);
+    }
   }
+
+  public ThreadList getThreadList () {
+    return tl;
+  }
+
 }

@@ -28,10 +28,6 @@ public class StackTraceElement {
   String fileName;
   String mthName;
   int    line;
-  
-  public StackTraceElement() {
-     // nothing to do
-  }
 
   public String getClassName () {
     return clsName;

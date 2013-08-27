@@ -18,37 +18,20 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.JPFException;
-
 /**
  * our concrete Fields factory (representing the default JPF object model)
  */
 public class DefaultFieldsFactory implements FieldsFactory {
 
   public Fields createInstanceFields (ClassInfo ci) {
-    return new NamedFields(ci.getInstanceDataSize());
+    return new DynamicFields(ci.getType(), ci);
   }
 
   public Fields createStaticFields (ClassInfo ci) {
-    return new NamedFields(ci.getStaticDataSize());
+    return new StaticFields(ci);
   }
 
   public Fields createArrayFields (String type, ClassInfo ci, int nElements, int typeSize, boolean isReferenceArray) {
-    char t = type.charAt(1);
-    switch (t){
-      case 'Z': return new BooleanArrayFields(nElements);
-      case 'B': return new ByteArrayFields(nElements);
-      case 'C': return new CharArrayFields(nElements);
-      case 'S': return new ShortArrayFields(nElements);
-      case 'I': return new IntArrayFields(nElements);
-      case 'J': return new LongArrayFields(nElements);
-      case 'F': return new FloatArrayFields(nElements);
-      case 'D': return new DoubleArrayFields(nElements);
-      case 'L':
-      case '[':
-        return new ReferenceArrayFields(nElements);
-      default:
-        throw new JPFException("unknown array type: " + type);
-    }
+    return new ArrayFields( type, ci, nElements*typeSize, nElements, isReferenceArray);
   }
 }

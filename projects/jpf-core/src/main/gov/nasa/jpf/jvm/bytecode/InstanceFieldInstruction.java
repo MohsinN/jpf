@@ -18,11 +18,12 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.ClassLoaderInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 /**
  * class abstracting instructions that access instance fields
@@ -31,7 +32,7 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
 {
   /**
    * this is required for package external derived GET/PUTFIELDS that
-   * replace execute().
+   * replace enter().
    *
    * USE WITH CARE, AND ONLY FROM DERIVED CLASSES
    */
@@ -45,7 +46,7 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
 
   public FieldInfo getFieldInfo () {
     if (fi == null) {
-      ClassInfo ci = ClassInfo.getResolvedClassInfo(className);
+      ClassInfo ci = ClassLoaderInfo.getCurrentResolvedClassInfo(className);
       if (ci != null) {
         fi = ci.getInstanceField(fname);
       }
@@ -53,70 +54,71 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
     return fi;
   }
 
+  @Override
+  protected boolean isSkippedFinalField (ElementInfo ei) {
+    // cutting off finals might loose interesting defects where the
+    // reference escapes from a ctor that has a context switch before
+    // the field init. 'final' only means "can only be assigned once",
+    // it doesn't mean no read can happen before this assignment
+    if (skipFinals && fi.isFinal()) {
+      return true;
+    }
+
+    if (skipConstructedFinals && fi.isFinal() && ei.isConstructed()) {
+      return true;
+    }
+    
+    return false;
+  }
+ 
+  
   protected boolean isSchedulingRelevant (ThreadInfo ti, int objRef) {
 
-    // this should filter out the bulk in most real apps (library code)
+    //--- configured override
+    FieldInfo fi = getFieldInfo();
     if (fi.neverBreak()) {
+      // this should filter out the bulk in most real apps (library code)
       return false;
+    } else if (fi.breakShared()){
+      return true;
     }
 
     ElementInfo ei = ti.getElementInfo(objRef);
-
-    // no use to break if there is no other thread, or the object is not shared
-    // (but note this might change in a following execution path)
-    if (!ei.checkUpdatedSharedness(ti)){
+    if (ei.isImmutable() || isSkippedFinalField(ei)) {
       return false;
     }
-    if (ei.isImmutable()){
-      return false;
-    }
-
-    if (!ti.hasOtherRunnables()) {
+    
+    ei = ei.getInstanceWithUpdatedSharedness(ti);
+    if (!ei.isShared()){
       return false;
     }
 
+    if (!ti.hasOtherRunnables()) { // single threaded
+      return false;
+    }
+    
+    //--- special code patterns
+    if (isMonitorEnterPrologue()) {
+      // if this is a GET followed by a MONITOR_ENTER then we just break on the monitor
+      return false;
+    }
+    if (fname.startsWith("this$")) {
+      // that one is an automatically created outer object reference in an inner class,
+      // it can't be set. Unfortunately, we don't have an 'immutable' attribute for
+      // fields, just objects, so we can't push it into class load time attributing.
+      // Must be filtered out before we call 'isLockProtected'
+      return false;
+    }
+    
+    if (mi.isInit() && ti.useUnsharedInit()) {
+      // <2do> this should perhaps use the more expensive ti.isCtorOnStack(objref) to cover
+      // init methods called from the ctor
+      return false;
+    }
+    
+  
     //--- from here on, we know this is a shared object that can be accessed concurrently
-
     if (ti.usePorSyncDetection()) {
-
-      if (fi.breakShared()) {
-        // this one is supposed to be always treated as transition boundary
-        return true;
-      }
-
-      // cutting off finals might loose interesting defects where the
-      // reference escapes from a ctor that has a context switch before
-      // the field init. 'final' only means "can only be assigned once",
-      // it doesn't mean no read can happen before this assignment
-      if (skipFinals && fi.isFinal()) {
-        return false;
-      }
-
-      if (skipConstructedFinals && fi.isFinal() && ei.isConstructed()) {
-        return false;
-      }
-
-      if (fname.startsWith("this$")) {
-        // that one is an automatically created outer object reference in an inner class,
-        // it can't be set. Unfortunately, we don't have an 'immutable' attribute for
-        // fields, just objects, so we can't push it into class load time attributing.
-        // Must be filtered out before we call 'isLockProtected'
-        return false;
-      }
-
-      if (isMonitorEnterPrologue()) {
-        // a little optimization for getfields that are only used to
-        // push lock objects on the stack for a subsequent monitorenter
-        return false;
-      }
-
-      if (!mi.isSyncRelevant()) {
-        // filter out ctors (which in all likeliness will execute before
-        // an object becomes shared) and <clinit>, which is synchronized
-        // by the VM
-        return false;
-      }
-
       // this is a potentially more expensive test to identify fields
       // that are protected by locks, for which get/putXX should not break.
       // NOTE - here we get heuristic, and it is possible that we use
@@ -146,7 +148,7 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
    */
   public ElementInfo getLastElementInfo () {
     if (lastThis != -1) {
-      return JVM.getVM().getHeap().get(lastThis); // <2do> remove - should be in clients
+      return VM.getVM().getHeap().get(lastThis); // <2do> remove - should be in clients
     }
 
     return null;
@@ -154,7 +156,7 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
 
   /**
    * this one can be used from a choiceGeneratorSet() or executeInstruction() context, since
-   * it peeks 'this' from the operand stack (execute didn't pop the value yet)
+   * it peeks 'this' from the operand stack (enter didn't pop the value yet)
    * it' less efficient than getLastElementInfo() from a instructionExecuted context
    */
   public abstract ElementInfo peekElementInfo(ThreadInfo ti);

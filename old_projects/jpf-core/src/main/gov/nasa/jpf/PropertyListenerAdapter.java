@@ -18,7 +18,6 @@
 //
 package gov.nasa.jpf;
 
-import gov.nasa.jpf.classfile.ClassFile;
 import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.jvm.VMListener;
 import gov.nasa.jpf.report.Publisher;
@@ -59,7 +58,6 @@ public abstract class PropertyListenerAdapter extends GenericProperty implements
   public void threadScheduled (JVM vm) {}
   public void threadBlocked (JVM vm) {}
   public void threadTerminated(JVM vm) {}
-  public void loadClass (JVM vm, ClassFile cf) {}
   public void classLoaded(JVM vm) {}
   public void objectCreated(JVM vm) {}
   public void objectReleased(JVM vm) {}
@@ -73,7 +71,6 @@ public abstract class PropertyListenerAdapter extends GenericProperty implements
   public void exceptionThrown(JVM vm) {}
   public void exceptionBailout(JVM vm) {}
   public void exceptionHandled(JVM vm) {}
-  public void choiceGeneratorRegistered (JVM vm) {}
   public void choiceGeneratorSet (JVM vm) {}
   public void choiceGeneratorAdvanced (JVM vm) {}
   public void choiceGeneratorProcessed (JVM vm) {}

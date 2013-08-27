@@ -1,12 +1,15 @@
 package gov.nasa.jpf.test.mc.threads;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 
 
 public class SchedulesTest extends TestJPF {
+  
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
   
   @Test public void testSleep () {
 

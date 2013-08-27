@@ -19,6 +19,9 @@
 
 package gov.nasa.jpf.listener;
 
+import java.io.PrintWriter;
+import java.util.HashMap;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.PropertyListenerAdapter;
@@ -35,9 +38,6 @@ import gov.nasa.jpf.jvm.bytecode.PUTFIELD;
 import gov.nasa.jpf.jvm.bytecode.VirtualInvocation;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.StringSetMatcher;
-
-import java.io.PrintWriter;
-import java.util.HashMap;
 
 /**
  * listener that keeps track of all allocations, method calls, field updates
@@ -148,7 +148,7 @@ public class ObjectTracker extends PropertyListenerAdapter {
   }
   
   void log (ThreadInfo ti, String fmt, Object... args){
-    out.print(ti.getId());
+    out.print(ti.getIndex());
     out.print(": ");
     out.printf(fmt, args);
     out.println();
@@ -213,7 +213,7 @@ public class ObjectTracker extends PropertyListenerAdapter {
     
     if (isTrackedClass(ci.getName())){
       ThreadInfo ti = vm.getLastThreadInfo();
-      trackedObjects.put(ei.getObjectRef(), new Record(ei, ti));
+      trackedObjects.put(ei.getIndex(), new Record(ei, ti));
     
       if (logLife){
         log(ti, "created %1$s", ei);
@@ -223,7 +223,7 @@ public class ObjectTracker extends PropertyListenerAdapter {
   
   public void objectReleased (JVM vm) {
     ElementInfo ei = vm.getLastElementInfo();
-    int ref = ei.getObjectRef();
+    int ref = ei.getIndex();
     
     if (isTrackedObject(ref)){
       trackedObjects.remove(ref);

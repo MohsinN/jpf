@@ -18,11 +18,11 @@
 //
 package java.lang;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.security.ProtectionDomain;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Vector;
 
@@ -47,7 +47,6 @@ public class ClassLoader {
   
   protected ClassLoader() {
     // the system ClassLoader ctor
-    this.parent = getSystemClassLoader();
     init0();
   }
   
@@ -75,20 +74,12 @@ public class ClassLoader {
       parent.getResources0(list, name);
     }
     URL url = getResource(name);
-    if (url != null && !list.contains(url)){
+    if (url != null){
       list.add(url);
     }
   }
 
-  public InputStream getResourceAsStream (String name){
-    URL foundResource = getResource(name);
-    if (foundResource != null) {
-      try {
-        return foundResource.openStream();
-      } catch (IOException e) {
-        System.err.println("cannot open resource " + name);
-      }
-    }
+  public InputStream getResourceAsStream (String rname){
     return null;
   }
   
@@ -130,18 +121,10 @@ public class ClassLoader {
   }
 
   public static URL getSystemResource(String name){
-    return getSystemClassLoader().getResource(name);
+    throw new UnsupportedOperationException("ClassLoader.getSystemResource() not yet supported");
   }
 
-  public static InputStream getSystemResourceAsStream(String name) {
-    return getSystemClassLoader().getResourceAsStream(name);
-  }
-
-  public static Enumeration<URL> getSystemResources(String name) throws IOException {
-    return getSystemClassLoader().getResources(name);
-  }
-
-  public ClassLoader getParent() {
-    return parent;
+  public ClassLoader getParent(){
+	  return parent;	  
   }
 }

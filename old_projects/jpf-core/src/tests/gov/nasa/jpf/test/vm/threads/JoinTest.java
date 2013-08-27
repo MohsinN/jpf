@@ -21,7 +21,6 @@ package gov.nasa.jpf.test.vm.threads;
 
 import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 
@@ -34,6 +33,10 @@ public class JoinTest extends TestJPF {
                                      "+cg.threads.break_yield=true",
                                      "+vm.tree_output=false",
                                      "+vm.path_output=true"};
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test public void testSimpleJoin(){
     if (verifyNoPropertyViolation(JPF_ARGS)) {

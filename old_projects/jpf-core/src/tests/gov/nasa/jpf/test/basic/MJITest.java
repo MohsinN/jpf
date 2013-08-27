@@ -21,7 +21,6 @@ package gov.nasa.jpf.test.basic;
 
 import gov.nasa.jpf.JPFNativePeerException;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
@@ -37,6 +36,12 @@ import org.junit.Test;
 public class MJITest extends TestJPF {
 
   static String TEST_CLASS = "gov.nasa.jpf.test.basic.MJI";
+
+  // only used if we run this directly, i.e. outside of JUnit
+  public static void main (String[] selectedMethods) {
+    runTestsOfThisClass(selectedMethods);
+  }
+
 
   /**************************** tests **********************************/
 

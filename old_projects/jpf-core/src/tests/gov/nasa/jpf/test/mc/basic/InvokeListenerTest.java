@@ -20,15 +20,10 @@
 package gov.nasa.jpf.test.mc.basic;
 
 import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.bytecode.INVOKESTATIC;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
-import gov.nasa.jpf.jvm.bytecode.VirtualInvocation;
 import gov.nasa.jpf.util.test.TestJPF;
+
+import gov.nasa.jpf.jvm.*;
+import gov.nasa.jpf.jvm.bytecode.*;
 
 import org.junit.Test;
 
@@ -78,7 +73,7 @@ public class InvokeListenerTest extends TestJPF {
     ElementInfo getTarget (ThreadInfo ti, InvokeInstruction call){
       if (call instanceof VirtualInvocation){
         int objRef = ((VirtualInvocation)call).getCalleeThis(ti);
-        return ti.getElementInfo(objRef);
+        return ti.getVM().getDynamicArea().get(objRef);
       } else if (call instanceof INVOKESTATIC){
         return ((INVOKESTATIC)call).getInvokedMethod().getClassInfo().getStaticElementInfo();
       } else {
@@ -110,6 +105,13 @@ public class InvokeListenerTest extends TestJPF {
     }
 
   }
+
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
+  }
+
+  //--- the test methods
+  
 
   double testInstanceMethod (double d, int c){
     return d + c;

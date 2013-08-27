@@ -21,10 +21,10 @@ package gov.nasa.jpf.listener;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
+import gov.nasa.jpf.JPFListener;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.MethodInfo;
 import gov.nasa.jpf.jvm.ThreadInfo;
-
 import java.io.PrintWriter;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -116,7 +116,7 @@ public class OverlappingMethodAnalyzer extends MethodAnalyzer {
 
     int lastStateId  = Integer.MIN_VALUE;
     int transition = skipInit ? 1 : 0;
-    int lastTid = start.ti.getId();
+    int lastTid = start.ti.getIndex();
 
     for (MethodOp op = start; op != null; op = op.p) {
 
@@ -127,7 +127,7 @@ public class OverlappingMethodAnalyzer extends MethodAnalyzer {
           pw.println(transition++);
         }
       } else {
-        int tid = op.ti.getId();
+        int tid = op.ti.getIndex();
         if (tid != lastTid) {
           lastTid = tid;
           pw.println("------------------------------------------");

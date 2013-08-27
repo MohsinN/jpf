@@ -18,9 +18,9 @@
 //
 package sun.misc;
 
-import java.io.File;
-import java.io.FileDescriptor;
 import java.util.jar.JarFile;
+import java.io.FileDescriptor;
+import java.io.File;
 
 /**
  * This is a backdoor mechanism in Java 6 to allow (some sort of)
@@ -33,10 +33,10 @@ import java.util.jar.JarFile;
  * these packages that call the SharedSecrets setters
  * (except for JavaLangAccess and JavaNetAccess)
  *
- * Since this is used from within the standard libraries of Java 6, we need
+ * Since this is used from within the tandard libraries of Java 6, we need
  * some sort of support, but we don't want to break Java 1.5 yet by introducing
  * lots of Java 6 dependencies, which would force us to duplicate their code
- * even though it might be pure Java (like java.io.Console).
+ * even thoug it might be pure Java (like java.io.Console).
  *
  * This is a can of worms, which we only open partially to support
  * EnumSets for both Java 1.5 and 6. We make the cut at java.* packages -
@@ -55,8 +55,6 @@ public class SharedSecrets {
   private static JavaIODeleteOnExitAccess javaIODeleteOnExitAccess;
   private static JavaNetAccess javaNetAccess;
   private static JavaIOFileDescriptorAccess javaIOFileDescriptorAccess;
-  private static JavaNioAccess javaNioAccess;
-  private static JavaAWTAccess javaAWTAccess;
 
   // (required for EnumSet ops)
   public static JavaLangAccess getJavaLangAccess() {
@@ -102,18 +100,6 @@ public class SharedSecrets {
     return javaIOAccess;
   }
 
-  
-  public static void setJavaNioAccess(JavaNioAccess a) {
-    javaNioAccess = a;
-  }
-  public static JavaNioAccess getJavaNioAccess() {
-    if (javaNioAccess == null) {
-      throw new UnsupportedOperationException("sun.misc.SharedSecrets.getJavaNioAccess() not supported yet");
-    }
-    return javaNioAccess;
-  }
-
-  
   public static void setJavaIODeleteOnExitAccess(JavaIODeleteOnExitAccess jida) {
     javaIODeleteOnExitAccess = jida;
   }
@@ -137,10 +123,4 @@ public class SharedSecrets {
     return javaIOFileDescriptorAccess;
   }
 
-  public static void setJavaAWTAccess (JavaAWTAccess jaa){
-    javaAWTAccess = jaa;
-  }
-  public static JavaAWTAccess getJavaAWTAccess(){
-    return javaAWTAccess;
-  }
 }

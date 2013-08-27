@@ -19,15 +19,20 @@
 package gov.nasa.jpf.test.vm.threads;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.util.concurrent.locks.LockSupport;
-
 import org.junit.Test;
 
 /**
  * raw test for Thread.interrupt conformance
  */
 public class InterruptTest extends TestJPF {
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
+
+
+  //--- the test methods
 
   @Test public void testInterruptStatus () {
     if (verifyNoPropertyViolation()) {

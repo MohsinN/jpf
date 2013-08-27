@@ -1,7 +1,0 @@
-@using jpf-symbc
-target=finite.always.FieldInit0
-finite=true
-classpath=${jpf-ltl}/build/examples
-
-sourcepath=${jpf-ltl}/src/examples
-printTrace=true

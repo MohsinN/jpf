@@ -18,35 +18,23 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.JPFException;
-
+import org.apache.bcel.classfile.*;
 
 
 /**
  * type, name and attribute information for 'double' fields
  */
-public class DoubleFieldInfo extends DoubleSlotFieldInfo {
+public class DoubleFieldInfo extends FieldInfo {
   double init;
 
-
-  public DoubleFieldInfo (String name, int modifiers,
-                          ClassInfo ci, int idx, int off) {
-    super(name, "D", modifiers, ci, idx, off);
+  public DoubleFieldInfo (String name, String type, int modifiers,
+                          ConstantValue cv, ClassInfo ci, int idx, int off) {
+    super(name, type, modifiers, cv, ci, idx, off);
+    init = (cv != null) ? Double.parseDouble(cv.toString()) : 0.0;
   }
-
-  public void setConstantValue(Object constValue){
-    if (constValue instanceof Double){
-      cv = constValue;
-      init = ((Double)constValue).doubleValue();
-
-    } else {
-      throw new JPFException("illegal boolean ConstValue=" + constValue);
-    }
-  }
-
 
   public void initialize (ElementInfo ei) {
-    ei.getFields().setDoubleValue(storageOffset, init);
+    ei.getFields().setDoubleValue(ei, storageOffset, init);
   }
 
   public Class<? extends ChoiceGenerator<?>> getChoiceGeneratorType() {
@@ -65,17 +53,5 @@ public class DoubleFieldInfo extends DoubleSlotFieldInfo {
   public Object getValueObject (Fields f){
     double d = f.getDoubleValue(storageOffset);
     return new Double(d);
-  }
-
-  public boolean isDoubleField(){
-    return true;
-  }
-
-  public boolean isNumericField(){
-    return true;
-  }
-
-  public boolean isFloatingPointField(){
-    return true;
   }
 }

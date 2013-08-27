@@ -18,6 +18,9 @@
 //
 package gov.nasa.jpf.listener;
 
+import java.io.PrintWriter;
+import java.util.HashMap;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.ListenerAdapter;
@@ -26,17 +29,16 @@ import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.jvm.MethodInfo;
 import gov.nasa.jpf.jvm.StackFrame;
 import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.bytecode.INVOKESTATIC;
 import gov.nasa.jpf.jvm.bytecode.InstanceInvocation;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
+import gov.nasa.jpf.jvm.bytecode.VirtualInvocation;
 import gov.nasa.jpf.report.ConsolePublisher;
 import gov.nasa.jpf.report.Publisher;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.StringSetMatcher;
-
-import java.io.PrintWriter;
-import java.util.HashMap;
 
 
 /**
@@ -96,7 +98,7 @@ public class MethodAnalyzer extends ListenerAdapter {
     }
 
     void printOn(PrintWriter pw, MethodAnalyzer analyzer) {
-      pw.print(ti.getId());
+      pw.print(ti.getIndex());
       pw.print(": ");
       
       pw.print(type.code);
@@ -195,19 +197,15 @@ public class MethodAnalyzer extends ListenerAdapter {
   }
 
   boolean isAnalyzedMethod (MethodInfo mi){
-    if (mi != null){
-      String mthName = mi.getFullName();
-      return StringSetMatcher.isMatch(mthName, includes, excludes);
-    } else {
-      return false;
-    }
+    String mthName = mi.getFullName();
+    return StringSetMatcher.isMatch(mthName, includes, excludes);
   }
 
   void printOn (PrintWriter pw) {
     MethodOp start = firstOp;
     int lastStateId  = Integer.MIN_VALUE;
     int transition = skipInit ? 1 : 0;
-    int lastTid = start.ti.getId();
+    int lastTid = start.ti.getIndex();
     
     for (MethodOp op = start; op != null; op = op.p) {
 
@@ -218,7 +216,7 @@ public class MethodAnalyzer extends ListenerAdapter {
           pw.println(transition++);
         }
       } else {
-        int tid = op.ti.getId();
+        int tid = op.ti.getIndex();
         if (tid != lastTid) {
           lastTid = tid;
           pw.println("------------------------------------------");
@@ -300,7 +298,6 @@ public class MethodAnalyzer extends ListenerAdapter {
     }
   }
 
-
   //--- VMlistener interface
   
   public void instructionExecuted (JVM vm) {
@@ -361,10 +358,6 @@ public class MethodAnalyzer extends ListenerAdapter {
 
     if (firstOp == null && lastTransition != null){ // do this just once
       firstOp = revertAndFlatten(lastTransition);
-    }
-
-    if (firstOp == null){
-      return;
     }
 
     PrintWriter pw = publisher.getOut();

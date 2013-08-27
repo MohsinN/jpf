@@ -18,15 +18,16 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.util.ObjectList;
-
 import java.lang.reflect.Modifier;
+
+import org.apache.bcel.classfile.ConstantValue;
+import org.apache.bcel.classfile.Field;
 
 
 /**
  * type, name and attribute information of a field.
  */
-public abstract class FieldInfo extends InfoObject implements GenericSignatureHolder {
+public abstract class FieldInfo extends InfoObject {
 
   //--- FieldInfo attributes
   // don't break transitions on get/putXX insns of this field, even if shared
@@ -36,121 +37,79 @@ public abstract class FieldInfo extends InfoObject implements GenericSignatureHo
   // (ignored if NEVER_BREAK is set)
   static final int BREAK_SHARED = 0x20000;
 
-  // those might relate to sticky ElementInto.ATTR_*
-  protected int attributes;
-
   
   protected final String name;
-  protected String type;  // lazy initialized fully qualified type name as per JLS 6.7 ("int", "x.Y[]")
-  protected final String signature; // "I", "[Lx/Y;" etc.
+  protected final String type;
   protected int storageSize;
 
   protected final ClassInfo ci; // class this field belongs to
-  protected final int fieldIndex; // declaration ordinal
+  protected final ConstantValue cv; // the optional initializer value for this field.
+  final int fieldIndex; // declaration ordinal
 
   // where in the corresponding Fields object do we store the value
   // (note this works because of the wonderful single inheritance)
-  protected final int storageOffset;
-
-  // optional initializer for this field, can't be final because it is set from
-  // classfile field_info attributes (i.e. after construction)
-  protected  Object cv;
-
-  protected String genericSignature;
+  final int storageOffset;
 
   protected int modifiers;
 
-  // property/mode specific attributes
-  protected Object attr;
+  // high 16 bit: non-propagation relevant field attributes
+  // low 16 bit: object attribute propagation mask  (non-final!)
+  int attributes = ElementInfo.ATTR_PROP_MASK;
+
   
-  public static FieldInfo create (ClassInfo ci, String name, String signature, int modifiers,
-                                  int idx, int off){
-    switch(signature.charAt(0)){
-      case 'Z':
-        return new BooleanFieldInfo(name, modifiers, ci, idx, off);
-      case 'B':
-        return new ByteFieldInfo(name, modifiers, ci, idx, off);
-      case 'S':
-        return new ShortFieldInfo(name, modifiers, ci, idx, off);
-      case 'C':
-        return new CharFieldInfo(name, modifiers, ci, idx, off);
-      case 'I':
-        return new IntegerFieldInfo(name, modifiers, ci, idx, off);
-      case 'J':
-        return new LongFieldInfo(name, modifiers, ci, idx, off);
-      case 'F':
-        return new FloatFieldInfo(name, modifiers, ci, idx, off);
-      case 'D':
-        return new DoubleFieldInfo(name, modifiers, ci, idx, off);
-      default:
-        return new ReferenceFieldInfo(name, signature, modifiers, ci, idx, off);
-    }
+  /**
+   * factory method for the various concrete FieldInfos
+   */
+  public static FieldInfo create (Field f, ClassInfo ci, int idx, int off) {
+    String name = f.getName();
+    String type = Types.getCanonicalTypeName(f.getType().toString());
+    ConstantValue cv = f.getConstantValue();
+    int modifiers = f.getModifiers();
+
+    FieldInfo ret = create(name, type, modifiers, cv, ci, idx, off);
+    ret.loadAnnotations(f.getAnnotationEntries());
+
+    return ret;
   }
 
-  protected FieldInfo(String name, String signature, int modifiers,
-                      ClassInfo ci, int idx, int off) {
+  public static FieldInfo create (String name, String type, int modifiers,
+                                  ConstantValue cv, ClassInfo ci, int idx, int off){
+    FieldInfo ret;
+
+    if ("boolean".equals(type) ||
+        "byte".equals(type) ||
+        "char".equals(type) ||
+        "short".equals(type) ||
+        "int".equals(type)){
+      ret = new IntegerFieldInfo(name, type, modifiers, cv, ci, idx, off);
+    } else if ("long".equals(type)){
+      ret = new LongFieldInfo(name, type, modifiers, cv, ci, idx, off);
+    } else if ("double".equals(type)){
+      ret = new DoubleFieldInfo(name, type, modifiers, cv, ci, idx, off);
+    } else if ("float".equals(type)){
+      ret = new FloatFieldInfo(name, type, modifiers, cv, ci, idx, off);
+    } else {
+      ret = new ReferenceFieldInfo(name, type, modifiers, cv, ci, idx, off);
+    }
+
+    return ret;
+  }
+
+  
+  protected FieldInfo (String name, String type, int modifiers,
+                       ConstantValue cv, ClassInfo ci, int idx, int off) {
     this.name = name;
-    this.signature = signature;
+    this.type = type;
     this.ci = ci;
+    this.cv = cv;
     this.fieldIndex = idx;
     this.storageOffset = off;
     this.modifiers = modifiers;
   }
 
-  // those are set subsequently from classfile attributes
-  public void setConstantValue(Object constValue){
-    cv = constValue;
-  }
 
   public abstract String valueToString (Fields f);
 
-  public boolean is1SlotField(){
-    return false;
-  }
-  public boolean is2SlotField(){
-    return false;
-  }
-
-  public boolean isBooleanField() {
-    return false;
-  }
-  public boolean isByteField() {
-    return false;
-  }
-  public boolean isCharField() {
-    return false;
-  }
-  public boolean isShortField() {
-    return false;
-  }
-  public boolean isIntField() {
-    return false;
-  }
-  public boolean isLongField() {
-    return false;
-  }
-  public boolean isFloatField(){
-    return false;
-  }
-  public boolean isDoubleField(){
-    return false;
-  }
-
-  public boolean isNumericField(){
-    return false;
-  }
-
-  public boolean isFloatingPointField(){
-    return false;
-  }
-
-  public boolean isReference () {
-    return false;
-  }
-
-  public boolean isArrayField () {
-    return false;
-  }
 
   /**
    * Returns the class that this field is associated with.
@@ -159,7 +118,7 @@ public abstract class FieldInfo extends InfoObject implements GenericSignatureHo
     return ci;
   }
 
-  public Object getConstantValue () {
+  public ConstantValue getConstantValue () {
     return cv;
   }
 
@@ -173,6 +132,13 @@ public abstract class FieldInfo extends InfoObject implements GenericSignatureHo
     return fieldIndex;
   }
 
+  public boolean isReference () {
+    return false;
+  }
+
+  public boolean isArrayField () {
+    return false;
+  }
 
   /**
    * is this a static field? Counter productive to the current class struct,
@@ -218,34 +184,14 @@ public abstract class FieldInfo extends InfoObject implements GenericSignatureHo
   }
 
   /**
-   * Returns the type of the field as a fully qualified type name according to JLS 6.7
-   * ("int", "x.Y[]")
+   * Returns the type of the field.
    */
   public String getType () {
-    if (type == null){
-      type = Types.getTypeName(signature);
-    }
     return type;
-  }
-  
-  public byte getTypeCode (){
-    return Types.getTypeCode(signature);
-  }
-
-  public String getSignature(){
-    return signature;
-  }
-
-  public String getGenericSignature() {
-    return genericSignature; 
-  }
-
-  public void setGenericSignature(String sig){
-    genericSignature = sig;
   }
 
   public ClassInfo getTypeClassInfo () {
-    return ClassInfo.getResolvedClassInfo(getType());
+    return ClassInfo.getResolvedClassInfo(type);
   }
 
   public Class<? extends ChoiceGenerator<?>> getChoiceGeneratorType (){
@@ -272,7 +218,7 @@ public abstract class FieldInfo extends InfoObject implements GenericSignatureHo
     }
 
     //sb.append(Types.getTypeName(type));
-    sb.append(getType());
+    sb.append(type);
     sb.append(' ');
     sb.append(ci.getName());
     sb.append('.');
@@ -280,15 +226,9 @@ public abstract class FieldInfo extends InfoObject implements GenericSignatureHo
 
     return sb.toString();
   }
-  
-  //--- those are the JPF internal attribute flags (not to mix with free user attrs)
 
   void setAttributes (int a) {
     attributes = a;
-  }
-
-  public void addAttribute (int a){
-    attributes |= a;
   }
 
   public int getAttributes () {
@@ -311,67 +251,7 @@ public abstract class FieldInfo extends InfoObject implements GenericSignatureHo
     return ci.getName() + '.' + name;
   }
 
-  
-  //--- the generic attribute API
-
-  public boolean hasAttr () {
-    return (attr != null);
+  public boolean isUntracked () {
+    return getAnnotation("gov.nasa.jpf.jvm.untracked.UntrackedField") != null;
   }
-
-  public boolean hasAttr (Class<?> attrType){
-    return ObjectList.containsType(attr, attrType);
-  }
-
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */
-  public Object getAttr(){
-    return attr;
-  }
-
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setAttr (Object a){
-    attr = a;    
-  }
-
-  public void addAttr (Object a){
-    attr = ObjectList.add(attr, a);
-  }
-
-  public void removeAttr (Object a){
-    attr = ObjectList.remove(attr, a);
-  }
-
-  public void replaceAttr (Object oldAttr, Object newAttr){
-    attr = ObjectList.replace(attr, oldAttr, newAttr);
-  }
-
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getAttr (Class<T> attrType) {
-    return ObjectList.getFirst(attr, attrType);
-  }
-
-  public <T> T getNextAttr (Class<T> attrType, Object prev) {
-    return ObjectList.getNext(attr, attrType, prev);
-  }
-
-  public ObjectList.Iterator attrIterator(){
-    return ObjectList.iterator(attr);
-  }
-  
-  public <T> ObjectList.TypedIterator<T> attrIterator(Class<T> attrType){
-    return ObjectList.typedIterator(attr, attrType);
-  }
-
-  // -- end attrs --
-
 }

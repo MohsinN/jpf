@@ -18,9 +18,8 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.Config;
-
 import java.lang.reflect.Modifier;
+import gov.nasa.jpf.Config;
 
 public class JPF_java_lang_reflect_Field {
 
@@ -86,16 +85,12 @@ public class JPF_java_lang_reflect_Field {
     return fi.getModifiers();
   }
   
-
-  static ElementInfo getCheckedElementInfo (MJIEnv env, FieldInfo fi, int fobjRef, Class<?> fiType, String type){
+  static int getIntField (MJIEnv env, int objRef, int fobjRef, Class<?> fiType, String type) {
+    FieldInfo fi = getFieldInfo(env, objRef);
     ElementInfo ei;
-
-    if (!isAvailable(env, fi, fobjRef)){
-      return null;
-    }
-
+    
     if (fi.isStatic()){
-      ei = fi.getClassInfo().getStaticElementInfo();
+      ei = fi.getClassInfo().getStaticElementInfo();      
     } else { // instance field
       ei = env.getElementInfo(fobjRef);
     }
@@ -103,84 +98,123 @@ public class JPF_java_lang_reflect_Field {
     // our guards (still need IllegalAccessException)
     if (ei == null) {
       env.throwException("java.lang.NullPointerException");
-      return null;
+      return 0;      
     }
-    if (fiType != null && !fiType.isInstance(fi)) {
+    if (!fiType.isInstance(fi)) {
       env.throwException("java.lang.IllegalArgumentException", "field type incompatible with " + type);
-      return null;
+      return 0;
+    }
+    
+    int val = ei.getIntField(fi);
+    return val;    
+  }
+
+  static long getLongField (MJIEnv env, int objRef, int fobjRef, Class<?> fiType, String type) {
+    FieldInfo fi = getFieldInfo(env, objRef);
+    ElementInfo ei;
+    
+    if (fi.isStatic()){
+      ei = fi.getClassInfo().getStaticElementInfo();      
+    } else { // instance field
+      ei = env.getElementInfo(fobjRef);
     }
 
-    return ei;
+    // our guards (still need IllegalAccessException)
+    if (ei == null) {
+      env.throwException("java.lang.NullPointerException");
+      return 0;      
+    }
+    if (!fiType.isInstance(fi)) {
+      env.throwException("java.lang.IllegalArgumentException", "field type incompatible with " + type);
+      return 0;
+    }
+    
+    long val = ei.getLongField(fi);
+    return val;
   }
+
+  static void setIntField (MJIEnv env, int objRef, int fobjRef,
+                           Class<?> fiType, String type, int val) {
+    FieldInfo fi = getFieldInfo(env, objRef);
+    ElementInfo ei;
+    
+    if (fi.isStatic()){
+      ei = fi.getClassInfo().getStaticElementInfo();      
+    } else { // instance field
+      ei = env.getElementInfo(fobjRef);
+    }
+
+    // our guards (still need IllegalAccessException)
+    if (ei == null) {
+      env.throwException("java.lang.NullPointerException");
+      return;      
+    }
+    if (!fiType.isInstance(fi)) {
+      env.throwException("java.lang.IllegalArgumentException", "field type incompatible with " + type);
+      return;
+    }
+    
+    ei.setIntField(fi, val);    
+  }  
+
+  static void setLongField (MJIEnv env, int objRef, int fobjRef,
+                           Class<?> fiType, String type, long val) {
+    FieldInfo fi = getFieldInfo(env, objRef);
+    ElementInfo ei;
+    
+    if (fi.isStatic()){
+      ei = fi.getClassInfo().getStaticElementInfo();      
+    } else { // instance field
+      ei = env.getElementInfo(fobjRef);
+    }
+
+    // our guards (still need IllegalAccessException)
+    if (ei == null) {
+      env.throwException("java.lang.NullPointerException");
+      return;      
+    }
+    if (!fiType.isInstance(fi)) {
+      env.throwException("java.lang.IllegalArgumentException", "field type incompatible with " + type);
+      return;
+    }
+    
+    ei.setLongField(fi, val);    
+  }  
   
   public static boolean getBoolean__Ljava_lang_Object_2__Z (MJIEnv env, int objRef, int fobjRef) {
-    FieldInfo fi = getFieldInfo(env, objRef);    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, BooleanFieldInfo.class, "boolean");
-    if (ei != null){
-      return ei.getBooleanField(fi);
-    }
-    return false;
+    int v = getIntField(env, objRef, fobjRef, IntegerFieldInfo.class, "boolean");
+    return (v != 0) ? true : false;
   }
   public static byte getByte__Ljava_lang_Object_2__B (MJIEnv env, int objRef, int fobjRef) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, ByteFieldInfo.class, "byte");
-    if (ei != null){
-      return ei.getByteField(fi);
-    }
-    return 0;
+    int v = getIntField(env, objRef, fobjRef, IntegerFieldInfo.class, "byte");
+    return (byte)v;
   }
   public static char getChar__Ljava_lang_Object_2__C (MJIEnv env, int objRef, int fobjRef) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, CharFieldInfo.class, "char");
-    if (ei != null){
-      return ei.getCharField(fi);
-    }
-    return 0;
+    int v = getIntField(env, objRef, fobjRef, IntegerFieldInfo.class, "char");
+    return (char)v;
   }
   public static short getShort__Ljava_lang_Object_2__S (MJIEnv env, int objRef, int fobjRef) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, ShortFieldInfo.class, "short");
-    if (ei != null){
-      return ei.getShortField(fi);
-    }
-    return 0;
+    int v = getIntField(env, objRef, fobjRef, IntegerFieldInfo.class, "short");
+    return (short)v;
   }  
   public static int getInt__Ljava_lang_Object_2__I (MJIEnv env, int objRef, int fobjRef) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, IntegerFieldInfo.class, "int");
-    if (ei != null){
-      return ei.getIntField(fi);
-    }
-    return 0;
+    return getIntField(env, objRef, fobjRef, IntegerFieldInfo.class, "int");
   }
   public static long getLong__Ljava_lang_Object_2__J (MJIEnv env, int objRef, int fobjRef) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, LongFieldInfo.class, "long");
-    if (ei != null){
-      return ei.getLongField(fi);
-    }
-    return 0;
+    return getLongField(env, objRef, fobjRef, LongFieldInfo.class, "long");
   }
   public static float getFloat__Ljava_lang_Object_2__F (MJIEnv env, int objRef, int fobjRef) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, FloatFieldInfo.class, "float");
-    if (ei != null){
-      return ei.getFloatField(fi);
-    }
-    return 0;
+    int v = getIntField(env, objRef, fobjRef, FloatFieldInfo.class, "float");
+    return Types.intToFloat(v);
   }
   public static double getDouble__Ljava_lang_Object_2__D (MJIEnv env, int objRef, int fobjRef) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, DoubleFieldInfo.class, "double");
-    if (ei != null){
-      return ei.getDoubleField(fi);
-    }
-    return 0;
+    long v = getLongField(env, objRef, fobjRef, DoubleFieldInfo.class, "double");
+    return Types.longToDouble(v);
   }
 
   public static int getAnnotation__Ljava_lang_Class_2__Ljava_lang_annotation_Annotation_2 (MJIEnv env, int objRef, int annotationClsRef) {
     FieldInfo fi = getFieldInfo(env,objRef);
-    ClassInfo aci = env.getReferredClassInfo(annotationClsRef);
+    ClassInfo aci = JPF_java_lang_Class.getReferredClassInfo(env,annotationClsRef);
     
     AnnotationInfo ai = fi.getAnnotation(aci.getName());
     if (ai != null){
@@ -211,108 +245,54 @@ public class JPF_java_lang_reflect_Field {
   
   public static void setBoolean__Ljava_lang_Object_2Z__V (MJIEnv env, int objRef, int fobjRef,
                                                           boolean val) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    if (!isAvailable(env, fi, fobjRef)){
-      return;
-    }
-    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, BooleanFieldInfo.class, "boolean");
-    if (ei != null){
-      ei.setBooleanField(fi,val);
-    }
+    setIntField( env, objRef, fobjRef, IntegerFieldInfo.class, "boolean", val ? 1 : 0);
   }
   public static void setByte__Ljava_lang_Object_2B__V (MJIEnv env, int objRef, int fobjRef,
                                                           byte val) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    if (!isAvailable(env, fi, fobjRef)){
-      return;
-    }
-    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, ByteFieldInfo.class, "byte");
-    if (ei != null){
-      ei.setByteField(fi,val);
-    }
+    setIntField( env, objRef, fobjRef, IntegerFieldInfo.class, "byte", val);
   }
   public static void setChar__Ljava_lang_Object_2C__V (MJIEnv env, int objRef, int fobjRef,
                                                        char val) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    if (!isAvailable(env, fi, fobjRef)){
-      return;
-    }
-    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, CharFieldInfo.class, "char");
-    if (ei != null){
-      ei.setCharField(fi,val);
-    }
+    setIntField( env, objRef, fobjRef, IntegerFieldInfo.class, "char", val);
   }
   public static void setShort__Ljava_lang_Object_2S__V (MJIEnv env, int objRef, int fobjRef,
                                                        short val) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    if (!isAvailable(env, fi, fobjRef)){
-      return;
-    }
-    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, ShortFieldInfo.class, "short");
-    if (ei != null){
-      ei.setShortField(fi,val);
-    }
+    setIntField( env, objRef, fobjRef, IntegerFieldInfo.class, "short", val);
   }  
   public static void setInt__Ljava_lang_Object_2I__V (MJIEnv env, int objRef, int fobjRef,
                                                       int val) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    if (!isAvailable(env, fi, fobjRef)){
-      return;
-    }
-    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, IntegerFieldInfo.class, "int");
-    if (ei != null){
-      ei.setIntField(fi,val);
-    }
+    setIntField( env, objRef, fobjRef, IntegerFieldInfo.class, "int", val);
   }
   public static void setLong__Ljava_lang_Object_2J__V (MJIEnv env, int objRef, int fobjRef,
                                                        long val) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    if (!isAvailable(env, fi, fobjRef)){
-      return;
-    }
-    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, LongFieldInfo.class, "long");
-    if (ei != null){
-      ei.setLongField(fi,val);
-    }
+    setLongField( env, objRef, fobjRef, LongFieldInfo.class, "long", val);
   }
   public static void setFloat__Ljava_lang_Object_2F__V (MJIEnv env, int objRef, int fobjRef,
                                                         float val) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    if (!isAvailable(env, fi, fobjRef)){
-      return;
-    }
-    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, FloatFieldInfo.class, "float");
-    if (ei != null){
-      ei.setFloatField(fi,val);
-    }
+    setIntField( env, objRef, fobjRef, FloatFieldInfo.class, "float", Types.floatToInt(val));
   }
   public static void setDouble__Ljava_lang_Object_2D__V (MJIEnv env, int objRef, int fobjRef,
                                                          double val) {
-    FieldInfo fi = getFieldInfo(env, objRef);
-    if (!isAvailable(env, fi, fobjRef)){
-      return;
-    }
-    
-    ElementInfo ei = getCheckedElementInfo(env, fi, fobjRef, DoubleFieldInfo.class, "double");
-    if (ei != null){
-      ei.setDoubleField(fi,val);
-    }
+    setLongField( env, objRef, fobjRef, DoubleFieldInfo.class, "double", Types.doubleToLong(val));
   }
 
   public static int get__Ljava_lang_Object_2__Ljava_lang_Object_2 (MJIEnv env, int objRef, int fobjRef) {
     FieldInfo fi = getFieldInfo(env, objRef);
-    ElementInfo ei = getCheckedElementInfo( env, fi, fobjRef, null, null); // no type check here
-    if (ei == null){
-      return 0;
+    ElementInfo ei;
+
+    if (fi.isStatic()){
+      ClassInfo ci = fi.getClassInfo();
+      ei = ci.getStaticElementInfo();
+    } else {
+      ei = env.getElementInfo(fobjRef);
     }
-        
+
+    // our guards (still need IllegalAccessException)
+    if (ei == null) {
+      env.throwException("java.lang.NullPointerException");
+      return 0;      
+    }
+    
     if (!(fi instanceof ReferenceFieldInfo)) { // primitive type, we need to box it
       if (fi instanceof DoubleFieldInfo){
         double d = ei.getDoubleField(fi);
@@ -326,23 +306,24 @@ public class JPF_java_lang_reflect_Field {
       } else if (fi instanceof IntegerFieldInfo){
         // this might actually represent a plethora of types
         int i = ei.getIntField(fi);
-        return env.newInteger(i);
-      } else if (fi instanceof BooleanFieldInfo){
-        boolean b = ei.getBooleanField(fi);
-        return env.newBoolean(b);
-      } else if (fi instanceof ByteFieldInfo){
-        byte z = ei.getByteField(fi);
-        return env.newByte(z);
-      } else if (fi instanceof CharFieldInfo){
-        char c = ei.getCharField(fi);
-        return env.newCharacter(c);
-      } else if (fi instanceof ShortFieldInfo){
-        short s = ei.getShortField(fi);
-        return env.newShort(s);
+        
+        // <2do> this still sucks - we need to split teh IntegerFieldInfo up
+        String cls = fi.getType();
+        if (cls.equals("int")){
+          return env.newInteger(i);
+        } else if (cls.equals("boolean")){
+          return env.newBoolean(i != 0);
+        } else if (cls.equals("byte")){
+          return env.newByte((byte)i);
+        } else if (cls.equals("short")){
+          return env.newShort((short)i);
+        } else if (cls.equals("char")){
+          return env.newCharacter((char)i);
+        }
       }
       
     } else { // it's a reference
-      int ref = ei.getReferenceField(fi); // we internally store it as int
+      int ref = ei.getIntField(fi); // we internally store it as int
       return ref;
     }
     
@@ -381,25 +362,6 @@ public class JPF_java_lang_reflect_Field {
     return registered[fidx];
   }
   
-  static boolean isAvailable (MJIEnv env, FieldInfo fi, int fobjRef){
-    if (fi.isStatic()){
-      ClassInfo fci = fi.getClassInfo();
-      if (fci.requiresClinitExecution(env.getThreadInfo())){
-        env.repeatInvocation();
-        return false;
-      }
-      
-    } else {
-      if (fobjRef == MJIEnv.NULL){
-        env.throwException("java.lang.NullPointerException");
-        return false;        
-      }
-      // class had obviously been initialized, otherwise we won't have an instance of it
-    }
-
-    return true;
-  }
-  
   /**
   * Peer method for the <code>java.lang.reflect.Field.set</code> method.
   * 
@@ -412,10 +374,10 @@ public class JPF_java_lang_reflect_Field {
     FieldInfo fi = getFieldInfo(env, objRef);
     int modifiers = fi.getModifiers();
 
-    if (!isAvailable(env, fi, fobjRef)){
+    if (fobjRef == MJIEnv.NULL && !Modifier.isStatic(modifiers)) {
+      env.throwException("java.lang.NullPointerException");
       return;
     }
-        
     if (Modifier.isFinal(modifiers)) {
       env.throwException("java.lang.IllegalAccessException", "field " + fi.getName() + " is final");
       return;
@@ -429,16 +391,13 @@ public class JPF_java_lang_reflect_Field {
       return;
     }
     
-    Object[] attrs = env.getArgAttributes();
-    Object attr = (attrs==null)? null: attrs[2];
-    
-    if (!setValue(env, fi, fobjRef, val, attr)) {
+    if (!setValue(env, fi, fobjRef, val)) {
       env.throwException("java.lang.IllegalArgumentException",  
                          "Can not set " + fi.getType() + " field " + fi.getFullName() + " to " + ((MJIEnv.NULL != val) ? env.getClassInfo(val).getName() + " object " : "null"));
     }
   }
 
-  private static boolean setValue(MJIEnv env, FieldInfo fi, int obj, int value, Object attr) {
+  private static boolean setValue(MJIEnv env, FieldInfo fi, int obj, int value) {
     ClassInfo fieldClassInfo = fi.getClassInfo();
     
     String className = fieldClassInfo.getName();
@@ -448,6 +407,7 @@ public class JPF_java_lang_reflect_Field {
       ClassInfo tci = fi.getTypeClassInfo();
 
       if (tci.isPrimitive()) {
+
         if (value == MJIEnv.NULL) {
           return false;
         }
@@ -459,41 +419,29 @@ public class JPF_java_lang_reflect_Field {
           return false;
         }
 
-        ElementInfo ei = fi.isStatic() ? fi.getClassInfo().getStaticElementInfo() : env.getElementInfo(obj);
-        ei.setFieldAttr(fi, attr);
+        if (fieldType.equals("boolean") || fieldType.equals("byte") ||
+                fieldType.equals("short") || fieldType.equals("char") ||
+                fieldType.equals("int") || fieldType.equals("float")) {
 
-        if ("boolean".equals(fieldType)){
-          boolean val = env.getBooleanField(value, fieldName);
-          ei.setBooleanField(fi, val);
-          return true;
-        } else if ("byte".equals(fieldType)){
-          byte val = env.getByteField(value, fieldName);
-          ei.setByteField(fi, val);
-          return true;
-        } else if ("char".equals(fieldType)){
-          char val = env.getCharField(value, fieldName);
-          ei.setCharField(fi, val);
-          return true;
-        } else if ("short".equals(fieldType)){
-          short val = env.getShortField(value, fieldName);
-          ei.setShortField(fi, val);
-          return true;
-        } else if ("int".equals(fieldType)){
           int val = env.getIntField(value, fieldName);
-          ei.setIntField(fi, val);
+          if (fi.isStatic()) {
+            ElementInfo ei = fi.getClassInfo().getStaticElementInfo();
+            ei.setIntField(fi, val);
+          } else {
+            env.setIntField(obj, fi.getName(), val);
+          }
           return true;
-        } else if ("long".equals(fieldType)){
+
+        } else if (fieldType.equals("long") || fieldType.equals("double")) {
           long val = env.getLongField(value, fieldName);
-          ei.setLongField(fi, val);
+          if (fi.isStatic()) {
+            ElementInfo ei = fi.getClassInfo().getStaticElementInfo();
+            ei.setLongField(fi, val);
+          } else {
+            env.setLongField(obj, fi.getName(), val);
+          }
           return true;
-        } else if ("float".equals(fieldType)){
-          float val = env.getFloatField(value, fieldName);
-          ei.setFloatField(fi, val);
-          return true;
-        } else if ("double".equals(fieldType)){
-          double val = env.getDoubleField(value, fieldName);
-          ei.setDoubleField(fi, val);
-          return true;
+
         } else {
           return false;
         }
@@ -502,15 +450,11 @@ public class JPF_java_lang_reflect_Field {
         if (value != MJIEnv.NULL) {
           String type = env.getTypeName(value);
           // this is an instance so the ClassInfo has to be registered
-          ClassInfo valueCI = ClassInfo.getResolvedClassInfo(type);
+          ClassInfo valueCI = ClassInfo.getResolvedClassInfo(Types.getTypeName(type));
           if (!valueCI.isInstanceOf(tci)) {
             return false;
           }
         }
-
-        ElementInfo ei = fi.isStatic() ? fi.getClassInfo().getStaticElementInfo() : env.getElementInfo(obj);
-        ei.setFieldAttr(fi, attr);
-
         if (fi.isStatic()) {
           env.setStaticReferenceField(className, fi.getName(), value);
         } else {
@@ -523,36 +467,5 @@ public class JPF_java_lang_reflect_Field {
       env.throwException("java.lang.NoClassDefFoundError", cx.getMessage());
       return false;
     }
-  }
-
-  public static boolean equals__Ljava_lang_Object_2__Z (MJIEnv env, int objRef, int fobjRef){
-    int fidx = env.getIntField(fobjRef, "regIdx");
-    if (fidx >= 0 && fidx < nRegistered){
-      FieldInfo fi1 = getFieldInfo(env, objRef);
-      FieldInfo fi2 = getFieldInfo(env, fobjRef);
-      return ((fi1.getClassInfo() == fi2.getClassInfo()) && fi1.getName().equals(fi2.getName()) && fi1.getType().equals(fi2.getType()));
-    }
-    return false;
-  }
-
-  public static int toString____Ljava_lang_String_2 (MJIEnv env, int objRef){
-    StringBuilder sb = new StringBuilder();
-    FieldInfo fi = getFieldInfo(env, objRef);
-    sb.append(Modifier.toString(fi.getModifiers()));
-    sb.append(' ');
-    sb.append(fi.getType());
-    sb.append(' ');
-    sb.append(fi.getFullName());
-    int sref = env.newString(sb.toString());
-    return sref;
-  }
-
-  public static int hashCode____I (MJIEnv env, int objRef){
-    FieldInfo fi = getFieldInfo(env, objRef);
-    return fi.getClassInfo().getName().hashCode() ^ fi.getName().hashCode();
-  }
-
-  public static int getDeclaredAnnotations_____3Ljava_lang_annotation_Annotation_2 (MJIEnv env, int objRef){
-    return getAnnotations_____3Ljava_lang_annotation_Annotation_2(env, objRef);
   }
 }

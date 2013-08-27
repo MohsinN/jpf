@@ -29,20 +29,16 @@ public class SymbolicReal extends RealExpression {
 	public double solution_inf = UNDEFINED; // C
 	public double solution_sup = UNDEFINED; // C
 
-	int unique_id;
-
 	static String SYM_REAL_SUFFIX = "_SYMREAL";// C: what is this?
 	private String name;
 
 	public SymbolicReal () {
 		super();
-		unique_id = MinMax.UniqueId++;
 		PathCondition.flagSolved = false;
 	}
 
 	public SymbolicReal (String s) {
 		super();
-		unique_id = MinMax.UniqueId++;
 		PathCondition.flagSolved = false;
 		name = s;
 		//trackedSymVars.add(fixName(name));
@@ -50,7 +46,6 @@ public class SymbolicReal extends RealExpression {
 
 	public SymbolicReal (double l, double u) {
 		super();
-		unique_id = MinMax.UniqueId++;
 		_min = l;
 		_max = u;
 		PathCondition.flagSolved = false;
@@ -58,7 +53,6 @@ public class SymbolicReal extends RealExpression {
 
 	public SymbolicReal (String s, double l, double u) {
 		super();
-		unique_id = MinMax.UniqueId++;
 		_min = l;
 		_max = u;
 		name = s;
@@ -112,24 +106,4 @@ public class SymbolicReal extends RealExpression {
     	}
     	return name;
     }
-
-    public boolean equals (Object o) {
-        return (o instanceof SymbolicReal) &&
-               (this.equals((SymbolicReal) o));
-    }
-    private boolean equals (SymbolicReal s) {
-//      if (name != null)
-//          return (this.name.equals(s.name)) &&
-//                 (this._max == s._max) &&
-//                 (this._min == s._min);
-//      else
-//          return (this._max == s._max) &&
-//                 (this._min == s._min);
-  	return this.unique_id == s.unique_id;
-  }
-
-  public int hashCode() {
-      //return Integer.toHexString(_min ^ _max).hashCode();
-  	return unique_id;
-  }
 }

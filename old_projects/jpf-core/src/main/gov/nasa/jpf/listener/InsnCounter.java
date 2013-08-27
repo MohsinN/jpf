@@ -22,6 +22,8 @@ import gov.nasa.jpf.ListenerAdapter;
 import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.search.Search;
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.JPF;
 
 /**
  * simple tools to gather statistics about instructions executed by JPF.

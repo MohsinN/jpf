@@ -69,11 +69,11 @@ public class FieldSpec extends FeatureSpec {
   }
 
   public boolean matches (FieldInfo fi){
-
     ClassInfo ci = fi.getClassInfo();
+
     if (isMatchingType(ci)) {
-      if (nameSpec.matches(fi.getName()) != matchInverted) {
-        return true;
+      if (nameSpec.matches(fi.getName())) {
+        return !matchInverted;
       }
     }
 

@@ -19,11 +19,12 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 
+import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.StaticElementInfo;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.Types;
@@ -36,11 +37,8 @@ import gov.nasa.jpf.jvm.Types;
 public class INVOKESTATIC extends InvokeInstruction {
   ClassInfo ci;
   
-  protected INVOKESTATIC (String clsDescriptor, String methodName, String signature){
-    super(clsDescriptor, methodName, signature);
-  }
-
-
+  public INVOKESTATIC () {}
+  
   protected ClassInfo getClassInfo () {
     if (ci == null) {
       ci = ClassInfo.getResolvedClassInfo(cname);
@@ -52,12 +50,8 @@ public class INVOKESTATIC extends InvokeInstruction {
     return 0xB8;
   }
 
-  public StaticElementInfo getStaticElementInfo (){
+  public ElementInfo getStaticElementInfo (){
     return getClassInfo().getStaticElementInfo();
-  }
-
-  public int getClassObjectRef(){
-    return getClassInfo().getStaticElementInfo().getClassObjectRef();
   }
 
   public boolean isExecutable (SystemState ss, KernelState ks, ThreadInfo ti) {
@@ -97,15 +91,37 @@ public class INVOKESTATIC extends InvokeInstruction {
     // this can be actually different than (can be a base)
     clsInfo = callee.getClassInfo();
     
-    if (requiresClinitExecution(ti, clsInfo)) {
+    if (requiresClinitCalls(ti, clsInfo)) {
       // do class initialization before continuing
       return ti.getPC();
     }
 
     if (callee.isSynchronized()) {
-      ElementInfo ei = clsInfo.getClassObject();
-      if (checkSyncCG(ei, ss, ti)){
-        return this;
+      DynamicArea da = ti.getVM().getDynamicArea();
+      ElementInfo ei = da.get(clsInfo.getClassObjectRef());
+
+      if (ei.getLockingThread() != ti) { // not a recursive lock
+    
+        // first time around - reexecute if the scheduling policy gives us a choice point
+        if (!ti.isFirstStepInsn()) {
+
+          if (!ei.canLock(ti)) {
+            // block first, so that we don't get this thread in the list of CGs
+            ei.block(ti);
+          }
+      
+          ChoiceGenerator cg = ss.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
+          if (cg != null) { // Ok, break here
+            if (!ti.isBlocked()) {
+              // record that this thread would lock the object upon next execution
+              ei.registerLockContender(ti);
+            }
+            ss.setNextChoiceGenerator(cg);
+            return this;   // repeat exec, keep insn on stack    
+          }
+      
+          assert !ti.isBlocked() : "scheduling policy did not return ChoiceGenerator for blocking INVOKE";
+        }
       }
     }
         
@@ -127,15 +143,6 @@ public class INVOKESTATIC extends InvokeInstruction {
     return invokedMethod;
   }
   
-  // can be different thatn the ci - method can be in a superclass
-  public ClassInfo getInvokedClassInfo(){
-    return getInvokedMethod().getClassInfo();
-  }
-
-  public String getInvokedClassName(){
-    return getInvokedClassInfo().getName();
-  }
-
   public int getArgSize () {
     if (argSize < 0) {
       argSize = Types.getArgumentsSize(signature);
@@ -146,8 +153,7 @@ public class INVOKESTATIC extends InvokeInstruction {
 
   
   public String toString() {
-    // methodInfo not set outside real call context (requires target object)
-    return "invokestatic " + cname + '.' + mname;
+    return "invokestatic " + getInvokedMethod().getFullName();
   }
 
   public Object getFieldValue (String id, ThreadInfo ti) {

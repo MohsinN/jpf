@@ -19,6 +19,7 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.jvm.BooleanChoiceGenerator;
+import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
@@ -27,15 +28,11 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * abstraction for all comparison instructions
  */
 public abstract class IfInstruction extends Instruction {
-  protected int targetPosition;  // insn position at jump insnIndex
+  protected int targetPosition;  // insn position at jump offset
   protected Instruction target;  // jump target
   
   protected boolean conditionValue;  /** value of last evaluation of branch condition */
-
-  protected IfInstruction(int targetPosition){
-    this.targetPosition = targetPosition;
-  }
-
+  
   /**
    * return which branch was taken. Only useful after instruction got executed
    * WATCH OUT - 'true' means the jump condition is met, which logically is
@@ -52,7 +49,12 @@ public abstract class IfInstruction extends Instruction {
   public boolean isBackJump () { 
     return (conditionValue) && (targetPosition <= position);
   }
-    
+  
+  public void setPeer (org.apache.bcel.generic.Instruction insn,
+                       org.apache.bcel.classfile.ConstantPool cp) {
+    targetPosition = ((org.apache.bcel.generic.BranchInstruction) insn).getTarget().getPosition();
+  }
+  
   /** 
    * retrieve value of jump condition from operand stack
    * (not ideal to have this public, but some listeners might need it for
@@ -83,18 +85,8 @@ public abstract class IfInstruction extends Instruction {
   protected Instruction executeBothBranches (SystemState ss, KernelState ks, ThreadInfo ti){
     if (!ti.isFirstStepInsn()) {
       BooleanChoiceGenerator cg = new BooleanChoiceGenerator(ti.getVM().getConfig(), "ifAll");
-      if (ss.setNextChoiceGenerator(cg)){
-        return this;
-
-      } else {
-        // some listener did override the CG, fallback to normal operation
-        conditionValue = popConditionValue(ti);
-        if (conditionValue) {
-          return getTarget();
-        } else {
-          return getNext(ti);
-        }
-      }
+      ss.setNextChoiceGenerator(cg);
+      return this;
       
     } else {
       BooleanChoiceGenerator cg = ss.getCurrentChoiceGenerator("ifAll", BooleanChoiceGenerator.class);
@@ -114,7 +106,10 @@ public abstract class IfInstruction extends Instruction {
   }
   
   public String toString () {
-    return getMnemonic() + " " + targetPosition;
+    if (asString == null) {
+      asString = getMnemonic() + " " + getTarget().getOffset();
+    }
+    return asString;
   }
   
   public int getLength() {

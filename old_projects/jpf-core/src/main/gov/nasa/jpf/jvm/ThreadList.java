@@ -18,109 +18,31 @@
 //
 package gov.nasa.jpf.jvm;
 
+import java.util.BitSet;
 
 import gov.nasa.jpf.Config;
-import gov.nasa.jpf.util.HashData;
-
-import java.util.BitSet;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 /**
- * Contains the list of all ThreadInfos for live java.lang.Thread objects
- * 
- * We add a thread upon creation (within the ThreadInfo ctor), and remove it
- * when the corresponding java.lang.Thread object gets recycled by JPF. This means
- * that:
- *   * the thread list can contain terminated threads
- *   * terminated and recycled threads are (eventually) removed from the list
- *   * the list can shrink along a given path
- *   * thread ids don't have to correspond with storing order !!
- *   * thread ids can be re-used
+ * Contains the list of all currently active threads.
  *
- * Per default, thread ids are re-used in order to be packed (which is required to efficiently
- * keep track of referencing threads in ElementInfo reftids). If there is a need
- * to avoid recycled thread ids, set 'vm.reuse_tid=false'.
- * 
- * NOTE - this ThreadList implementation doubles up as a thread object -> ThreadInfo
- * map, which is for instance heavily used by the JPF_java_lang_Thread peer.
- * 
- * This implies that ThreadList is still not fully re-organized in case something
- * keeps terminated thread objects alive. We could avoid this by having a separate
- * map for live threads<->ThreadInfos, but this would also have to be a backrackable
- * container that is highly redundant to ThreadList (the only difference being
- * that terminated threads could be removed from ThreadList).
- * 
+ * Note that this list may both shrink or (re-) grow on backtrack. This imposes
+ * a challenge for keeping ThreadInfo identities, which are otherwise nice for
+ * directly storing ThreadInfo references in Monitors and/or listeners.
  */
-public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<ThreadList> {
+public class ThreadList implements Cloneable, Iterable<ThreadInfo> {
+  /**
+   * The threads.
+   */
+  private ThreadInfo[] threads;
 
-  public static class Count {
-    public final int alive;
-    public final int runnableNonDaemons;
-    public final int runnableDaemons;
-    public final int blocked;
-    
-    Count (int alive, int runnableNonDaemons, int runnableDaemons, int blocked){
-      this.alive = alive;
-      this.runnableNonDaemons = runnableNonDaemons;
-      this.runnableDaemons = runnableDaemons;
-      this.blocked = blocked;
-    }
-  }
-  
-  protected boolean reuseTid;
-  
-  // ThreadInfos for all created but not terminated threads
-  protected ThreadInfo[] threads;
-  
-  // the highest ID created so far along this path
-  protected int maxTid;
+  /**
+   * Reference of the kernel state this thread list belongs to.
+   */
+  public KernelState ks;
 
-
-  static class TListMemento implements Memento<ThreadList> {
-    // note that we don't clone/deepcopy ThreadInfos
-    Memento<ThreadInfo>[] tiMementos;
-    int maxTid;
-
-    TListMemento(ThreadList tl) {
-      ThreadInfo[] threads = tl.threads;
-      int len = threads.length;
-
-      maxTid = tl.maxTid;
-      tiMementos = new Memento[len];
-      for (int i=0; i<len; i++){
-        ThreadInfo ti = threads[i];
-        Memento<ThreadInfo> m = null;
-
-        if (!ti.hasChanged()){
-          m = ti.cachedMemento;
-        }
-        if (m == null){
-          m = ti.getMemento();
-          ti.cachedMemento = m;
-        }
-        tiMementos[i] = m;
-      }
-    }
-
-    public ThreadList restore(ThreadList tl){
-      int len = tiMementos.length;
-      ThreadInfo[] threads = new ThreadInfo[len];
-      for (int i=0; i<len; i++){
-        Memento<ThreadInfo> m = tiMementos[i];
-        ThreadInfo ti = m.restore(null);
-        ti.cachedMemento = m;
-        threads[i] = ti;
-      }
-      tl.threads = threads;
-      tl.maxTid = maxTid;
-
-      return tl;
-    }
-  }
-
-
-  protected ThreadList() {
+  private ThreadList() {
     // nothing here
   }
 
@@ -128,20 +50,14 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
    * Creates a new empty thread list.
    */
   public ThreadList (Config config, KernelState ks) {
+    this.ks = ks;
     threads = new ThreadInfo[0];
-    
-    reuseTid = config.getBoolean("vm.reuse_tid", false);
   }
 
-  public Memento<ThreadList> getMemento(MementoFactory factory) {
-    return factory.getMemento(this);
-  }
-  public Memento<ThreadList> getMemento(){
-    return new TListMemento(this);
-  }
 
   public Object clone() {
     ThreadList other = new ThreadList();
+    other.ks = ks;
     other.threads = new ThreadInfo[threads.length];
 
     for (int i=0; i<threads.length; i++) {
@@ -151,60 +67,25 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     return other;
   }
 
-  /**
-   * add a new ThreadInfo if it isn't already in the list.
-   * Note: the returned id is NOT our internal storage index
-   * 
-   * @return (path specific) Thread id
-   */
   public int add (ThreadInfo ti) {
     int n = threads.length;
 
-    BitSet ids = new BitSet();   
-    for (int i=0; i<n; i++) {
-      ThreadInfo t = threads[i];
+    // check if it's already there
+    for (ThreadInfo t : threads) {
       if (t == ti) {
-        return t.getId();
+        return t.getIndex();
       }
-      
-      ids.set( t.getId());
     }
 
     // append it
-    ThreadInfo[] newThreads = new ThreadInfo[n+1];
-    System.arraycopy(threads, 0, newThreads, 0, n);
-    newThreads[n] = ti;
-    threads = newThreads;
-    
-    if (reuseTid){
-      return ids.nextClearBit(0);
-    } else {
-      return maxTid++;
-    }
+    ThreadInfo[] newList = new ThreadInfo[n+1];
+    System.arraycopy(threads, 0, newList, 0, n);
+    newList[n] = ti;
+    threads = newList;
+    return n; // the index where we added
   }
-  
-  public boolean remove (ThreadInfo ti){
-    int n = threads.length;
-    
-    for (int i=0; i<n; i++) {
-      if (ti == threads[i]){
-        int n1 = n-1;
-        ThreadInfo[] newThreads = new ThreadInfo[n1];
-        if (i>0){
-          System.arraycopy(threads, 0, newThreads, 0, i);
-        }
-        if (i<n1){
-          System.arraycopy(threads, i+1, newThreads, i, (n1-i));
-        }
-        
-        threads = newThreads;        
-        return true;
-      }
-    }
-    
-    return false;
-  }
-  
+
+
   public boolean hasAnyAliveThread () {
     for (int i = 0, l = threads.length; i < l; i++) {
       if (threads[i].isAlive()) {
@@ -222,35 +103,13 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     return threads.clone();
   }
 
-  public void hash (HashData hd) {
-    for (int i=0; i<threads.length; i++){
-      threads[i].hash(hd);
-    }
-  }
-  
-  public ThreadInfo getThreadInfoForId (int tid){
-    for (int i=0; i<threads.length; i++){
-      ThreadInfo ti = threads[i];
-      if (ti.getId() == tid){
-        return ti;
-      }
-    }
-    
-    return null;
+  /**
+   * Returns a specific thread.
+   */
+  public ThreadInfo get (int index) {
+    return threads[index];
   }
 
-  public ThreadInfo getThreadInfoForObjRef (int objRef){
-    for (int i=0; i<threads.length; i++){
-      ThreadInfo ti = threads[i];
-      if (ti.getThreadObjectRef() == objRef){
-        return ti;
-      }
-    }
-    
-    return null;
-  }
-
-  
   /**
    * Returns the length of the list.
    */
@@ -275,42 +134,12 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     return null;
   }
 
-  public void markRoots (Heap heap) {
+  public void markRoots () {
     for (int i = 0, l = threads.length; i < l; i++) {
       if (threads[i].isAlive()) {
-        threads[i].markRoots(heap);
+        threads[i].markRoots();
       }
     }
-  }
-
-  public Count getCountWithout (ThreadInfo tiExclude){
-    int alive=0, runnableNonDaemons=0, runnableDaemons=0, blocked=0;
-    
-    for (int i = 0; i < threads.length; i++) {
-      ThreadInfo ti = threads[i];
-  
-      if (ti != tiExclude){
-        if (ti.isAlive()) {
-          alive++;
-
-          if (ti.isRunnable()) {
-            if (ti.isDaemon()) {
-              runnableDaemons++;
-            } else {
-              runnableNonDaemons++;
-            }
-          } else {
-            blocked++;
-          }
-        }
-      }
-    }
-    
-    return new Count(alive, runnableNonDaemons, runnableDaemons, blocked);
-  }
-
-  public Count getCount(){
-    return getCountWithout(null);
   }
   
   /**
@@ -363,9 +192,8 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     ThreadInfo[] list = new ThreadInfo[nRunnable];
 
     for (int i = 0, j=0; i < threads.length; i++) {
-      ThreadInfo t = threads[i];
-      if (t.isTimeoutRunnable()) {
-        list[j++] = t;
+      if (threads[i].isTimeoutRunnable()) {
+        list[j++] = threads[i];
         if (j == nRunnable) {
           break;
         }
@@ -380,9 +208,8 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     ThreadInfo[] list =  new ThreadInfo[ti.isRunnable() ? nRunnable : nRunnable+1];
 
     for (int i = 0, j=0; i < threads.length; i++) {
-      ThreadInfo t = threads[i];
-      if (t.isTimeoutRunnable() || (t == ti)) {
-        list[j++] = t;
+      if (threads[i].isTimeoutRunnable() || (threads[i] == ti)) {
+        list[j++] = threads[i];
         if (j == list.length) {
           break;
         }
@@ -401,9 +228,8 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     ThreadInfo[] list = new ThreadInfo[nRunnable];
 
     for (int i = 0, j=0; i < threads.length; i++) {
-      ThreadInfo t = threads[i];
-      if (t.isTimeoutRunnable() && (ti != t)) {
-        list[j++] = t;
+      if (threads[i].isTimeoutRunnable() && (ti != threads[i])) {
+        list[j++] = threads[i];
         if (j == nRunnable) {
           break;
         }
@@ -430,9 +256,8 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     int n = threads.length;
 
     for (int i=0; i<n; i++) {
-      ThreadInfo t = threads[i];
-      if (t != ti) {
-        if (t.isRunnable()) {
+      if (threads[i] != ti) {
+        if (threads[i].isRunnable()) {
           return true;
         }
       }
@@ -441,57 +266,40 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     return false;
   }
 
-  boolean hasOtherNonDaemonRunnablesThan (ThreadInfo ti) {
-    int n = threads.length;
 
-    for (int i=0; i<n; i++) {
-      ThreadInfo t = threads[i];
-      if (t != ti) {
-        if (t.isRunnable() && !t.isDaemon()) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  boolean hasOnlyDaemonRunnablesOtherThan (ThreadInfo ti){
-    int n = threads.length;
-
-    for (int i=0; i<n; i++) {
-      ThreadInfo t = threads[i];
-      if (t != ti) {
-        if (t.isRunnable() && t.isDaemon()) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-  
   boolean isDeadlocked () {
-    boolean hasNonDaemons = false;
     boolean hasBlockedThreads = false;
 
     for (int i = 0; i < threads.length; i++) {
       ThreadInfo ti = threads[i];
-      
+      // if there's at least one runnable, we are not deadlocked
+      if (ti.isTimeoutRunnable()) { // willBeRunnable() ?
+        return false;
+      }
+
       if (ti.isAlive()){
-        hasNonDaemons |= !ti.isDaemon();
-
-        // shortcut - if there is at least one runnable, we are not deadlocked
-        if (ti.isTimeoutRunnable()) { // willBeRunnable() ?
-          return false;
-        }
-
         // means it is not NEW or TERMINATED, i.e. live & blocked
         hasBlockedThreads = true;
       }
     }
 
-    return (hasNonDaemons && hasBlockedThreads);
+    return hasBlockedThreads;
+  }
+
+  public void sweepTerminated(BitSet isUsed) {
+    // illegal?
+    /*
+    ThreadInfo[] newThreads = threads;
+    for (int i = 0; i < threads.length; i++) {
+      ThreadInfo ti = threads[i];
+      if (ti.threadData.status == ThreadInfo.TERMINATED &&
+          !isUsed.get(ti.threadData.objref)) {
+        newThreads = Monitor.remove(newThreads, ti);
+        ks.changed();
+      }
+    }
+    threads = newThreads;
+    */
   }
 
   public void dump () {
@@ -502,7 +310,7 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
   }
 
   public Iterator<ThreadInfo> iterator() {
-    return new Iterator<ThreadInfo>() {
+    return new Iterator() {
       int i = 0;
 
       public boolean hasNext() {
@@ -523,73 +331,4 @@ public class ThreadList implements Cloneable, Iterable<ThreadInfo>, Restorable<T
     };
   }
 
-  
-  class CanonicalLiveIterator implements Iterator<ThreadInfo> {
-    
-    int nextGid = -1;
-    int nextIdx = -1;
-    
-    CanonicalLiveIterator(){
-      setNext();
-    }
-    
-    // <2do> not overly efficient, but we assume small thread lists anyways
-    void setNext (){
-      int lastGid = nextGid;
-      int nextGid = Integer.MAX_VALUE;
-      int nextIdx = -1;
-      
-      for (int i=0; i<threads.length; i++){
-        ThreadInfo ti = threads[i];
-        if (ti.isAlive()){
-          int gid = ti.getGlobalId();
-          if ((gid > lastGid) && (gid < nextGid)){
-            nextGid = gid;
-            nextIdx = i;
-          }
-        }
-      }
-      
-      CanonicalLiveIterator.this.nextGid = nextGid;
-      CanonicalLiveIterator.this.nextIdx = nextIdx;
-    }
-    
-    public boolean hasNext() {
-      return (nextIdx >= 0);
-    }
-
-    public ThreadInfo next() {
-      if (nextIdx >= 0){
-        ThreadInfo tiNext = threads[nextIdx];
-        setNext();
-        return tiNext;
-        
-      } else {
-        throw new NoSuchElementException();
-      }
-    }
-
-    public void remove() {
-      throw new UnsupportedOperationException("Iterator<ThreadInfo>.remove()");
-    }
-  }
-  
-  /**
-   * an iterator for a canonical order over all live threads
-   */
-  public Iterator<ThreadInfo> canonicalLiveIterator(){
-    return new CanonicalLiveIterator();     
-  }
-  
-  
-  /**
-   * only for debugging purposes, this is expensive
-   */
-  public void checkConsistency(boolean isStore) {
-    for (int i = 0; i < threads.length; i++) {
-      ThreadInfo ti = threads[i];
-      
-      ti.checkConsistency(isStore);
-    }
-  }
 }

@@ -18,7 +18,7 @@
 //
 package java.io;
 
-import gov.nasa.jpf.jvm.Verify;
+import gov.nasa.jpf.vm.Verify;
 
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
@@ -43,7 +43,7 @@ public class OutputStreamWriter extends Writer {
   
   OutputStream out;
   
-  byte[] buf = new byte[BUF_SIZE];
+  byte[] buf = new byte[BUF_SIZE*6]; // worst case UTF-8 
   
   public OutputStreamWriter(OutputStream os) {
     out = os;

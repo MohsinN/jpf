@@ -19,16 +19,17 @@
 
 package gov.nasa.jpf.util.script;
 
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.PrintWriter;
 import java.io.Reader;
 import java.io.StreamTokenizer;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.FileNotFoundException;
+import java.io.PrintWriter;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.List;
 
 /**
  * generic parser for event scripts
@@ -124,7 +125,7 @@ public class ESParser {
     s.wordChars('<','<');
     s.wordChars('>','>');
 
-    // those can be part of Event IDs
+    // those can be part of component names
     s.wordChars('_','_');
     s.wordChars('#', '#');
     s.wordChars('*','*');
@@ -132,7 +133,6 @@ public class ESParser {
     s.wordChars('$','$');
     s.wordChars(':',':');
     s.wordChars('~','~');
-    s.wordChars('!', '!');
 
     s.quoteChar('"');
 

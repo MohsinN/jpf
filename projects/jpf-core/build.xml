@@ -23,7 +23,6 @@
   <property file="local.properties"/>
 
   <!-- compiler settings -->
-  <property name="src_level"     value="6"/>
   <property name="debug"         value="on"/>
   <property name="deprecation"   value="on"/>
 
@@ -50,7 +49,8 @@
     <!-- the things that have to be in the classpath of whatever runs Ant -->
     <available property="have_javac" classname="com.sun.tools.javac.Main"/>
     <fail unless="have_javac">no javac was found __or__ check http://babelfish.arc.nasa.gov/trac/jpf/wiki/install/build for possible solutions</fail>
-    
+
+
     <available file="src/main"        type="dir" property="have_main"/>
     <available file="src/annotations" type="dir" property="have_annotations"/>
     <available file="src/peers"       type="dir" property="have_peers"/>
@@ -58,7 +58,7 @@
     <available file="src/tests"       type="dir" property="have_tests"/>
     <available file="src/examples"    type="dir" property="have_examples"/>
 
-  	<available file=".hg"             type="dir" property="have_hg"/>
+    <available file=".hg"             type="dir" property="have_hg"/>
 
     <!-- for the core, it's a fail if any of these is missing -->
     <fail unless="have_main">no src/main</fail>
@@ -67,12 +67,6 @@
     <fail unless="have_classes">no src/classes</fail>
     <fail unless="have_tests">no src/tests</fail>
     <fail unless="have_examples">no src/examples</fail>
-
-    <dependset>
-      <srcfilelist dir="." files="build/jpf.jar"/>
-      <targetfilelist dir="." files="jpf-fb-report.xml"/>
-    </dependset>
-    <available file="jpf-fb-report.xml" type="file" property="have_fb_report"/>
 
   </target>
 
@@ -88,28 +82,36 @@
   <target name="-compile-annotations" if="have_annotations">
     <mkdir dir="build/annotations"/>
     <javac srcdir="src/annotations" destdir="build/annotations" includeantruntime="false"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}" classpath=""/>
+           debug="${debug}" deprecation="${deprecation}" classpath=""/>
   </target>
 
   <target name="-compile-main" if="have_main">
     <mkdir dir="build/main"/>
     <javac srcdir="src/main" destdir="build/main" includeantruntime="false"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}"
-           classpathref="lib.path"/>
+           debug="${debug}" deprecation="${deprecation}" classpathref="lib.path">
+    	<!--
+        <compilerarg value="-XDenableSunApiLintControl"/>
+        <compilerarg value="-Xlint:all"/>
+        -->
+    </javac>
 
   </target>
   
   <target name="-compile-peers" if="have_peers" depends="-compile-main" >
     <mkdir dir="build/peers"/>
     <javac srcdir="src/peers" destdir="build/peers" includeantruntime="false"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}"
-           classpathref="lib.path"/>
+           debug="${debug}" deprecation="${deprecation}" classpathref="lib.path">
+    	<compilerarg value="-XDenableSunApiLintControl"/>
+    	<compilerarg value="-Xlint:all,-sunapi,-serial"/>    	
+     </javac>
   </target>
   
   <target name="-compile-classes" if="have_classes" depends="-compile-annotations,-compile-main" >
     <mkdir dir="build/classes"/>
     <javac srcdir="src/classes" destdir="build/classes" includeantruntime="false"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}">
+           debug="${debug}" deprecation="${deprecation}">
+      <compilerarg value="-XDenableSunApiLintControl"/>
+      <compilerarg value="-Xlint:all,-sunapi"/>   
       <classpath>
         <path refid="lib.path"/>
         <pathelement location="build/annotations"/>
@@ -120,8 +122,10 @@
   <target name="-compile-tests" if="have_tests" depends="-compile-annotations,-compile-main">
     <mkdir dir="build/tests"/>
     <javac srcdir="src/tests" destdir="build/tests" includeantruntime="false"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}"
-           includes="*,gov/nasa/jpf/**">
+           debug="${debug}" deprecation="${deprecation}"
+           includes="*,gov/nasa/jpf/**,classloader_specific_tests/**">
+      <compilerarg value="-XDenableSunApiLintControl"/>
+      <compilerarg value="-Xlint:all,-sunapi,-serial,-rawtypes,-unchecked"/>   
       <classpath>
         <path refid="lib.path"/>
         <pathelement location="build/annotations"/>
@@ -132,7 +136,7 @@
   <target name="-compile-examples" if="have_examples" depends="-compile-annotations,-compile-main">
     <mkdir dir="build/examples" />
     <javac srcdir="src/examples" destdir="build/examples" includeantruntime="false"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}"
+           debug="${debug}" deprecation="${deprecation}"
            classpathref="lib.path"/>
   </target>
 
@@ -140,7 +144,7 @@
   <!-- ======================= MISC SECTION ================================ -->
   
   <target name="-version" if="have_hg">
-    <exec executable="hg" outputproperty="version" searchpath="true" failifexecutionfails="false">
+    <exec executable="hg" outputproperty="version" searchpath="true" failonerror="false" failifexecutionfails="false">
       <arg value="identify"/>
       <arg value="-n"/> 
     </exec>
@@ -161,12 +165,13 @@
 
       <fileset dir="build/main">
           <!-- we need this one in case a SUT uses the Verify API -->
-          <include name="gov/nasa/jpf/jvm/Verify.class"/>
+          <include name="gov/nasa/jpf/vm/Verify.class"/>
 
           <!-- these are required if we run TestJPF derived test classes -->
           <include name="gov/nasa/jpf/JPFShell.class"/>
           <include name="gov/nasa/jpf/util/TypeRef.class"/>
           <include name="gov/nasa/jpf/util/test/TestJPF.class"/>
+          <include name="gov/nasa/jpf/util/test/TestMultiProcessJPF.class"/>
           <include name="gov/nasa/jpf/util/test/TestJPFHelper.class"/>
       </fileset>
     </jar>
@@ -193,6 +198,13 @@
       <fileset dir="build/annotations"/>
     </jar>
 
+    <!-- this jar is needed to test classloaders, it is used by URLClassLoaderTest -->
+    <jar jarfile="build/classloader_specific_tests.jar">
+      <fileset dir="build/tests">
+        <include name="classloader_specific_tests/*.class"/>
+  	  </fileset>
+    </jar>
+
     <jar jarfile="build/RunJPF.jar">
       <fileset dir="build/main">
         <include name="gov/nasa/jpf/tool/Run.class"/>
@@ -204,6 +216,7 @@
         <include name="gov/nasa/jpf/JPFShell.class"/>
         <include name="gov/nasa/jpf/JPFException.class"/>
         <include name="gov/nasa/jpf/JPFConfigException.class"/>
+        <include name="gov/nasa/jpf/JPFTargetException.class"/>
         <include name="gov/nasa/jpf/util/JPFSiteUtils.class"/>
         <include name="gov/nasa/jpf/util/FileUtils.class"/>
         <include name="gov/nasa/jpf/util/StringMatcher.class"/>
@@ -267,7 +280,6 @@
     <delete dir="build" failonerror="false"/>
     <delete dir="tmp" failonerror="false"/>
     <delete>
-      <fileset dir="." includes="jpf-fb-report.*"/>
       <fileset dir="." includes="**/*~" defaultexcludes="no" />
       <fileset dir="." includes="**/*.bak" defaultexcludes="no" />
       <fileset dir="." includes="**/error.xml" />
@@ -401,8 +413,9 @@
       </not>
     </condition>
     
-    <junit printsummary="on" showoutput="off" haltonfailure="yes" dir="${basedir}"
-           fork="yes" forkmode="perTest" maxmemory="1024m" outputtoformatters="true">
+    <junit printsummary="on" showoutput="off" 
+           haltonfailure="no" logfailedtests="true" failureproperty="test.failed" 
+           dir="${basedir}" fork="yes" forkmode="perTest" maxmemory="1024m" outputtoformatters="true">
       <formatter type="plain" usefile="${junit.usefile}"/>
 
       <assertions>
@@ -425,6 +438,8 @@
       </batchtest>
 
     </junit>
+
+    <fail if="test.failed" />
    
   </target>
 

@@ -20,7 +20,6 @@
 package gov.nasa.jpf.tool;
 
 import gov.nasa.jpf.util.JPFSiteUtils;
-
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -39,15 +38,10 @@ public class RunAnt {
 
   public static void main (String[] args){
 
-    File siteProps = JPFSiteUtils.getStandardSiteProperties();
-    if (siteProps != null) {
-      // this is how we communicate the site.properties location to the build.xml
-      System.setProperty("jpf.site", siteProps.getPath());
-    }
-    
     ArrayList<URL> urlList = new ArrayList<URL>();
+
     addJavac(urlList);
-    addJPFToolJars(args, urlList);
+    addJPFToolJars(args, urlList);  // <2do> - Hmm, what if we boot with jpf.jar?
 
     URL[] urls = urlList.toArray(new URL[urlList.size()]);
     URLClassLoader cl = new URLClassLoader(urls, RunAnt.class.getClassLoader());
@@ -73,53 +67,28 @@ public class RunAnt {
     // we let the InvocationTargetException pass
   }
 
-  static void warning(String msg){
-    System.err.println("WARNING: " + msg);
-  }
-
   static void abort (String msg){
     System.err.println("ERROR: " + msg);
     System.exit(1);
   }
-
-  static String getToolsJarPath(){
+  
+  static void addJavac(List<URL> list) {
     char sc = File.separatorChar;
     String javaHome = System.getProperty("java.home");
     String os = System.getProperty("os.name");
-    
-    if (os.startsWith("Windows")) {
-      // windows doesn't set java.home from the environment but its registry, and includes
-      // a separate jre<version> dir as a peer to the topmost jdk dir, so we have to revert
-      // to using the JAVA_HOME environment var
-      javaHome = System.getenv("JAVA_HOME");
-    } else {
-      if (javaHome.endsWith(sc + "jre")) {
-        javaHome = javaHome.substring(0, javaHome.length()-4);
-      }
-    }
-    
-    String toolsJarPath = javaHome + sc + "lib" + sc + "tools.jar";
-    
-    return toolsJarPath;
-  }
-  
-  static void addJavac(List<URL> list) {
-    String os = System.getProperty("os.name");
-    String version = System.getProperty("java.version");
-    String toolsJarPath = null;
+    String toolsJarPath;
 
     if ("Mac OS X".equals(os)){
-      // pre Java 1.7 it was part of classes.zip, but with OpenJDK, it got moved back into tools.jar
-      if (version.compareTo("1.7") >= 0){  // I guess it will be a while until we reach Java 10
-        toolsJarPath = getToolsJarPath();
-      }
-      
+      // nothing to do, it's in classes.jar
     } else {
       // on Linux and Windows it's in ${java.home}/lib/tools.jar
-      toolsJarPath = getToolsJarPath();
-    }
-    
-    if (toolsJarPath != null){
+
+      if (javaHome.endsWith(sc + "jre")){
+        toolsJarPath = javaHome.substring(0, javaHome.length()-4) + sc + "lib" + sc + "tools.jar";
+      } else {
+        toolsJarPath = javaHome + sc + "lib" + sc + "tools.jar";
+      }
+
       File toolsJar = new File(toolsJarPath);
       if (toolsJar.isFile()){
         try {

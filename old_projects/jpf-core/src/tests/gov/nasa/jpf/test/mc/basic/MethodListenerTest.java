@@ -21,13 +21,10 @@ package gov.nasa.jpf.test.mc.basic;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.test.TestJPF;
-
+import gov.nasa.jpf.jvm.*;
+import gov.nasa.jpf.search.Search;
 import java.util.ArrayList;
-
 import org.junit.Test;
 
 /**
@@ -35,9 +32,8 @@ import org.junit.Test;
  */
 public class MethodListenerTest extends TestJPF {
 
-  // avoid loading JPF classes when running under JPF (specify classnames explicitly)
-  static String CLSNAME = "gov.nasa.jpf.test.mc.basic.MethodListenerTest";
-  static String LISTENER = "+listener=gov.nasa.jpf.test.mc.basic.MethodListenerTest$Listener";
+  static String CLSNAME = MethodListenerTest.class.getName();
+  static String LISTENER = "+listener=" + Listener.class.getName();
 
   public static class Listener extends ListenerAdapter {
     String startMthName;
@@ -111,6 +107,10 @@ public class MethodListenerTest extends TestJPF {
         System.out.println("X " + xCls);
       }
     }
+  }
+
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
   }
 
   static ArrayList<String> trace = new ArrayList<String>();

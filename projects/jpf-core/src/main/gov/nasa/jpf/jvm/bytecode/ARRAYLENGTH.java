@@ -18,37 +18,46 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Get length of array 
  * ..., arrayref => ..., length
  */
-public class ARRAYLENGTH extends Instruction {
-  
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    int objref = th.pop();
+public class ARRAYLENGTH extends ArrayInstruction {
+    
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
 
-    if (objref == -1){
-      return th.createAndThrowException("java.lang.NullPointerException",
+    arrayRef = frame.pop();
+
+    if (arrayRef == -1){
+      return ti.createAndThrowException("java.lang.NullPointerException",
                                         "array length of null object");
     }
 
-    ElementInfo ei = ks.heap.get(objref);
-    th.push(ei.arrayLength(), false);
+    ElementInfo ei = ti.getElementInfo(arrayRef);
+    frame.push(ei.arrayLength(), false);
 
-    return getNext(th);
+    return getNext(ti);
   }
-
+  
+  @Override
   public int getByteCode () {
     return 0xBE;
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
+  }
+
+  @Override
+  protected int peekArrayRef (ThreadInfo ti) {
+    return ti.getTopFrame().peek();
   }
 }

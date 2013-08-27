@@ -19,19 +19,18 @@
 package gov.nasa.jpf.test.java.io;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.IOException;
+import java.io.FileInputStream;
 import java.io.InputStreamReader;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
+
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Random;
-
 import org.junit.Test;
 
 /**
@@ -40,6 +39,10 @@ import org.junit.Test;
 public class FileIOTest extends TestJPF {
 
   public static final String fname = "_test_";
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test
   public void testRoundtrip() throws IOException, FileNotFoundException {

@@ -28,20 +28,16 @@ public class SymbolicInteger extends LinearIntegerExpression
 	public int _max = MinMax.MAXINT;
 	public int solution = UNDEFINED; // C
 
-	int unique_id;
-
 	public static String SYM_INT_SUFFIX = "_SYMINT";
 	private String name;
 
 	public SymbolicInteger () {
 		super();
-		unique_id = MinMax.UniqueId++;
 		PathCondition.flagSolved=false;
 	}
 
 	public SymbolicInteger (String s) {
 		super();
-		unique_id = MinMax.UniqueId++;
 		PathCondition.flagSolved=false;
 		name = s;
 		//trackedSymVars.add(fixName(name));
@@ -50,7 +46,6 @@ public class SymbolicInteger extends LinearIntegerExpression
 
 	public SymbolicInteger (int l, int u) {
 		super();
-		unique_id = MinMax.UniqueId++;
 		_min = l;
 		_max = u;
 		PathCondition.flagSolved=false;
@@ -58,7 +53,6 @@ public class SymbolicInteger extends LinearIntegerExpression
 
 	public SymbolicInteger (String s, int l, int u) {
 		super();
-		unique_id = MinMax.UniqueId++;
 		_min = l;
 		_max = u;
 		name = s;
@@ -115,18 +109,16 @@ public class SymbolicInteger extends LinearIntegerExpression
     }
 
     private boolean equals (SymbolicInteger s) {
-//        if (name != null)
-//            return (this.name.equals(s.name)) &&
-//                   (this._max == s._max) &&
-//                   (this._min == s._min);
-//        else
-//            return (this._max == s._max) &&
-//                   (this._min == s._min);
-    	return this.unique_id == s.unique_id;
+        if (name != null)
+            return (this.name.equals(s.name)) &&
+                   (this._max == s._max) &&
+                   (this._min == s._min);
+        else
+            return (this._max == s._max) &&
+                   (this._min == s._min);
     }
 
     public int hashCode() {
-        //return Integer.toHexString(_min ^ _max).hashCode();
-    	return unique_id;
+        return Integer.toHexString(_min ^ _max).hashCode();
     }
 }

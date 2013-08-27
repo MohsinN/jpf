@@ -18,47 +18,18 @@
 //
 package gov.nasa.jpf.util;
 
-/**
- * simple const wrapper utility class for 2-tuple 
- */
 public class Pair<A,B> {
+  public final A a;
+  public final B b;
   
-  // final so that we don't need getters
-  public final A _1;
-  public final B _2;
-  
-  public Pair(A a, B b) { 
-    this._1 = a; 
-    this._2 = b; 
-  }
+  public Pair(A a, B b) { this.a = a; this.b = b; }
   
   public final boolean equals(Object o) {
-    if (o instanceof Pair){
-      Pair p = (Pair)o;
-      if ((_1 == null) && (p._1 != null)){
-        return false;
-      }
-      if ((_2 == null) && (p._2 != null)){
-        return false;
-      }
-      if (!_1.equals(p._1)){
-        return false;
-      }
-      if (!_2.equals(p._2)){
-        return false;
-      }
-      
-      return true;
-      
-    } else {
-      return false;
-    }
+    Pair<?,?> that = (Pair<?,?>) o;
+    return Misc.equal(this.a, that.a) && Misc.equal(this.b, that.b);
   }
   
   public final int hashCode() {
-    int h1 = (_1 == null) ? 0 : _1.hashCode();
-    int h2 = (_2 == null) ? 0 : _2.hashCode();
-    
-    return h1 ^ h2;
+    return Misc.hashCode(a) ^ Misc.hashCode(b);
   }
 }

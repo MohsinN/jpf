@@ -12,9 +12,11 @@ import gov.nasa.jpf.jvm.Step;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.Transition;
 import gov.nasa.jpf.util.RepositoryEntry;
+import gov.nasa.jpf.util.Source;
 
 import java.io.FileNotFoundException;
 import java.io.PrintWriter;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -205,7 +207,7 @@ public class XMLPublisher extends Publisher {
     
     out.println("  <live-threads>");
     for (ThreadInfo ti : vm.getLiveThreads()) {
-      out.println("    <thread id=\"" + ti.getId() + "\" name=\"" + ti.getName()
+      out.println("    <thread id=\"" + ti.getIndex() + "\" name=\"" + ti.getName()
                   + "\" status=\"" + ti.getStateName() + "\">");
       // owned locks
       for (ElementInfo e : ti.getLockedObjects()) {
@@ -217,7 +219,9 @@ public class XMLPublisher extends Publisher {
         out.println("      <lock-request object=\"" + ei + "\"/>");
       }
       // stack frames
-      for (StackFrame frame : ti){
+      List<StackFrame> callStack = ti.getStack();
+      Collections.reverse(callStack);
+      for (StackFrame frame : callStack){
         if (!frame.isDirectCallFrame()){
           out.println("      <frame>" + frame.getStackTraceInfo() + "</frame>");
         }

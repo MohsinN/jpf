@@ -22,11 +22,11 @@ import gov.nasa.jpf.Config;
 import gov.nasa.jpf.Error;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.JPFListener;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.Path;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.search.SearchListenerAdapter;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.Path;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,7 +51,7 @@ public class Reporter extends SearchListenerAdapter {
   protected Config conf;
   protected JPF jpf;
   protected Search search;
-  protected JVM vm;
+  protected VM vm;
 
   protected Date started, finished;
   protected Statistics stat; // the object that collects statistics
@@ -259,7 +259,7 @@ public class Reporter extends SearchListenerAdapter {
     return finished;
   }
     
-  public JVM getVM() {
+  public VM getVM() {
     return vm;
   }
 
@@ -271,16 +271,16 @@ public class Reporter extends SearchListenerAdapter {
     return search.getErrors();
   }
 
-  public Error getLastError () {
-    return search.getLastError();
+  public Error getCurrentError () {
+    return search.getCurrentError();
   }
 
   public String getLastSearchConstraint () {
     return search.getLastSearchConstraint();
   }
 
-  public String getLastErrorId () {
-    Error e = getLastError();
+  public String getCurrentErrorId () {
+    Error e = getCurrentError();
     if (e != null) {
       return "#" + e.getId();
     } else {
@@ -398,10 +398,7 @@ public class Reporter extends SearchListenerAdapter {
   }
 
   public String getSuT() {
-    // it would be better to know from where we loaded the class file, but BCEL doesn't tell us
-    String mainCls = vm.getMainClassName();
-    ClassInfo ciMain = ClassInfo.getResolvedClassInfo(mainCls);
-    return ciMain.getSourceFileName();
+    return vm.getSUTDescription();
   }
   
   public String getJava (){

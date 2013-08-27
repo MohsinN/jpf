@@ -1,4 +1,5 @@
 
+import gov.nasa.jpf.jvm.Verify;
 
 //
 // Copyright (C) 2006 United States Government as represented by the
@@ -32,7 +33,7 @@ public class DiningPhil {
     public Philosopher(Fork left, Fork right) {
       this.left = left;
       this.right = right;
-      //start();
+      start();
     }
 
     public void run() {
@@ -45,22 +46,17 @@ public class DiningPhil {
     }
   }
   
-  static int nPhilosophers = 6;
+  static final int N = 6;
 
   public static void main(String[] args) {
-    if (args.length > 0){
-      nPhilosophers = Integer.parseInt(args[0]);
-    }
-    
-    //Verify.beginAtomic();
-    Fork[] forks = new Fork[nPhilosophers];
-    for (int i = 0; i < nPhilosophers; i++) {
+    Verify.beginAtomic();
+    Fork[] forks = new Fork[N];
+    for (int i = 0; i < N; i++) {
       forks[i] = new Fork();
     }
-    for (int i = 0; i < nPhilosophers; i++) {
-      Philosopher p = new Philosopher(forks[i], forks[(i + 1) % nPhilosophers]);
-      p.start();
+    for (int i = 0; i < N; i++) {
+      new Philosopher(forks[i], forks[(i + 1) % N]);
     }
-    //Verify.endAtomic();
+    Verify.endAtomic();
   }
 }

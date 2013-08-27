@@ -46,10 +46,6 @@ public class HashData {
     m ^= value;
   }
 
-  public void add (long value){
-    add((int)(value ^ (value >>> 32)));
-  }
-
   public void add (Object o) {
     if (o != null) {
       add(o.hashCode());

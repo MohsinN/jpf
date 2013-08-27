@@ -19,7 +19,6 @@
 package gov.nasa.jpf.test.vm.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 
@@ -128,6 +127,10 @@ public class MethodTest extends TestMethodBase {
     return 8;
   }
   
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
+
   @Test
   public void testCtor() {
     if (verifyNoPropertyViolation()) {

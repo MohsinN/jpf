@@ -23,9 +23,9 @@
 
 package gov.nasa.jpf.test.mc.threads;
 
-import gov.nasa.jpf.util.TypeRef;
+import gov.nasa.jpf.Property;
 import gov.nasa.jpf.util.test.TestJPF;
-
+import gov.nasa.jpf.listener.PreciseRaceDetector;
 import org.junit.Test;
 
 class SharedObject {
@@ -36,13 +36,16 @@ class SharedObject {
 
 public class RaceTest extends TestJPF {
 
-  static final TypeRef PROPERTY = new TypeRef("gov.nasa.jpf.listener.PreciseRaceDetector");
-  static final String LISTENER = "+listener=gov.nasa.jpf.listener.PreciseRaceDetector";
+  static final Class<? extends Property>  PROPERTY = PreciseRaceDetector.class;
+  static final String LISTENER = "+listener=" + PROPERTY.getName();
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   static int staticField;
 
-  @Test
-  public void testStaticRace () {
+  @Test public void testStaticRace () {
     if (verifyUnhandledException("java.lang.RuntimeException")) {
 
       Runnable r1 = new Runnable() {
@@ -73,8 +76,7 @@ public class RaceTest extends TestJPF {
     }
   }
 
-  @Test 
-  public void testStaticRaceNoThrow () {
+  @Test public void testStaticRaceNoThrow () {
     if (verifyPropertyViolation(PROPERTY, LISTENER)) {
       Runnable r1 = new Runnable() {
 
@@ -99,43 +101,7 @@ public class RaceTest extends TestJPF {
   }
   
   
-  // this represents the case where the class loading thread is non-deterministic
-  
-  static class Container {
-    static int data; // that's what we race for
-  }
-  
-  static class StaticRacer extends Thread {
-    public void run(){
-      Container.data++;
-    }
-  }
-  
-  @Test
-  public void testSymmetricStaticRace(){
-    if (verifyUnhandledExceptionDetails("java.lang.RuntimeException", "got race")) {
-      StaticRacer t1 = new StaticRacer();
-      StaticRacer t2 = new StaticRacer();
-      t1.start();
-      t2.start();
-      try {
-        t1.join();
-        t2.join();
-      } catch (InterruptedException ix){
-        fail("got interrupted");
-      }
-      
-      if (Container.data != 2){
-        System.out.print("Container.data = ");
-        System.out.print( Container.data);
-        System.out.println(" => throwing RuntimeException");
-        throw new RuntimeException("got race");
-      }
-    }
-  }
-  
-  @Test
-  public void testInstanceRace () {
+  @Test public void testInstanceRace () {
     if (verifyUnhandledException("java.lang.RuntimeException")) {
       final SharedObject o = new SharedObject();
 
@@ -171,8 +137,7 @@ public class RaceTest extends TestJPF {
     }
   }
 
-  @Test
-  public void testInstanceRaceNoThrow () {
+  @Test public void testInstanceRaceNoThrow () {
     if (verifyPropertyViolation(PROPERTY, LISTENER)) {
       final SharedObject o = new SharedObject();
 
@@ -202,30 +167,26 @@ public class RaceTest extends TestJPF {
     }
   }
 
-  @Test
-  public void testInstanceRaceListenerExclude () {
+  @Test public void testInstanceRaceListenerExclude () {
     if (verifyNoPropertyViolation(LISTENER, "+race.exclude="+ RaceTest.class.getName() + "*")){
       testInstanceRaceNoThrow();
     }
   }
 
-  @Test
-  public void testInstanceRaceListenerInclude () {
+  @Test public void testInstanceRaceListenerInclude () {
     if (verifyPropertyViolation(PROPERTY, LISTENER,
                                  "+race.include=" + RaceTest.class.getName() + "*")){
       testInstanceRaceNoThrow();
     }
   }
 
-  @Test
-  public void testStaticRaceListenerIncludeOther () {
+  @Test public void testStaticRaceListenerIncludeOther () {
     if (verifyNoPropertyViolation(LISTENER, "+race.include=sho.bi.Doo*")){
       testStaticRaceNoThrow();
     }
   }
 
-  @Test
-  public void testArrayRaceNoThrow () {
+  @Test public void testArrayRaceNoThrow () {
     if (verifyPropertyViolation(PROPERTY, LISTENER, "+cg.threads.break_arrays")){
       final int[] shared = new int[1];
 
@@ -251,8 +212,7 @@ public class RaceTest extends TestJPF {
     }
   }
 
-  @Test
-  public void testNoArrayRaceElements () {
+  @Test public void testNoArrayRaceElements () {
     if (verifyNoPropertyViolation(LISTENER, "+cg.threads.break_arrays")){
       final int[] shared = new int[2];
 
@@ -289,8 +249,7 @@ public class RaceTest extends TestJPF {
     }
   }
 
-  @Test
-  public void testSameInsnOtherObject () {
+  @Test public void testSameInsnOtherObject () {
     if (verifyNoPropertyViolation(LISTENER)) {
       SameInsnRunnable r1 = new SameInsnRunnable();
       SameInsnRunnable r2 = new SameInsnRunnable();
@@ -302,8 +261,7 @@ public class RaceTest extends TestJPF {
     }
   }
 
-  @Test
-  public void testSameObjectOtherField() {
+  @Test public void testSameObjectOtherField() {
     if (verifyNoPropertyViolation(LISTENER)) {
       final SharedObject o = new SharedObject();
 
@@ -330,8 +288,7 @@ public class RaceTest extends TestJPF {
     int x = 0;
   }
   
-  @Test
-  public void testNoSync() {
+  @Test public void testNoSync() {
     if (verifyUnhandledException("java.lang.RuntimeException")) {
 
       final AnotherSharedObject o = new AnotherSharedObject();
@@ -352,8 +309,7 @@ public class RaceTest extends TestJPF {
   }
   
   
-  @Test
-  public void testTSync() {
+  @Test public void testTSync() {
     if (verifyUnhandledException("java.lang.RuntimeException")) {
 
       final AnotherSharedObject o = new AnotherSharedObject();
@@ -376,8 +332,7 @@ public class RaceTest extends TestJPF {
     }
   }
   
-  @Test
-  public void testMainSync () {
+  @Test public void testMainSync () {
     if (verifyUnhandledException("java.lang.RuntimeException")) {
 
       final AnotherSharedObject o = new AnotherSharedObject();
@@ -400,8 +355,7 @@ public class RaceTest extends TestJPF {
     }
   }
   
-  @Test
-  public void testBothSync () {
+  @Test public void testBothSync () {
     if (verifyNoPropertyViolation()) {
       final AnotherSharedObject o = new AnotherSharedObject();
       Runnable r = new Runnable() {
@@ -424,8 +378,7 @@ public class RaceTest extends TestJPF {
     }
   }
 
-  @Test
-  public void testWrongSync () {
+  @Test public void testWrongSync () {
     if (verifyUnhandledException("java.lang.RuntimeException")) {
 
       final AnotherSharedObject o = new AnotherSharedObject();
@@ -449,6 +402,7 @@ public class RaceTest extends TestJPF {
       }
     }
   }
+
 }
 
 

@@ -18,36 +18,15 @@
 //
 package gov.nasa.jpf.listener;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.JPF;
-import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.BooleanChoiceGenerator;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.DoubleChoiceGenerator;
-import gov.nasa.jpf.jvm.IntChoiceGenerator;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.ThreadChoiceGenerator;
-import gov.nasa.jpf.jvm.bytecode.FieldInstruction;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
-import gov.nasa.jpf.jvm.bytecode.MONITORENTER;
-import gov.nasa.jpf.jvm.bytecode.MONITOREXIT;
-import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
-import gov.nasa.jpf.report.ConsolePublisher;
-import gov.nasa.jpf.report.HTMLPublisher;
-import gov.nasa.jpf.report.Publisher;
-import gov.nasa.jpf.report.PublisherExtension;
-import gov.nasa.jpf.search.Search;
+import java.io.*;
+import java.util.*;
 
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import gov.nasa.jpf.*;
+import gov.nasa.jpf.jvm.*;
+import gov.nasa.jpf.jvm.bytecode.*;
+import gov.nasa.jpf.jvm.choice.*;
+import gov.nasa.jpf.report.*;
+import gov.nasa.jpf.search.*;
 
 /**
  * a listener that collects information about ChoiceGenerators, choices and
@@ -447,7 +426,7 @@ public class StateSpaceAnalyzer extends ListenerAdapter implements PublisherExte
     private static CGType getType(ThreadChoiceGenerator generator, ReturnInstruction instruction) {
       MethodInfo mi;
 
-      if (generator.getThreadInfo().getStackDepth() <= 1) // The main thread has 0 frames.  Other threads have 1 frame.
+      if (generator.getThreadInfo().countStackFrames() <= 1) // The main thread has 0 frames.  Other threads have 1 frame.
       {
         return (CGType.ThreadTerminate);
       }
@@ -768,7 +747,7 @@ public class StateSpaceAnalyzer extends ListenerAdapter implements PublisherExte
       // Code
       publishPadding(levelCount);
       m_output.print("Code:  ");
-      m_output.println(instruction.getSourceOrLocation().trim());
+      m_output.println(instruction.getSourceLine().trim());
 
       // Instruction
       publishPadding(levelCount);
@@ -964,7 +943,7 @@ public class StateSpaceAnalyzer extends ListenerAdapter implements PublisherExte
       MethodInfo mi;
       Instruction instruction;
       String fileName;
-      int lineNumber;
+      int line;
 
       instruction = node.getSampleGeneratorInstruction();
       mi = instruction.getMethodInfo();
@@ -983,8 +962,8 @@ public class StateSpaceAnalyzer extends ListenerAdapter implements PublisherExte
 
       // Line
       m_output.print("<td align=\"right\">");
-      lineNumber = mi.getLineNumber(instruction);
-      m_output.print(lineNumber > 0 ? lineNumber : "");
+      line = mi.getLineNumber(instruction);
+      m_output.print(line > 0 ? line : "");
 
       // Instruction
       m_output.print("<td>");
@@ -998,7 +977,7 @@ public class StateSpaceAnalyzer extends ListenerAdapter implements PublisherExte
 
       // Code
       m_output.print("<td>");
-      m_output.print(HTMLPublisher.escape(instruction.getSourceOrLocation().trim()));
+      m_output.print(HTMLPublisher.escape(instruction.getSourceLine().trim()));
       m_output.print("</td>");
 
       // Generator Class

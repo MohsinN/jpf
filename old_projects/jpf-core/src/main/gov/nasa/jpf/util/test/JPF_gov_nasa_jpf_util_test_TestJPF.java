@@ -7,7 +7,7 @@ import gov.nasa.jpf.jvm.MJIEnv;
 import gov.nasa.jpf.jvm.MethodInfo;
 import gov.nasa.jpf.jvm.StackFrame;
 import gov.nasa.jpf.jvm.ThreadInfo;
-
+import gov.nasa.jpf.jvm.bytecode.Instruction;
 import java.util.ArrayList;
 
 /**
@@ -26,9 +26,10 @@ public class JPF_gov_nasa_jpf_util_test_TestJPF {
 
   private static void pushDirectCallFrame(MJIEnv env, MethodInfo mi, int objRef) {
     ThreadInfo ti = env.getThreadInfo();
+    Instruction resumeInsn = ti.getPC();
 
     MethodInfo stub = mi.createDirectCallStub("[test]");
-    DirectCallStackFrame frame = new DirectCallStackFrame(stub);
+    DirectCallStackFrame frame = new DirectCallStackFrame(stub, resumeInsn);
     frame.pushRef(objRef);
     ti.pushFrame(frame);
   }
@@ -43,7 +44,7 @@ public class JPF_gov_nasa_jpf_util_test_TestJPF {
           testMethods[i++] = mi;
         } else {
           reset____V();
-          env.throwException("java.lang.RuntimeException",
+          env.throwException("gov.nasa.jpf.util.test.TestException",
                   "no such test method: public void " + test + "()");
           return false;
         }
@@ -87,7 +88,7 @@ public class JPF_gov_nasa_jpf_util_test_TestJPF {
 
     if (!done) {
       if (testMethods == null) {
-        StackFrame frame = env.getCallerStackFrame(); // the runTestsOfThisClass() caller
+        StackFrame frame = ti.getTopFrame(); // the runTestsOfThisClass() caller
 
         testClass = frame.getClassInfo();
         testClassCtor = testClass.getMethod("<init>()V", true);
@@ -152,6 +153,11 @@ public class JPF_gov_nasa_jpf_util_test_TestJPF {
     return true;
   }
 
+
+  public static int assertionError__Ljava_lang_String_2_3Ljava_lang_String_2__Lgov_nasa_jpf_JPF_2 (MJIEnv env, int clsObjRef,
+                                  int detailsRef, int jpfArgsRef){
+    return MJIEnv.NULL;
+  }
   public static boolean verifyAssertionErrorDetails__Ljava_lang_String_2_3Ljava_lang_String_2__Z (MJIEnv env, int clsObjRef,
                                   int detailsRef, int jpfArgsRef){
     return true;
@@ -179,7 +185,7 @@ public class JPF_gov_nasa_jpf_util_test_TestJPF {
                                   int propClsRef, int jpfArgsRef){
     return MJIEnv.NULL;
   }
-  public static boolean verifyPropertyViolation__Lgov_nasa_jpf_util_TypeRef_2_3Ljava_lang_String_2__Z (MJIEnv env, int clsObjRef,
+  public static boolean verifyPropertyViolation__Ljava_lang_Class_2_3Ljava_lang_String_2__Z (MJIEnv env, int clsObjRef,
                                   int propClsRef, int jpfArgsRef){
     return true;
   }
@@ -189,7 +195,7 @@ public class JPF_gov_nasa_jpf_util_test_TestJPF {
                                   int xClsRef, int jpfArgsRef){
     return MJIEnv.NULL;
   }
-  public static boolean verifyJPFException__Lgov_nasa_jpf_util_TypeRef_2_3Ljava_lang_String_2__Z (MJIEnv env, int clsObjRef,
+  public static boolean verifyJPFException__Ljava_lang_Class_2_3Ljava_lang_String_2__Z (MJIEnv env, int clsObjRef,
                                   int xClsRef, int jpfArgsRef){
     return true;
   }

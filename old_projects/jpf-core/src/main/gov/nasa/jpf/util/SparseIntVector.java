@@ -28,12 +28,12 @@ import java.util.Arrays;
  * Configurable default value. 
  */
 public class SparseIntVector {
-  private static final boolean DEBUG = false;
+  private static final boolean DEBUG = true; 
   
   static final double MAX_LOAD_WIPE = 0.6;
   static final double MAX_LOAD_REHASH = 0.4;
   static final int DEFAULT_POW = 10;
-  static final int DEFAULT_VAL = 0;
+  static final int DEFAULT_DEFAULT_VAL = 0;
 
   int[] idxTable;  // MIN_VALUE => unoccupied
   int[] valTable;  // can be bound to null
@@ -44,29 +44,32 @@ public class SparseIntVector {
   int nextWipe;
   int nextRehash;
   
-  int defaultValue;
+  int defltValue;
   
   /**
    * Creates a SimplePool that holds about 716 elements before first
    * rehash.
    */
   public SparseIntVector() {
-    this(DEFAULT_POW,DEFAULT_VAL);
+    this(DEFAULT_POW,DEFAULT_DEFAULT_VAL);
   }
   
   /**
    * Creates a SimplePool that holds about 0.7 * 2**pow elements before
    * first rehash.
    */
-  public SparseIntVector(int pow, int defValue) {
+  public SparseIntVector(int pow, int deflt) {
     this.pow = pow;
     newTable();
     count = 0;
     mask = valTable.length - 1;
     nextWipe = (int)(MAX_LOAD_WIPE * mask);
     nextRehash = (int)(MAX_LOAD_REHASH * mask);
-    defaultValue = defValue;
-  }  
+    defltValue = deflt;
+  }
+
+  
+  
   
   // INTERNAL //
   
@@ -74,8 +77,8 @@ public class SparseIntVector {
   protected void newTable() {
     valTable = new int[1 << pow];
     idxTable = new int[1 << pow];
-    if (defaultValue != 0) {
-      Arrays.fill(valTable, defaultValue);
+    if (defltValue != 0) {
+      Arrays.fill(valTable, defltValue);
     }
     Arrays.fill(idxTable, MIN_VALUE);
   }
@@ -90,12 +93,7 @@ public class SparseIntVector {
   
   
   // ********************* Public API ******************** //
-
-  public void clear() {
-    Arrays.fill(valTable, defaultValue);
-    Arrays.fill(idxTable, MIN_VALUE);
-    count = 0;
-  }
+  
   
   @SuppressWarnings("unchecked")
   public int get(int idx) {
@@ -107,7 +105,7 @@ public class SparseIntVector {
     for(;;) {
       int tidx = idxTable[pos];
       if (tidx == MIN_VALUE) {
-        return defaultValue;
+        return defltValue;
       }
       if (tidx == idx) {
         return valTable[pos];
@@ -143,7 +141,7 @@ public class SparseIntVector {
       int oldCount = count;
       count = 0;
       for (int i = 0; i < idxTable.length; i++) {
-        if (idxTable[i] != MIN_VALUE && valTable[i] != defaultValue) {
+        if (idxTable[i] != MIN_VALUE && valTable[i] != defltValue) {
           count++;
         }
       }
@@ -169,7 +167,7 @@ public class SparseIntVector {
         int tidx = oldIdxTable[i];
         if (tidx == MIN_VALUE) continue;
         int o = oldValTable[i];
-        if (o == defaultValue) continue;
+        if (o == defltValue) continue;
         // otherwise:
         code = mix(tidx);
         pos = code & mask;

@@ -27,11 +27,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public class IF_ICMPNE extends IfInstruction {
 
-  public IF_ICMPNE(int targetPc) {
-    super(targetPc);
-  }
-
-
   public boolean popConditionValue (ThreadInfo ti) {
     int v1 = ti.pop();
     int v2 = ti.pop();

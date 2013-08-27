@@ -18,11 +18,14 @@
 //
 package gov.nasa.jpf.test.mc.threads;
 
+import org.junit.Test;
 import gov.nasa.jpf.util.test.TestJPF;
 
-import org.junit.Test;
-
 public class OldClassicTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   /**************************** tests **********************************/
   class Event {

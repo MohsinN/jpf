@@ -18,10 +18,12 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ArrayIndexOutOfBoundsExecutiveException;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ArrayIndexOutOfBoundsExecutiveException;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -32,8 +34,8 @@ public class AASTORE extends ArrayStoreInstruction {
 
   int value;
 
-  protected void popValue(ThreadInfo ti){
-    value = ti.pop();
+  protected void popValue(StackFrame frame){
+    value = frame.pop();
   }
 
   protected void setField (ElementInfo ei, int index) throws ArrayIndexOutOfBoundsExecutiveException {

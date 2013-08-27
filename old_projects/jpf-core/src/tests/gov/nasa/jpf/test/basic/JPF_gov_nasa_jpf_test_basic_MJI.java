@@ -21,9 +21,9 @@ package gov.nasa.jpf.test.basic;
 import gov.nasa.jpf.jvm.DirectCallStackFrame;
 import gov.nasa.jpf.jvm.MJIEnv;
 import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.StackFrame;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.UncaughtException;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
 
 /**
  * native peer class for unit testing MJI
@@ -98,8 +98,7 @@ public class JPF_gov_nasa_jpf_test_basic_MJI {
 
   public static int nativeInstanceMethod (MJIEnv env, int robj, double d,
                                           char c, boolean b, int i) {
-    System.out.println("# entering nativeInstanceMethod() d=" + d +
-            ", c=" + c + ", b=" + b + ", i=" + i);
+    System.out.println("# entering nativeInstanceMethod()");
 
     if ((d == 2.0) && (c == '?') && b) {
       return i + 2;
@@ -147,41 +146,45 @@ public class JPF_gov_nasa_jpf_test_basic_MJI {
   public static int nativeRoundtripLoop__I__I (MJIEnv env, int robj, int a) {
     System.out.println("# entering nativeRoundtripLoop(): " + a);
 
-    ThreadInfo ti = env.getThreadInfo();
-    StackFrame frame = ti.getReturnedDirectCall();
+    int r=0;
 
-    if (frame == null){ // first time
+    ThreadInfo ti = env.getThreadInfo();
+    Instruction insn = ti.getPC();  // that's our INVOKE
+
+    if (!ti.isResumedInstruction(insn)) { // first time
       MethodInfo mi = env.getClassInfo(robj).getMethod("roundtrip(I)I",false);
       MethodInfo stub = mi.createDirectCallStub("[roundtrip]" + mi.getName());
-      frame = new DirectCallStackFrame(stub, 2, 1);
+      DirectCallStackFrame frame = new DirectCallStackFrame(stub, insn);
 
       frame.setLocalVariable(0, 0, false);
       frame.pushRef(robj);
       frame.push(a+1);
       ti.pushFrame(frame);
 
-      return 42; // whatever, we come back
+      env.repeatInvocation();
 
-    } else { // direct call returned
+    } else {  // re-invoked
+      DirectCallStackFrame frame = ti.getReturnedDirectCall();
+      if (frame != null){
+        r = frame.pop(); // the return value of the direct call above
 
-      // this shows how to get information back from the JPF roundtrip into
-      // the native method
-      int r = frame.pop(); // the return value of the direct call above
-      int i = frame.getLocalVariable(0);
+        // this shows how to get information back from the JPF roundtrip into
+        // the native method
+        int i = frame.getLocalVariable(0);
 
-      if (i < 3) { // repeat the round trip
-        // we have to reset so that the PC is re-initialized
-        frame.reset();
-        frame.setLocalVariable(0, i + 1, false);
-        frame.pushRef(robj);
-        frame.push(r + 1);
-        ti.pushFrame(frame);
-        return 42;
-
-      } else { // done, return the final value
-        return r;
+        if (i<3){
+          // we have to reset so that the PC is re-initialized
+          frame.reset();
+          frame.setLocalVariable(0, i+1, false);
+          frame.pushRef(robj);
+          frame.push(r+1);
+          ti.pushFrame(frame);
+          env.repeatInvocation();
+        }
       }
     }
+
+    return r;
   }
 
   /**
@@ -195,19 +198,18 @@ public class JPF_gov_nasa_jpf_test_basic_MJI {
     MethodInfo stub = mi.createDirectCallStub("[roundtrip]" + mi.getName());
     stub.setFirewall(true); // we don't want to let exceptions pass through this
 
-    DirectCallStackFrame frame = new DirectCallStackFrame(stub);
+    DirectCallStackFrame frame = new DirectCallStackFrame(stub, null);
     frame.push(robj); // push 'this'
     frame.push(a);    // push 'a'
 
     ThreadInfo ti = env.getThreadInfo();
     try {
       ti.executeMethodHidden(frame);
-      //ti.advancePC();
-
     } catch (UncaughtException ux) {  // frame's method is firewalled
       System.out.println("# hidden method execution failed, leaving nativeHiddenRoundtrip: " + ux);
       ti.clearPendingException();
-      ti.popFrame(); // this is still the DirectCallStackFrame, and we want to continue execution
+      ti.popFrame(); // we want to continue execution
+      ti.advancePC();
       return -1;
     }
 

@@ -18,32 +18,37 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Push int constant
  * ... => ..., <i>
  */
-public class ICONST extends Instruction {
-  private int value;
+public class ICONST extends JVMInstruction {
+  protected int value;
 
   public ICONST(int value){
     this.value = value;
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    th.push(value, false);
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+    
+    frame.push(value);
 
-    return getNext(th);
+    return getNext(ti);
   }
 
   public int getValue() {
     return value;
   }
   
+  @Override
   public int getByteCode () {
     assert ((value >= -1) && (value < 6)) : ("illegal iconst value: " + value);
 
@@ -69,6 +74,7 @@ public class ICONST extends Instruction {
     }
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

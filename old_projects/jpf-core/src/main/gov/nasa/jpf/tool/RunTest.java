@@ -21,9 +21,7 @@ package gov.nasa.jpf.tool;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPFClassLoader;
-import gov.nasa.jpf.util.FileUtils;
 import gov.nasa.jpf.util.JPFSiteUtils;
-
 import java.lang.reflect.InvocationTargetException;
 
 /**
@@ -41,12 +39,6 @@ import java.lang.reflect.InvocationTargetException;
  */
 public class RunTest extends Run {
 
-  static Config config;
-
-  public static Config getConfig(){
-    return config;
-  }
-
   public static class Failed extends RuntimeException {
     public Failed (){
     }
@@ -54,39 +46,37 @@ public class RunTest extends Run {
 
   public static void main(String[] args){
     String testClsName = getTestClassName(args);
-
     if (testClsName != null) {
       testClsName = checkClassName(testClsName);
 
       try {
-        config = new Config(args);
-        JPFClassLoader cl = config.initClassLoader(RunTest.class.getClassLoader());
+        Config conf = new Config(args);
+        JPFClassLoader cl = conf.initClassLoader(RunTest.class.getClassLoader());
 
-        addTestClassPath(cl, config);
+        String projectId = JPFSiteUtils.getCurrentProjectId();
+        if (projectId != null) {
+          String testCpKey = projectId + ".test_classpath";
+          cl.addURL( conf.getURL(testCpKey));
+        }
 
         Class<?> testJpfCls = cl.loadClass("gov.nasa.jpf.util.test.TestJPF");
         Class<?> testCls = cl.loadClass(testClsName);
 
         if (testJpfCls.isAssignableFrom(testCls)) {
           String[] testArgs = getTestArgs(args);
-
-          // TestJPFHelper will check if the testCls has a main(), or otherwise run through TestJPF
-          Class<?> testRunnerCls = cl.loadClass("gov.nasa.jpf.util.test.TestJPFHelper");
-          String[] testRunnerArgs = new String[testArgs.length + 1];
-          System.arraycopy(testArgs, 0, testRunnerArgs, 1, testArgs.length);
-          testRunnerArgs[0] = testClsName;
-
-          call(testRunnerCls, "main", new Object[] {testRunnerArgs});
+          if (!call(testCls, "main", new Object[]{testArgs})) {
+            error("can't find public static void main(String[]) in " + testCls.getName());
+          }
 
         } else {
-          error("not a gov.nasa.jpf.util.test.TestJPF derived class: " + testClsName);
+          error("not a gov.nasa.jpf.TestJPF derived class: " + testClsName);
         }
 
       } catch (NoClassDefFoundError ncfx) {
         error("class did not resolve: " + ncfx.getMessage());
 
       } catch (ClassNotFoundException cnfx) {
-        error("class not found " + cnfx.getMessage() + ", check <project>.test_classpath in jpf.properties");
+        error("class not found " + cnfx.getMessage());
 
       } catch (InvocationTargetException ix) {
         Throwable cause = ix.getCause();
@@ -100,25 +90,6 @@ public class RunTest extends Run {
 
     } else {
       error("no test class specified");
-    }
-  }
-
-  static void addTestClassPath (JPFClassLoader cl, Config conf){
-    // since test classes are executed by both the host VM and JPF, we have
-    // to tell the JPFClassLoader where to find them
-    String projectId = JPFSiteUtils.getCurrentProjectId();
-    if (projectId != null) {
-      String testCpKey = projectId + ".test_classpath";
-      String[] tcp = config.getCompactTrimmedStringArray(testCpKey);
-      if (tcp != null) {
-        for (String pe : tcp) {
-          try {
-            cl.addURL(FileUtils.getURL(pe));
-          } catch (Throwable x) {
-            error("malformed test_classpath URL: " + pe);
-          }
-        }
-      }
     }
   }
 

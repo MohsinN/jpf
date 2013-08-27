@@ -19,9 +19,10 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.JVM;
+import gov.nasa.jpf.jvm.FieldLockInfo;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
 /**
@@ -36,12 +37,6 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
    * USE WITH CARE, AND ONLY FROM DERIVED CLASSES
    */
   protected int lastThis = -1;
-
-  protected InstanceFieldInstruction() {}
-
-  protected InstanceFieldInstruction (String fieldName, String classType, String fieldDescriptor){
-    super(fieldName, classType, fieldDescriptor);
-  }
 
   public FieldInfo getFieldInfo () {
     if (fi == null) {
@@ -60,22 +55,15 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
       return false;
     }
 
-    ElementInfo ei = ti.getElementInfo(objRef);
+    DynamicArea da = DynamicArea.getHeap();
+    ElementInfo ei = da.get(objRef);
 
     // no use to break if there is no other thread, or the object is not shared
     // (but note this might change in a following execution path)
-    if (!ei.checkUpdatedSharedness(ti)){
+    if ( !ti.hasOtherRunnables() || !da.isSchedulingRelevantObject(objRef)) {
       return false;
     }
-    if (ei.isImmutable()){
-      return false;
-    }
-
-    if (!ti.hasOtherRunnables()) {
-      return false;
-    }
-
-    //--- from here on, we know this is a shared object that can be accessed concurrently
+    // from here on, we know this is a shared object that can be accessed concurrently
 
     if (ti.usePorSyncDetection()) {
 
@@ -110,7 +98,7 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
         return false;
       }
 
-      if (!mi.isSyncRelevant()) {
+      if (!ti.getMethod().isSyncRelevant()) {
         // filter out ctors (which in all likeliness will execute before
         // an object becomes shared) and <clinit>, which is synchronized
         // by the VM
@@ -130,7 +118,7 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
   }
 
   protected boolean isNewPorFieldBoundary (ThreadInfo ti, FieldInfo fi, int objRef) {
-    return (!ti.isFirstStepInsn()) && ti.usePorFieldBoundaries() && isSchedulingRelevant(ti, objRef);
+    return (!ti.isFirstStepInsn()) && isSchedulingRelevant(ti, objRef);
   }
 
   /**
@@ -146,7 +134,7 @@ public abstract class InstanceFieldInstruction extends FieldInstruction
    */
   public ElementInfo getLastElementInfo () {
     if (lastThis != -1) {
-      return JVM.getVM().getHeap().get(lastThis); // <2do> remove - should be in clients
+      return DynamicArea.getHeap().get(lastThis);
     }
 
     return null;

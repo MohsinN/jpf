@@ -18,12 +18,23 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.JPFException;
+import gov.nasa.jpf.jvm.DynamicArea;
+import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.NoClassInfoException;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.NoClassInfoException;
 import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.Constants;
+import org.apache.bcel.classfile.ConstantFloat;
+import org.apache.bcel.classfile.ConstantInteger;
+import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.classfile.ConstantString;
+import org.apache.bcel.generic.ConstantPoolGen;
+import org.apache.bcel.generic.Type;
 
 
 /**
@@ -31,70 +42,80 @@ import gov.nasa.jpf.jvm.Types;
  * ... => ..., value
  */
 public class LDC extends Instruction {
-
-  public enum Type {STRING, CLASS, INT, FLOAT};
-
-  Type type;
-
+  
   protected String  string;  // the string value if Type.STRING, classname if Type.CLASS
   protected int     value;
+  protected Type    type;
 
-  public LDC() {}
 
-  public LDC (String s, boolean isClass){
-    if (isClass){
-      string = Types.getClassNameFromTypeName(s);
-      type = Type.CLASS;
+  public void setPeer (org.apache.bcel.generic.Instruction insn, ConstantPool cp) {
+    ConstantPoolGen cpg = ClassInfo.getConstantPoolGen(cp);
+    org.apache.bcel.generic.LDC ldc = (org.apache.bcel.generic.LDC) insn;
+    
+    type = ldc.getType(cpg);
+    int index = ldc.getIndex();
+
+    if (type == Type.STRING) {
+      string = cp.constantToString(cp.getConstant(
+                                     ((ConstantString) cp.getConstant(index)).getStringIndex()));
+
+    } else if (type == Type.INT) {
+      value = ((ConstantInteger) cp.getConstant(index)).getBytes();
+
+    } else if (type == Type.FLOAT) {
+      value = Types.floatToInt( ((ConstantFloat) cp.getConstant(index)).getBytes());
+
+    } else if (type == Type.CLASS) {
+    //} else if (type.getType() == Constants.T_REFERENCE) {
+      //type = Type.CLASS;
+      /*
+       * Java 1.5 silently introduced a class file change - LDCs can now directly reference class
+       * constpool entries. To make it more interesting, BCEL 5.1 chokes on this with a hard exception.
+       * As of Aug 2004, this was fixed in the BCEL Subversion repository, but there is no new
+       * release out yet. In order to compile this code with BCEL 5.1, we can't even use Type.CLASS.
+       * The current hack should compile with both BCEL 5.1 and svn, but only runs - when encountering
+       * a Java 1.5 class file - if the BCEL svn jar is used
+       */
+      
+      // that's kind of a hack - if this is a const class ref to the class that is
+      // currently loaded, we don't have a corresponding object created yet, and
+      // the StaticArea access methods might do a recursive class init. Our solution
+      // is to cache the name, and resolve the reference when we get executed
+      string = cp.constantToString(index, Constants.CONSTANT_Class);
+
     } else {
-      string = s;
-      type = Type.STRING;
+      throw new JPFException("invalid type of constant");
     }
   }
-
-  public LDC (int v){
-    value = v;
-    type = Type.INT;
-  }
-
-  public LDC (float f){
-    value = Float.floatToIntBits(f);
-    type = Type.FLOAT;
-  }
-
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    switch (type){
-      case STRING:
-        // too bad we can't cache it, since location might change between different paths
-        value = ti.getHeap().newInternString(string, ti);
-        ti.push(value, true);
-        break;
+    if (type == Type.STRING) {
+      // too bad we can't cache it, since location might change between different paths
+      value = DynamicArea.getHeap().newInternString(string,ti);
+      ti.push(value, true);
 
-      case INT:
-      case FLOAT:
-        ti.push(value, false);
-        break;
+    } else if (type == Type.CLASS) {
+      try {
+        ClassInfo ci = ClassInfo.getResolvedClassInfo(string);
 
-      case CLASS:
-        try {
-          ClassInfo ci = ClassInfo.getResolvedClassInfo(string);
-
-          // LDC doesn't cause a <clinit> - we only register all required classes
-          // to make sure we have class objects. <clinit>s are called prior to
-          // GET/PUT or INVOKE
-          if (!ci.isRegistered()) {
-            ci.registerClass(ti);
-          }
-
-          ti.push(ci.getClassObjectRef(), true);
-
-        } catch (NoClassInfoException cx) {
-          // can be any inherited class or required interface
-          return ti.createAndThrowException("java.lang.NoClassDefFoundError", cx.getMessage());
+        // LDC doesn't cause a <clinit> - we only register all required classes
+        // to make sure we have class objects. <clinit>s are called prior to
+        // GET/PUT or INVOKE
+        if (!ci.isRegistered()){
+          ci.registerClass(ti);
         }
-        break;
+
+        ti.push(ci.getClassObjectRef(), true);
+
+      } catch (NoClassInfoException cx){
+        // can be any inherited class or required interface
+        return ti.createAndThrowException("java.lang.NoClassDefFoundError", cx.getMessage());
+      }
+
+    } else {
+      ti.push(value, false);
     }
-    
+
     return getNext(ti);
   }
 
@@ -118,30 +139,13 @@ public class LDC extends Instruction {
     return (type == Type.STRING);
   }
   
-  public float getFloatValue(){
-	  if(type!=Type.FLOAT){
-      throw new IllegalStateException();
-	  }
-    
-	  return Float.intBitsToFloat(value);
-	}
-
-  public String getStringValue() { // if it is a String (not acquired from the class const pool)
+  public String getStringValue() { // if it is a String
     if (type == Type.STRING) {
       return string;
     } else {
       return null;
     }
   }
-  
-  public String getClassValue() { // if it is the name of a Class (acquired from the class const pool)
-	    if (type == Type.CLASS) {
-	      return string;
-	    } else {
-	      return null;
-	    }
-	  }
-
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);

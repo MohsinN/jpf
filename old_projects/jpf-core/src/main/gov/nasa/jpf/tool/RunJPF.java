@@ -20,13 +20,15 @@ package gov.nasa.jpf.tool;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPFShell;
-import gov.nasa.jpf.util.JPFSiteUtils;
-
+import gov.nasa.jpf.util.FileUtils;
 import java.io.File;
-import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
-import java.util.Map;
-import java.util.Properties;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.ArrayList;
 
 /**
  * This class is a wrapper for loading JPF or a JPFShell through a classloader
@@ -42,12 +44,9 @@ import java.util.Properties;
  */
 public class RunJPF extends Run {
 
-  public static final int HELP  = 1;
-  public static final int SHOW  = 2;
-  public static final int LOG   = 4;
-  public static final int BUILD_INFO = 8;
-  public static final int ADD_PROJECT = 16;
-  public static final int VERSION = 32;
+  public static final int HELP = 1;
+  public static final int SHOW = 2;
+  public static final int LOG = 4;
 
   static final String JPF_CLASSNAME = "gov.nasa.jpf.JPF";
 
@@ -59,12 +58,6 @@ public class RunJPF extends Run {
         showUsage();
         return;
       }
-
-      if (isOptionEnabled(ADD_PROJECT, options)){
-        addProject(args);
-        return;
-      }
-      
       if (isOptionEnabled(LOG, options)) {
         Config.enableLogging(true);
       }
@@ -76,14 +69,6 @@ public class RunJPF extends Run {
       }
 
       ClassLoader cl = conf.initClassLoader(RunJPF.class.getClassLoader());
-
-      if (isOptionEnabled(VERSION, options)) {
-        showVersion(cl);
-      }
-
-      if (isOptionEnabled(BUILD_INFO, options)) {
-        showBuild(cl);
-      }
 
       // using JPFShell is Ok since it is just a simple non-derived interface
       // note this uses a <init>(Config) ctor in the shell class if there is one
@@ -129,18 +114,6 @@ public class RunJPF extends Run {
         } else if ("-log".equals(a)){
           args[i] = null;
           mask |= LOG;
-
-        } else if ("-buildinfo".equals(a)){
-          args[i] = null;
-          mask |= BUILD_INFO;
-          
-        } else if ("-addproject".equals(a)){
-          args[i] = null;
-          mask |= ADD_PROJECT;
-
-        } else if ("-version".equals(a)){
-          args[i] = null;
-          mask |= VERSION;
         }
       }
     }
@@ -152,109 +125,14 @@ public class RunJPF extends Run {
     return ((mask & option) != 0);
   }
 
-  public static void showUsage() {
+  static void showUsage() {
     System.out.println("Usage: \"java [<vm-option>..] -jar ...RunJPF.jar [<jpf-option>..] [<app> [<app-arg>..]]");
-    System.out.println("  <jpf-option> : -help : print usage information and exit");
-    System.out.println("               | -version : print JPF version information");    
-    System.out.println("               | -buildinfo : print build and runtime information");
-    System.out.println("               | -addproject [init] [<pathname>] : add project to site properties and exit");    
-    System.out.println("               | -log : print configuration initialization steps");
-    System.out.println("               | -show : print configuration dictionary contents");
+    System.out.println("  <jpf-option> : -help  : print usage information");
+    System.out.println("               | -log   : print configuration initialization steps");
+    System.out.println("               | -show  : print configuration dictionary contents");
     System.out.println("               | +<key>=<value>  : add or override key/value pair to config dictionary");
     System.out.println("  <app>        : *.jpf application properties file pathname | fully qualified application class name");
     System.out.println("  <app-arg>    : arguments passed into main() method of application class");
-  }
-  
-  public static void addProject(String[] args){
-    boolean init = false;
-    int i=0;
-    String sitePathName = null;
-    
-    // check if the first non-null arg is 'init', which means this project
-    // should be added to the 'extensions' list
-    for(; i<args.length; i++){
-      if (args[i] != null){
-        if ("init".equals(args[i])){
-          init = true;
-          continue;
-        } else {
-          sitePathName = args[i];
-        }
-        break;
-      }
-    }
-    
-    File siteProps = (sitePathName == null) ? JPFSiteUtils.getStandardSiteProperties() : new File(sitePathName);
-    if (siteProps == null) {
-      siteProps = new File(JPFSiteUtils.getGlobalSitePropertiesPath());
-    }
-    
-    File curDir = new File( System.getProperty("user.dir"));
-    String pid = JPFSiteUtils.getCurrentProjectId();
-    if (pid == null){
-      error("current dir not a valid JPF project: " + curDir);
-    }
-    
-    if ("jpf-core".equals(pid)){ // jpf-core always needs to be in the extensions list
-      init = true;
-    }
-    
-    if (JPFSiteUtils.addProject( siteProps, pid, curDir, init)){
-      System.out.println("added project '" + pid + "' to site properties at: " + siteProps);
-    } else {
-      error("failed to add project: '" + pid + "' to site properties at: " + siteProps);
-    }
-  }
-
-  public static void showVersion (ClassLoader cl){
-    try {
-      InputStream is = cl.getResourceAsStream("gov/nasa/jpf/.version");
-      if (is != null){
-        System.out.print("JPF version: ");
-        
-        int len = is.available();
-        byte[] data = new byte[len];
-        is.read(data);
-        is.close();
-        String version = new String(data);
-        System.out.println(version);
-        
-      } else {
-        System.out.println("no JPF version information available");
-      }
-      
-
-    } catch (Throwable t){
-      System.err.println("error reading version information: " + t.getMessage());
-    }    
-  }
-  
-  // print out the build.properties settings
-  public static void showBuild(ClassLoader cl) {
-    try {
-      InputStream is = cl.getResourceAsStream("gov/nasa/jpf/build.properties");
-      if (is != null){
-        System.out.println("JPF build information:");
-
-        Properties buildProperties = new Properties();
-        buildProperties.load(is);
-
-        for (Map.Entry<Object, Object> e : buildProperties.entrySet()) {
-          System.out.print('\t');
-          System.out.print(e.getKey());
-          System.out.print(" = ");
-          System.out.println(e.getValue());
-        }
-
-        is.close();
-
-      } else {
-        System.out.println("no JPF build information available");
-      }
-
-    } catch (Throwable t){
-      System.err.println("error reading build information: " + t.getMessage());
-    }
   }
 
 }

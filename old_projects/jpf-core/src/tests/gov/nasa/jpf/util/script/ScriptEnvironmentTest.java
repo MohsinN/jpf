@@ -20,16 +20,13 @@
 package gov.nasa.jpf.util.script;
 
 import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ChoiceGeneratorBase;
 import gov.nasa.jpf.util.Misc;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.io.FileNotFoundException;
 import java.io.Reader;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
-
 import org.junit.Test;
 
 
@@ -40,7 +37,7 @@ import org.junit.Test;
  */
 public class ScriptEnvironmentTest extends TestJPF {
 
-  static class EventChoice extends ChoiceGeneratorBase<Event> {
+  static class EventChoice extends ChoiceGenerator<Event> {
     int cur = -1;
     Event e;
 
@@ -76,6 +73,11 @@ public class ScriptEnvironmentTest extends TestJPF {
 
     public int getTotalNumberOfChoices() {
       return 1;
+    }
+
+
+    public ChoiceGenerator randomize() {
+      return null;
     }
 
     public void reset() {
@@ -173,6 +175,12 @@ public class ScriptEnvironmentTest extends TestJPF {
   }
 
 
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
+  }
+  
+  //--- our test methods
+  
   // <2do> - need to add more test conditions than just unexpected exceptions!
   
   @Test
@@ -196,7 +204,7 @@ public class ScriptEnvironmentTest extends TestJPF {
       env.parseScript();
 
       for (String[] sections : a) {
-        ChoiceGenerator<?> cg = env.getNext("testNoMove", sections);
+        ChoiceGenerator cg = env.getNext("testNoMove", sections);
         System.out.println(Misc.toString(sections, "[", ",", "]") + " => " + cg);
       }
 

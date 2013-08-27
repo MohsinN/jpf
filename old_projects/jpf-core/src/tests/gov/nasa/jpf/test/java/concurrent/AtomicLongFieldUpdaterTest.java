@@ -22,13 +22,18 @@ import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
 
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
-
 import org.junit.Test;
 
 /**
  * raw test for java.util.concurrent.atomic.AtomicLongFieldUpdater
  */
 public class AtomicLongFieldUpdaterTest extends TestJPF {
+
+  //-------------------- driver to execute single test methods
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
+
 
   static {
     Verify.setProperties("cg.enumerate_cas=true");

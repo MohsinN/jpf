@@ -26,24 +26,22 @@ import gov.nasa.jpf.util.IntTable;
 /**
  * memory area for static fields
  */
-public class StaticArea extends Area<StaticElementInfo> implements Restorable<StaticArea> {
+public class StaticArea extends Area<StaticElementInfo> {
+
+  static StaticArea staticArea;
 
   /**
-   * analogy of DynamicMap to achieve symmetry for static fields (so that order
+   * analogy of DynamicMap to achieve symmetry for static fields (sp that order
    * of class init does not matter)
    */
   private IntTable<String> staticMap = new IntTable<String>();
 
 
-  static class SAMemento extends AreaMemento<StaticArea> implements Memento<StaticArea> {
-    SAMemento (StaticArea area){
-      super(area);
-    }
+  public static void init (Config config) {
+  }
 
-    public StaticArea restore (StaticArea area){
-      super.restore(area);
-      return area;
-    }
+  public static StaticArea getStaticArea() {
+    return staticArea;
   }
 
   /**
@@ -51,16 +49,14 @@ public class StaticArea extends Area<StaticElementInfo> implements Restorable<St
    */
   public StaticArea (Config config, KernelState ks) {
     super(ks);
-  }
 
-  public Memento<StaticArea> getMemento(MementoFactory factory) {
-    return factory.getMemento(this);
+    // beware - we store 'this' in a static field, which (a) makes it
+    // effectively a singleton, (b) means the assignment should be the very last
+    // insn to avoid handing out a ref to a partially initialized object (no
+    // subclassing!)
+    // <2do> - revisit during DynamicArea / Static redesign
+    staticArea = this;
   }
-
-  public Memento<StaticArea> getMemento(){
-    return new SAMemento(this);
-  }
-
 
   public boolean containsClass (String cname) {
     return indexOf(cname) != -1;
@@ -121,10 +117,41 @@ public class StaticArea extends Area<StaticElementInfo> implements Restorable<St
     }
   }
 
-  public void markRoots (Heap heap) {
-    for (StaticElementInfo ei : this.elements()){
-      ei.markStaticRoot(heap);
+  public void markRoots () {
+    int length = elements.size();
+
+    for (int i = 0; i < length; i++) {
+      StaticElementInfo ei = elements.get(i);
+      if (ei != null) {
+        ei.markStaticRoot();
+      }
     }
+  }
+
+  /*
+   * note this does not recurse upwards, i.e. the client has to take care of
+   * superclass init. The reason for this is that we also have to
+   * deal with clinit calls, and handling those is depending on the
+   * client (e.g. for blocking/ re-execution of the insn after returning
+   * from the clinit (stack)
+   */
+  public StaticElementInfo addClass (ClassInfo ci, int clsObjRef) {
+    StaticElementInfo ei = null;
+    int index = indexOf(ci.getName());
+
+    if (index == -1) {
+      index = indexFor(ci.getName());
+      ei = createElementInfo(ci, clsObjRef);
+      add(index, ei);
+      return ei;
+
+    } else {
+      // startupClass (no clsObjRef set yet)
+      ei = get(index);
+      ei.setClassObjectRef(clsObjRef);
+    }
+
+    return ei;
   }
 
   //--- StaticElementInfo factory methods
@@ -132,16 +159,16 @@ public class StaticArea extends Area<StaticElementInfo> implements Restorable<St
     return new StaticElementInfo();
   }
 
-  protected StaticElementInfo createElementInfo (ClassInfo ci,Fields f, Monitor m, int tid, int clsObjRef){
-    return new StaticElementInfo(ci,f,m,tid, clsObjRef);
+  protected StaticElementInfo createElementInfo (Fields f, Monitor m, int clsObjRef){
+    return new StaticElementInfo(f,m,clsObjRef);
   }
 
 
-  protected StaticElementInfo createElementInfo (ClassInfo ci, int tid, int clsObjRef) {
+  protected StaticElementInfo createElementInfo (ClassInfo ci, int clsObjRef) {
     Fields   f = ci.createStaticFields();
     Monitor  m = new Monitor();
 
-    StaticElementInfo ei = createElementInfo(ci,f, m, tid, clsObjRef);
+    StaticElementInfo ei = createElementInfo(f, m, clsObjRef);
     ci.setStaticElementInfo(ei);
 
     ci.initializeStaticData(ei);
@@ -153,9 +180,8 @@ public class StaticArea extends Area<StaticElementInfo> implements Restorable<St
    * note this has to be followed by creating, initializing and linking
    * a class object - the StaticElementInfo needs its reference value
    */
-  public StaticElementInfo addClass (ClassInfo ci, ThreadInfo ti) {
-    int tid = ti == null ? 0 : ti.getId();
-    StaticElementInfo ei = createElementInfo(ci, tid, -1);
+  public StaticElementInfo addClass (ClassInfo ci) {
+    StaticElementInfo ei = createElementInfo(ci, -1);
     int index = indexFor(ci.getName());
 
     add(index, ei);

@@ -41,12 +41,6 @@ public interface SchedulerFactory {
   
   /** used by Object.notify() */
   ChoiceGenerator<ThreadInfo> createNotifyCG(ElementInfo ei, ThreadInfo ti);
-
-  /** used by sun.misc.Unsafe.park() */
-  ChoiceGenerator<ThreadInfo> createParkCG (ElementInfo ei, ThreadInfo tiPark, boolean isAbsoluteTime, long timeOut);
-    
-  /** used by sun.misc.Unsafe.unpark() */
-  ChoiceGenerator<ThreadInfo> createUnparkCG (ThreadInfo tiUnparked);
   
   /** used by Object.notifyAll() */
   ChoiceGenerator<ThreadInfo> createNotifyAllCG(ElementInfo ei, ThreadInfo ti);
@@ -77,11 +71,4 @@ public interface SchedulerFactory {
 
   /** used by Thread.resume() */
   ChoiceGenerator<ThreadInfo> createThreadResumeCG ();
-
-  /** used by Thread.stop() */
-  ChoiceGenerator<ThreadInfo> createThreadStopCG ();
-
-  ChoiceGenerator<ThreadInfo> createBeginAtomicCG (ThreadInfo ti);
-
-  ChoiceGenerator<ThreadInfo> createEndAtomicCG (ThreadInfo ti);
 }

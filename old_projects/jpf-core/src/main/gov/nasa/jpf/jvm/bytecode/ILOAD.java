@@ -29,10 +29,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public class ILOAD extends LocalVariableInstruction {
 
-  public ILOAD(int localVarIndex){
-    super(localVarIndex);
-  }
-
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     //th.push(th.getLocalVariable(index), false);
     th.pushLocal(index);
@@ -59,8 +55,14 @@ public class ILOAD extends LocalVariableInstruction {
     return 0x15; // ?? wide
   }
   
-  public String getBaseMnemonic() {
-    return "iload";
+  public String getMnemonic() {
+    String mnemonic = "iload";
+    
+    if (index >= 0) {
+      return mnemonic + '_' + index;
+    }
+    
+    return mnemonic;
   }
   
   public void accept(InstructionVisitor insVisitor) {

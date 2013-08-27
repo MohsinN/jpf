@@ -21,7 +21,8 @@ package gov.nasa.jpf.jvm.bytecode;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.classfile.ConstantPool;
 
 
 /**
@@ -31,12 +32,14 @@ import gov.nasa.jpf.jvm.Types;
 public class INSTANCEOF extends Instruction {
   private String type;
 
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    type = cp.constantToString(cp.getConstant(
+                                     ((org.apache.bcel.generic.INSTANCEOF) i).getIndex()))
+             .replace('.', '/');
 
-  /**
-   * typeName is of a/b/C notation
-   */
-  public INSTANCEOF (String typeName){
-    type = Types.getTypeSignature(typeName, false);
+    if (!type.startsWith("[")) {
+      type = "L" + type + ";";
+    }
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
@@ -44,7 +47,7 @@ public class INSTANCEOF extends Instruction {
 
     if (objref == -1) {
       th.push(0, false);
-    } else if (ks.heap.get(objref).instanceOf(type)) {
+    } else if (ks.da.get(objref).instanceOf(type)) {
       th.push(1, false);
     } else {
       th.push(0, false);

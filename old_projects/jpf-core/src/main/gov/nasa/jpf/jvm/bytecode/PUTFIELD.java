@@ -18,6 +18,8 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.JPFException;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.FieldInfo;
 import gov.nasa.jpf.jvm.KernelState;
@@ -31,17 +33,16 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  *
  * Hmm, this is at the upper level of complexity because of the unified CG handling
  */
-public class PUTFIELD extends InstanceFieldInstruction implements StoreInstruction {
-
-  public PUTFIELD() {}
-
-  public PUTFIELD(String fieldName, String clsDescriptor, String fieldDescriptor){
-    super(fieldName, clsDescriptor, fieldDescriptor);
-  }
+public class PUTFIELD extends InstanceFieldInstruction implements StoreInstruction
+{
+  long lastValue;
 
   /**
    * only meaningful in instructionExecuted notification
    */
+  public long getLastValue() {
+    return lastValue;
+  }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
 
@@ -60,7 +61,7 @@ public class PUTFIELD extends InstanceFieldInstruction implements StoreInstructi
       return ti.createAndThrowException("java.lang.NullPointerException",
                                  "referencing field '" + fname + "' on null object");
     }
-    ElementInfo ei = ti.getElementInfo(objRef);
+    ElementInfo ei = DynamicArea.getHeap().get(objRef);
 
     // check if this breaks the current transition
     if (isNewPorFieldBoundary(ti, fi, objRef)) {
@@ -72,25 +73,33 @@ public class PUTFIELD extends InstanceFieldInstruction implements StoreInstructi
     // start the real execution by getting the value from the operand stack
     Object attr = null; // attr handling has to be consistent with PUTSTATIC
 
-    if (storageSize == 1){
-      attr = ti.getOperandAttr();
+    switch (storageSize) {
+      case 1:
+        attr = ti.getOperandAttr();
 
-      int ival = ti.pop();
-      lastValue = ival;
+        int ival = ti.pop();
+        lastValue = ival;
 
-      if (fi.isReference()) {
-        ei.setReferenceField(fi, ival);
-      } else {
-        ei.set1SlotField(fi, ival);
-      }
+        if (fi.isReference()){
+          ei.setReferenceField(fi, ival);
+        } else {
+          ei.setIntField(fi, ival);
+        }
 
-    } else {
+        break;
+
+      case 2:
         attr = ti.getLongOperandAttr();
 
         long lval = ti.longPop();
         lastValue = lval;
 
-        ei.set2SlotField(fi, lval);
+        ei.setLongField(fi, lval);
+
+        break;
+
+      default:
+        throw new JPFException("invalid field type");
     }
 
     // this is kind of policy, but it seems more natural to overwrite
@@ -107,7 +116,7 @@ public class PUTFIELD extends InstanceFieldInstruction implements StoreInstructi
     FieldInfo fi = getFieldInfo();
     int storageSize = fi.getStorageSize();
     int objRef = ti.peek( (storageSize == 1) ? 1 : 2);
-    ElementInfo ei = ti.getElementInfo( objRef);
+    ElementInfo ei = DynamicArea.getHeap().get(objRef);
 
     return ei;
   }

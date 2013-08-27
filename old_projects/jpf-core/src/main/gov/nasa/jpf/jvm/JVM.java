@@ -20,20 +20,20 @@ package gov.nasa.jpf.jvm;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
+import gov.nasa.jpf.JPFConfigException;
 import gov.nasa.jpf.JPFException;
 import gov.nasa.jpf.JPFListenerException;
-import gov.nasa.jpf.classfile.ClassFile;
 import gov.nasa.jpf.jvm.bytecode.FieldInstruction;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.choice.ThreadChoiceFromSet;
-import gov.nasa.jpf.util.JPFLogger;
-import gov.nasa.jpf.util.Misc;
+import gov.nasa.jpf.util.Source;
 
 import java.io.PrintWriter;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.logging.Logger;
 
 
 /**
@@ -42,14 +42,9 @@ import java.util.ListIterator;
  */
 public class JVM {
 
-  /**
-   * this is a debugging aid to control compilation of expensive consistency checks
-   * (we don't control these with class-wise assertion enabling since we do use
-   * unconditional assertions for mandatory consistency checks)
-   */
-  public static final boolean CHECK_CONSISTENCY = false;
-  
-  protected static JPFLogger log = JPF.getLogger("gov.nasa.jpf.jvm.JVM");
+  private static enum TimeModel {ConstantZero, ConstantStartTime, ConstantConfig, SystemTime};
+
+  protected static Logger log = JPF.getLogger("gov.nasa.jpf.jvm.JVM");
 
   /**
    * our execution context
@@ -83,19 +78,18 @@ public class JVM {
 
 
   protected String mainClassName;
-  protected String[] args;  /** tiMain() arguments */
+  protected String[] args;  /** main() arguments */
 
   protected Path path;  /** execution path to current state */
   protected StringBuilder out;  /** buffer to store output along path execution */
 
 
   /**
-   * various caches for VMListener state acquisition. NOTE - these are only
+   * various caches for VMListener state acqusition. NOTE - these are only
    * valid during notification
    *
    * <2do> get rid of the 'lasts' in favor of queries on the insn, the executing
-   * thread, and the VM. This is superfluous work to for every notification
-   * (even if there are no listeners using it) that can easily lead to inconsistencies
+   * thread, and the VM
    */
   protected Transition      lastTrailInfo;
   protected ClassInfo       lastClassInfo;
@@ -111,7 +105,6 @@ public class JVM {
   /** the repository we use to find out if we already have seen a state */
   protected StateSet stateSet;
 
-  /** this was the last stateId - note this is also used for stateless model checking */
   protected int newStateId;
 
   /** the structure responsible for storing and restoring backtrack info */
@@ -123,16 +116,16 @@ public class JVM {
   /** optional serializer to support stateSet */
   protected StateSerializer serializer;
 
-  /** potential execution listeners. We keep them in a simple array to avoid
-   creating objects on each notification */
-  protected VMListener[] listeners = new VMListener[0];
-
-  /** did we get a new transition */
-  protected boolean transitionOccurred;
-
-  /** how we model execution time */
+  /** potential execution listeners */
+  protected VMListener    listener;
+  
+  /** the selected time model to use */
   protected TimeModel timeModel;
   
+  /** for the constant time models return these values */
+  protected long milliTime;
+  protected long nanoTime;
+
   protected Config config; // that's for the options we use only once
 
   // JVM options we use frequently
@@ -140,18 +133,12 @@ public class JVM {
   protected boolean treeOutput;
   protected boolean pathOutput;
   protected boolean indentOutput;
-  
-  // <2do> there are probably many places where this should be used
-  protected boolean isBigEndian;
 
-  // a list of actions to be run post GC. This is a bit redundant to VMListener,
-  // but in addition to avoid the per-instruction execution overhead of a VMListener
-  // we want a (internal) mechanism that is on-demand only, i.e. processed
-  // actions are removed from the list
-  protected ArrayList<Runnable> postGcActions = new ArrayList<Runnable>();
-  
   /**
-   * be prepared this might throw JPFConfigExceptions
+   * VM instances are another example of evil throw-up ctors, but this is
+   * justified by the fact that they are only created via (configured)
+   * reflection from within the safe confines of the JPF ctor - which
+   * shields clients against blowups
    */
   public JVM (JPF jpf, Config conf) {
     this.jpf = jpf; // so that we know who instantiated us
@@ -168,19 +155,15 @@ public class JVM {
     // we have to defer setting pathOutput until we have a reporter registered
     indentOutput = config.getBoolean("vm.indent_output",false);
 
-    isBigEndian = getPlatformEndianness(config);
-    
     initTimeModel(config);
 
     initSubsystems(config);
     initFields(config);
   }
 
-  /**
-   * just here for unit test mockups, don't use as implicit base ctor in
-   * JVM derived classes
-   */
-  protected JVM (){}
+  protected JVM (){
+    // just to support unit test mockups
+  }
 
   public JPF getJPF() {
     return jpf;
@@ -199,51 +182,58 @@ public class JVM {
     if (stateSet != null) stateSet.attach(this);
     backtracker = config.getEssentialInstance("vm.backtracker.class", Backtracker.class);
     backtracker.attach(this);
-
-    newStateId = -1;
   }
 
   protected void initSubsystems (Config config) {
     ClassInfo.init(config);
     ThreadInfo.init(config);
-    ElementInfo.init(config);
     MethodInfo.init(config);
+    DynamicArea.init(config);
+    StaticArea.init(config);
     NativePeer.init(config);
     FieldInstruction.init(config);
-    ChoiceGeneratorBase.init(config);
+    ChoiceGenerator.init(config);
 
     // peer classes get initialized upon NativePeer creation
   }
 
   protected void initTimeModel (Config config){
-    Class<?>[] argTypes = { JVM.class, Config.class };
-    Object[] args = { this, config };
-    timeModel = config.getEssentialInstance("vm.time.class", TimeModel.class, argTypes, args);
-  }
-  
-  /**
-   * called after the JPF run is finished. Shouldn't be public, but is called by JPF
-   */
-  public void cleanUp(){
-    // nothing yet
-  }
-  
-  protected boolean getPlatformEndianness (Config config){
-    String endianness = config.getString("vm.endian");
-    if (endianness == null) {
-      return ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN;
-    } else if (endianness.equalsIgnoreCase("big")) {
-      return true;
-    } else if (endianness.equalsIgnoreCase("little")) {
-      return false;
-    } else {
-      config.exception("illegal vm.endian value: " + endianness);
-      return false; // doesn't matter
+    TimeModel[] timeModels = TimeModel.values();
+    String[] modelNames = new String[timeModels.length];
+
+    for (int i = 0; i < timeModels.length; i++){
+      modelNames[i] = timeModels[i].toString();
     }
-  }
-  
-  public boolean isBigEndianPlatform(){
-    return isBigEndian;
+
+    int timeModelIndex = config.getChoiceIndexIgnoreCase("vm.time.model", modelNames);
+
+    if (timeModelIndex != -1){
+      timeModel = timeModels[timeModelIndex];
+    } else {
+      timeModel = TimeModel.SystemTime;
+    }
+
+    switch (timeModel) {
+      case ConstantZero:
+      case SystemTime:
+        milliTime = 0;
+        nanoTime  = 0;
+        break;
+
+      case ConstantStartTime:
+        nanoTime  = System.nanoTime();
+        milliTime = System.currentTimeMillis();
+        nanoTime  = (nanoTime + System.nanoTime()) / 2;
+        break;
+
+      case ConstantConfig:
+        milliTime = config.getLong("vm.time.currentTimeMillis");
+        nanoTime  = config.getLong("vm.time.nanoTime");
+        break;
+
+      default:
+        throw new JPFConfigException("Unhandled time model: " + timeModel);
+    }
   }
 
   /**
@@ -279,9 +269,9 @@ public class JVM {
   /**
    * load and pushClinit startup classes, return 'true' if successful.
    *
-   * This loads a bunch of core library classes, initializes the tiMain thread,
+   * This loads a bunch of core library classes, initializes the main thread,
    * and then all the required startup classes, but excludes the static init of
-   * the tiMain class. Note that whatever gets executed in here should NOT contain
+   * the main class. Note that whatever gets executed in here should NOT contain
    * any non-determinism, since we are not backtrackable yet, i.e.
    * non-determinism in clinits should be constrained to the app class (and
    * classes used by it)
@@ -301,7 +291,7 @@ public class JVM {
     List<ClassInfo> clinitQueue = registerStartupClasses();
 
     if (clinitQueue== null) {
-      log.severe("error initializing startup classes (check 'classpath' and 'target')");
+      log.severe("error initializing startup classes (check 'classpath')");
       return false;
     }
 
@@ -310,24 +300,22 @@ public class JVM {
       return false;
     }
 
-    // create the thread for the tiMain class
-    // note this is incomplete for Java 1.3 where Thread ctors rely on tiMain's
+    // create the thread for the main class
+    // note this is incomplete for Java 1.3 where Thread ctors rely on main's
     // 'inheritableThreadLocals' being set to 'Collections.EMPTY_SET', which
     // pulls in the whole Collections/Random smash, but we can't execute the
-    // Collections.<clinit> yet because there's no stack before we have a tiMain
+    // Collections.<clinit> yet because there's no stack before we have a main
     // thread. Let's hope none of the init classes creates threads in their <clinit>.
-    ThreadInfo tiMain = createMainThread();
+    ThreadInfo main = createMainThread();
 
-    // now that we have a tiMain thread, we can finish the startup class init
-    createStartupClassObjects(clinitQueue, tiMain);
+    // now that we have a main thread, we can finish the startup class init
+    createStartupClassObjects(clinitQueue, main);
 
-    // pushClinit the call stack with the clinits we've picked up, followed by tiMain()
-    pushMainEntry(tiMain);
-    pushClinits(clinitQueue, tiMain);
+    // pushClinit the call stack with the clinits we've picked up, followed by main()
+    pushMain(config);
+    pushClinits(clinitQueue, main);
 
-    initSystemState(tiMain);
-    registerThreadListCleanup();
-    
+    initSystemState(main);
     return true;
   }
 
@@ -336,16 +324,14 @@ public class JVM {
 
     // the first transition probably doesn't have much choice (unless there were
     // threads started in the static init), but we want to keep it uniformly anyways
-    ChoiceGenerator<?> cg = new ThreadChoiceFromSet("<root>", getThreadList().getRunnableThreads(), true);
-    ss.setMandatoryNextChoiceGenerator(cg, "no root CG");
+    ChoiceGenerator<?> cg = new ThreadChoiceFromSet("root", getThreadList().getRunnableThreads(), true);
+    ss.setNextChoiceGenerator(cg);
 
     ss.recordSteps(hasToRecordSteps());
 
     if (!pathOutput) { // don't override if explicitly requested
       pathOutput = hasToRecordPathOutput();
     }
-
-    transitionOccurred = true;
   }
 
   /**
@@ -356,50 +342,51 @@ public class JVM {
    * bytecode yet (which would need a ThreadInfo context)
    */
   protected ThreadInfo createMainThread () {
-    Heap heap = getHeap();
+    DynamicArea da = getDynamicArea();
 
-    ClassInfo ciThread = ClassInfo.getResolvedClassInfo("java.lang.Thread");
-    int objRef = heap.newObject( ciThread, null);
-    int groupRef = createSystemThreadGroup(objRef);
-    int nameRef = heap.newString("main", null);
-    
-    //--- initialize the main Thread object
-    ElementInfo ei = heap.get(objRef);
-    ei.setReferenceField("group", groupRef);
-    ei.setReferenceField("name", nameRef);
+    // first we need a group for this baby (happens to be called "main")
+
+    int tObjRef = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Thread"), null);
+    int grpObjref = createSystemThreadGroup(tObjRef);
+
+    ElementInfo ei = da.get(tObjRef);
+    ei.setReferenceField("group", grpObjref);
+    ei.setReferenceField("name", da.newString("main", null));
     ei.setIntField("priority", Thread.NORM_PRIORITY);
 
-    int permitRef = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.Thread$Permit"),null);
-    ElementInfo eiPermitRef = heap.get(permitRef);
+    int permitRef = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Thread$Permit"),null);
+    ElementInfo eiPermitRef = da.get(permitRef);
     eiPermitRef.setBooleanField("blockPark", true);
     ei.setReferenceField("permit", permitRef);
 
-    //--- create the ThreadInfo
-    ThreadInfo ti = ThreadInfo.createThreadInfo(this, objRef, groupRef, MJIEnv.NULL, nameRef, 0L);
-    
-    //--- set it running
+    // we need to keep the attributes on the JPF side in sync here
+    // <2do> factor out the Thread/ThreadInfo creation so that it's less
+    // error prone (even so this is the only location it's required for)
+    ThreadInfo ti = ThreadInfo.createThreadInfo(this, tObjRef);
+    ti.setPriority(java.lang.Thread.NORM_PRIORITY);
+    ti.setName("main");
     ti.setState(ThreadInfo.State.RUNNING);
 
     return ti;
   }
 
   protected int createSystemThreadGroup (int mainThreadRef) {
-    Heap heap = getHeap();
+    DynamicArea da = getDynamicArea();
 
-    int ref = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.ThreadGroup"), null);
-    ElementInfo ei = heap.get(ref);
+    int ref = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.ThreadGroup"), null);
+    ElementInfo ei = da.get(ref);
 
     // since we can't call methods yet, we have to init explicitly (BAD)
     // <2do> - this isn't complete yet
 
-    int grpName = heap.newString("main", null);
+    int grpName = da.newString("main", null);
     ei.setReferenceField("name", grpName);
 
     ei.setIntField("maxPriority", java.lang.Thread.MAX_PRIORITY);
 
-    int threadsRef = heap.newArray("Ljava/lang/Thread;", 4, null);
-    ElementInfo eiThreads = heap.get(threadsRef);
-    eiThreads.setReferenceElement(0, mainThreadRef);
+    int threadsRef = da.newArray("Ljava/lang/Thread;", 4, null);
+    ElementInfo eiThreads = da.get(threadsRef);
+    eiThreads.setElement(0, mainThreadRef);
 
     ei.setReferenceField("threads", threadsRef);
 
@@ -408,141 +395,90 @@ public class JVM {
     return ref;
   }
 
-  protected void registerThreadListCleanup(){
-    ClassInfo ciThread = ClassInfo.tryGetResolvedClassInfo("java.lang.Thread");
-    assert ciThread != null : "java.lang.Thread not loaded yet";
-    
-    ciThread.addReleaseAction( new ReleaseAction(){
-      public void release(ElementInfo ei) {
-        ThreadList tl = getThreadList();
-        int objRef = ei.getObjectRef();
-        ThreadInfo ti = tl.getThreadInfoForObjRef(objRef);
-        if (tl.remove(ti)){        
-          getKernelState().changed();    
-        }
-      }
-    });    
-  }
 
-  public void addPostGcAction (Runnable r){
-    postGcActions.add(r);
-  }
-  
-  /**
-   * to be called from the Heap after GC is completed (i.e. only live objects remain)
-   */
-  public void processPostGcActions(){
-    if (!postGcActions.isEmpty()){
-      for (Runnable r : postGcActions){
-        r.run();
-      }
-      
-      postGcActions.clear();
-    }
-  }
-  
   protected List<ClassInfo> registerStartupClasses () {
-    ArrayList<String> list = new ArrayList<String>(128);
     ArrayList<ClassInfo> queue = new ArrayList<ClassInfo>(32);
 
-    // bare essentials
-    list.add("java.lang.Object");
-    list.add("java.lang.Class");
-    list.add("java.lang.ClassLoader");
+    String[] startupClasses = {  // order matters
+        // bare essentials
+        "java.lang.Object",
+        "java.lang.Class",
+        "java.lang.ClassLoader",
 
-    // the builtin types (and their arrays)
-    list.add("boolean");
-    list.add("[Z");
-    list.add("byte");
-    list.add("[B");
-    list.add("char");
-    list.add("[C");
-    list.add("short");
-    list.add("[S");
-    list.add("int");
-    list.add("[I");
-    list.add("long");
-    list.add("[J");
-    list.add("float");
-    list.add("[F");
-    list.add("double");
-    list.add("[D");
-    list.add("void");
+        // the builtin types (and their arrays)
+        "boolean",
+        "[Z",
+        "byte",
+        "[B",
+        "char",
+        "[C",
+        "short",
+        "[S",
+        "int",
+        "[I",
+        "long",
+        "[J",
+        "float",
+        "[F",
+        "double",
+        "[D",
+        "void",
 
-    // the box types
-    list.add("java.lang.Boolean");
-    list.add("java.lang.Character");
-    list.add("java.lang.Short");
-    list.add("java.lang.Integer");
-    list.add("java.lang.Long");
-    list.add("java.lang.Float");
-    list.add("java.lang.Double");
+        // the box types
+        "java.lang.Boolean",
+        "java.lang.Character",
+        "java.lang.Short",
+        "java.lang.Integer",
+        "java.lang.Long",
+        "java.lang.Float",
+        "java.lang.Double",
 
-    // the cache for box types
-    list.add("gov.nasa.jpf.BoxObjectCaches");
+        // standard system classes
+        "java.lang.String",
+        "java.lang.ThreadGroup",
+        "java.lang.Thread",
+        "java.lang.Thread$State",
+        "java.io.PrintStream",
+        "java.io.InputStream",
+        "java.lang.System",
 
-    // standard system classes
-    list.add("java.lang.String");
-    list.add("java.lang.ThreadGroup");
-    list.add("java.lang.Thread");
-    list.add("java.lang.Thread$State");
-    list.add("java.io.PrintStream");
-    list.add("java.io.InputStream");
-    list.add("java.lang.System");
+        mainClassName
+    };
 
-    // we could be more fancy and use wildcard patterns and the current classpath
-    // to specify extra classes, but this could be VERY expensive. Projected use
-    // is mostly to avoid static init of single classes during the search
-    String[] extraStartupClasses = config.getStringArray("vm.extra_startup_classes");
-    if (extraStartupClasses != null) {      
-      for (String extraCls : extraStartupClasses) {
-        list.add(extraCls);
-      }
-    }
-
-    // last not least the application main class
-    list.add(mainClassName);
-
-    // now resolve all the entries in the list and queue the corresponding ClassInfos
-    for (String clsName : list) {
+    for (String clsName : startupClasses) {
       ClassInfo ci = ClassInfo.tryGetResolvedClassInfo(clsName);
       if (ci != null) {
         registerStartupClass(ci, queue);
       } else {
-        log.severe("can't find startup class ", clsName);
+        log.severe("can't find startup class: " + clsName);
         return null;
       }
     }
 
     return queue;
   }
-  
+
 
   // note this has to be in order - we don't want to init a derived class before
   // it's parent is initialized
-  // This code must be kept in sync with ClassInfo.registerClass()
   void registerStartupClass (ClassInfo ci, List<ClassInfo> queue) {
-        
+    StaticArea sa = getStaticArea();
+
     if (!queue.contains(ci)) {
+
       if (ci.getSuperClass() != null) {
         registerStartupClass( ci.getSuperClass(), queue);
       }
-      
-      for (String ifcName : ci.getAllInterfaces()) {
-        ClassInfo ici = ClassInfo.getResolvedClassInfo(ifcName);
-        registerStartupClass(ici, queue);
-      }
 
-      ClassInfo.logger.finer("registering class: ", ci.getName());
       queue.add(ci);
 
-      StaticArea sa = getStaticArea();
       if (!sa.containsClass(ci.getName())){
-        sa.addClass(ci, null);
+        sa.addClass(ci);
       }
     }
   }
-  
+
+
   protected void createStartupClassObjects (List<ClassInfo> queue, ThreadInfo ti){
     for (ClassInfo ci : queue) {
       ci.createClassObject(ti);
@@ -565,59 +501,38 @@ public class JVM {
     }
   }
 
-  /**
-   * override this method if you want your tiMain class entry to be anything else
-   * than "public static void tiMain(String[] args)"
-   * 
-   * Note that we do a directcall here so that we always have a first frame that
-   * can't execute SUT code. That way, we can handle synchronized entry points
-   * via normal InvokeInstructions, and thread termination processing via
-   * DIRECTCALLRETURN
-   */
-  protected void pushMainEntry (ThreadInfo tiMain) {
-    Heap heap = getHeap();
-    
-    ClassInfo ciMain = ClassInfo.getResolvedClassInfo(mainClassName);
-    MethodInfo miMain = ciMain.getMethod("main([Ljava/lang/String;)V", false);
+  protected void pushMain (Config config) {
+    DynamicArea da = ss.ks.da;
+    ClassInfo ci = ClassInfo.getResolvedClassInfo(mainClassName);
+    MethodInfo mi = ci.getMethod("main([Ljava/lang/String;)V", false);
+    ThreadInfo ti = ss.getThreadInfo(0);
 
-    // do some sanity checks if this is a valid tiMain()
-    if (miMain == null || !miMain.isStatic()) {
-      throw new JPFException("no main() method in " + ciMain.getName());
+    if (mi == null || !mi.isStatic()) {
+      throw new JPFException("no main() method in " + ci.getName());
     }
 
-    // create the args array object
-    int argsRef = heap.newArray("Ljava/lang/String;", args.length, null);
-    ElementInfo argsElement = heap.get(argsRef);
+    ti.pushFrame(new StackFrame(mi, null));
+
+    int argsObjref = da.newArray("Ljava/lang/String;", args.length, null);
+    ElementInfo argsElement = ss.ks.da.get(argsObjref);
+
     for (int i = 0; i < args.length; i++) {
-      int aRef = heap.newString(args[i], tiMain);
-      argsElement.setReferenceElement(i, aRef);
+      int stringObjref = da.newString(args[i], null);
+      argsElement.setElement(i, stringObjref);
     }
-    
-    // create the direct call stub
-    MethodInfo mainStub = miMain.createDirectCallStub("[main]");
-    DirectCallStackFrame frame = new DirectCallStackFrame(mainStub);
-    frame.pushRef(argsRef);
-    // <2do> set RUNSTART pc if we want to catch synchronized tiMain() defects 
-    
-    tiMain.pushFrame(frame);
+    ti.setLocalVariable(0, argsObjref, true);
   }
 
-  
   public void addListener (VMListener newListener) {
-    log.info("VMListener added: ", newListener);
-    listeners = Misc.appendElement(listeners, newListener);
+    listener = VMListenerMulticaster.add(listener, newListener);
   }
 
   public boolean hasListenerOfType (Class<?> listenerCls) {
-    return Misc.hasElementOfType(listeners, listenerCls);
+    return VMListenerMulticaster.containsType(listener,listenerCls);
   }
 
-  public <T> T getNextListenerOfType(Class<T> type, T prev){
-    return Misc.getNextElementOfType(listeners, type, prev);
-  }
-  
   public void removeListener (VMListener removeListener) {
-    listeners = Misc.removeElement(listeners, removeListener);
+    listener = VMListenerMulticaster.remove(listener,removeListener);
   }
 
   public void setTraceReplay (boolean isReplay) {
@@ -653,526 +568,464 @@ public class JVM {
     }
   }
 
-  protected void notifyChoiceGeneratorRegistered (ChoiceGenerator<?>cg, ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-      lastInstruction = ti.getPC();
-      lastChoiceGenerator = cg;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].choiceGeneratorRegistered(this);
-      }
-      lastChoiceGenerator = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during choiceGeneratorRegistered() notification", t);
-    }
-  }
-
   protected void notifyChoiceGeneratorSet (ChoiceGenerator<?>cg) {
-    try {
-      lastChoiceGenerator = cg;
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].choiceGeneratorSet(this);
+    if (listener != null) {
+      try {
+        lastChoiceGenerator = cg;
+        listener.choiceGeneratorSet(this);
+        lastChoiceGenerator = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during choiceGeneratorSet() notification", t);
       }
-      lastChoiceGenerator = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during choiceGeneratorSet() notification", t);
     }
   }
 
   protected void notifyChoiceGeneratorAdvanced (ChoiceGenerator<?>cg) {
-    try {
-      lastChoiceGenerator = cg;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].choiceGeneratorAdvanced(this);
+    if (listener != null) {
+      try {
+        lastChoiceGenerator = cg;
+        listener.choiceGeneratorAdvanced(this);
+        lastChoiceGenerator = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during choiceGeneratorAdvanced() notification", t);
       }
-      lastChoiceGenerator = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during choiceGeneratorAdvanced() notification", t);
     }
   }
 
   protected void notifyChoiceGeneratorProcessed (ChoiceGenerator<?>cg) {
-    try {
-      lastChoiceGenerator = cg;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].choiceGeneratorProcessed(this);
+    if (listener != null) {
+      try {
+        lastChoiceGenerator = cg;
+        listener.choiceGeneratorProcessed(this);
+        lastChoiceGenerator = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during choiceGeneratorProcessed() notification", t);
       }
-      lastChoiceGenerator = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during choiceGeneratorProcessed() notification", t);
     }
   }
 
   protected void notifyExecuteInstruction (ThreadInfo ti, Instruction insn) {
-    try {
-      lastThreadInfo = ti;
-      nextInstruction = insn;
-      lastInstruction = insn; // <2do> debatable - we need to revisit the whole last... business (see header)
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastInstruction = insn;
 
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].executeInstruction(this);
+        listener.executeInstruction(this);
+
+        //nextInstruction = null;
+        //lastInstruction = null;
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during executeInstruction() notification", t);
       }
-
-      //nextInstruction = null;
-      //lastInstruction = null;
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during executeInstruction() notification", t);
     }
   }
 
   protected void notifyInstructionExecuted (ThreadInfo ti, Instruction insn, Instruction nextInsn) {
-    try {
-      lastThreadInfo = ti;
-      lastInstruction = insn;
-      nextInstruction = nextInsn;
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastInstruction = insn;
+        nextInstruction = nextInsn;
 
-      //listener.instructionExecuted(this);
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].instructionExecuted(this);
+        listener.instructionExecuted(this);
+
+        //nextInstruction = null;
+        //lastInstruction = null;
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during instructionExecuted() notification", t);
       }
 
-      //nextInstruction = null;
-      //lastInstruction = null;
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during instructionExecuted() notification", t);
     }
   }
 
   protected void notifyThreadStarted (ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].threadStarted(this);
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        listener.threadStarted(this);
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during threadStarted() notification", t);
       }
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during threadStarted() notification", t);
     }
   }
 
   // NOTE: the supplied ThreadInfo does NOT have to be the running thread, as this
   // notification can occur as a result of a lock operation in the current thread
   protected void notifyThreadBlocked (ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-      lastElementInfo = ti.getLockObject();
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].threadBlocked(this);
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastElementInfo = ti.getLockObject();
+        listener.threadBlocked(this);
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during threadBlocked() notification", t);
       }
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during threadBlocked() notification", t);
     }
   }
 
   protected void notifyThreadWaiting (ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].threadWaiting(this);
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        listener.threadWaiting(this);
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during threadWaiting() notification", t);
       }
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during threadWaiting() notification", t);
     }
   }
 
   protected void notifyThreadNotified (ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].threadNotified(this);
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        listener.threadNotified(this);
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during threadNotified() notification", t);
       }
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during threadNotified() notification", t);
     }
   }
 
   protected void notifyThreadInterrupted (ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].threadInterrupted(this);
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        listener.threadInterrupted(this);
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during threadInterrupted() notification", t);
       }
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during threadInterrupted() notification", t);
     }
   }
 
   protected void notifyThreadTerminated (ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].threadTerminated(this);
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        listener.threadTerminated(this);
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during threadTerminated() notification", t);
       }
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during threadTerminated() notification", t);
     }
   }
 
   protected void notifyThreadScheduled (ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].threadScheduled(this);
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        listener.threadScheduled(this);
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during threadScheduled() notification", t);
       }
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during threadScheduled() notification", t);
-    }
-  }
-  
-  protected void notifyLoadClass (ClassFile cf){
-    try {
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].loadClass(this, cf);
-      }
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during classLoaded() notification", t);
-    }    
-  }
-
-  protected void notifyClassLoaded(ClassInfo ci) {
-    try {
-      lastClassInfo = ci;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].classLoaded(this);
-      }
-      //lastClassInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during classLoaded() notification", t);
     }
   }
 
-  protected void notifyObjectCreated(ThreadInfo ti, ElementInfo ei) {
-    try {
-      lastThreadInfo = ti;
-      lastElementInfo = ei;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].objectCreated(this);
+  protected void notifyClassLoaded (ClassInfo ci) {
+    if (listener != null) {
+      try {
+        lastClassInfo = ci;
+        listener.classLoaded(this);
+        //lastClassInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during classLoaded() notification", t);
       }
-
-      //lastElementInfo = null;
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during objectCreated() notification", t);
     }
   }
 
-  protected void notifyObjectReleased(ElementInfo ei) {
-    try {
-      lastElementInfo = ei;
+  protected void notifyObjectCreated (ThreadInfo ti, ElementInfo ei) {
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastElementInfo = ei;
 
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].objectReleased(this);
+        listener.objectCreated(this);
+
+        //lastElementInfo = null;
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during objectCreated() notification", t);
       }
-      //lastElementInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during objectReleased() notification", t);
     }
   }
 
-  protected void notifyObjectLocked(ThreadInfo ti, ElementInfo ei) {
-    try {
-      lastThreadInfo = ti;
-      lastElementInfo = ei;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].objectLocked(this);
+  protected void notifyObjectReleased (ElementInfo ei) {
+    if (listener != null) {
+      try {
+        lastElementInfo = ei;
+        listener.objectReleased(this);
+        //lastElementInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during objectReleased() notification", t);
       }
-
-      //lastElementInfo = null;
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during objectLocked() notification", t);
     }
   }
 
-  protected void notifyObjectUnlocked(ThreadInfo ti, ElementInfo ei) {
-    try {
-      lastThreadInfo = ti;
-      lastElementInfo = ei;
+  protected void notifyObjectLocked (ThreadInfo ti, ElementInfo ei){
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastElementInfo = ei;
 
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].objectUnlocked(this);
+        listener.objectLocked(this);
+
+        //lastElementInfo = null;
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during objectLocked() notification", t);
       }
-
-      //lastElementInfo = null;
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during objectUnlocked() notification", t);
     }
   }
 
-  protected void notifyObjectWait(ThreadInfo ti, ElementInfo ei) {
-    try {
-      lastThreadInfo = ti;
-      lastElementInfo = ei;
+  protected void notifyObjectUnlocked (ThreadInfo ti, ElementInfo ei) {
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastElementInfo = ei;
 
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].objectWait(this);
+        listener.objectUnlocked(this);
+
+        //lastElementInfo = null;
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during objectUnlocked() notification", t);
       }
-
-      //lastElementInfo = null;
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during objectWait() notification", t);
     }
   }
 
-  protected void notifyObjectNotifies(ThreadInfo ti, ElementInfo ei) {
-    try {
-      lastThreadInfo = ti;
-      lastElementInfo = ei;
+  protected void notifyObjectWait (ThreadInfo ti, ElementInfo ei) {
+    if (listener != null) {
+      try { 
+        lastThreadInfo = ti;
+        lastElementInfo = ei;
 
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].objectNotify(this);
+        listener.objectWait(this);
+
+        //lastElementInfo = null;
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during objectWait() notification", t);
       }
-
-      //lastElementInfo = null;
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during objectNotifies() notification", t);
     }
   }
 
-  protected void notifyObjectNotifiesAll(ThreadInfo ti, ElementInfo ei) {
-    try {
-      lastThreadInfo = ti;
-      lastElementInfo = ei;
+  protected void notifyObjectNotifies (ThreadInfo ti, ElementInfo ei) {
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastElementInfo = ei;
 
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].objectNotifyAll(this);
+        listener.objectNotify(this);
+
+        //lastElementInfo = null;
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during objectNotifies() notification", t);
       }
-
-      //lastElementInfo = null;
-      //lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during objectNotifiesAll() notification", t);
     }
   }
 
-  protected void notifyGCBegin() {
-    try {
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].gcBegin(this);
-      }
+  protected void notifyObjectNotifiesAll (ThreadInfo ti, ElementInfo ei) {
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastElementInfo = ei;
 
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during gcBegin() notification", t);
+        listener.objectNotifyAll(this);
+
+        //lastElementInfo = null;
+        //lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during objectNotifiesAll() notification", t);
+      }
     }
   }
 
-  protected void notifyGCEnd() {
-    try {
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].gcEnd(this);
+  protected void notifyGCBegin () {
+    if (listener != null) {
+      try {
+        listener.gcBegin(this);
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during gcBegin() notification", t);
       }
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during gcEnd() notification", t);
     }
   }
 
-  protected void notifyExceptionThrown(ThreadInfo ti, ElementInfo ei) {
-    try {
-      lastThreadInfo = ti;
-      lastElementInfo = ei;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].exceptionThrown(this);
+  protected void notifyGCEnd () {
+    if (listener != null) {
+      try {
+        listener.gcEnd(this);
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during gcEnd() notification", t);
       }
-
-      lastElementInfo = null;
-      lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during exceptionThrown() notification", t);
     }
   }
 
-  protected void notifyExceptionBailout(ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].exceptionBailout(this);
+  protected void notifyExceptionThrown (ThreadInfo ti, ElementInfo ei) {
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        lastElementInfo = ei;
+
+        listener.exceptionThrown(this);
+
+        lastElementInfo = null;
+        lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during exceptionThrown() notification", t);
       }
-      lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during exceptionBailout() notification", t);
     }
   }
 
-  protected void notifyExceptionHandled(ThreadInfo ti) {
-    try {
-      lastThreadInfo = ti;
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].exceptionHandled(this);
+  protected void notifyExceptionBailout (ThreadInfo ti){
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        listener.exceptionBailout(this);
+        lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during exceptionBailout() notification", t);
       }
-      lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during exceptionHandled() notification", t);
     }
+    
   }
 
-  protected void notifyMethodEntered(ThreadInfo ti, MethodInfo mi) {
-    try {
+  protected void notifyExceptionHandled (ThreadInfo ti){
+    if (listener != null) {
+      try {
+        lastThreadInfo = ti;
+        listener.exceptionHandled(this);
+        lastThreadInfo = null;
+      } catch (UncaughtException x) {
+        throw x;
+      } catch (JPF.ExitException x) {
+        throw x;
+      } catch (Throwable t){
+        throw new JPFListenerException("exception during exceptionHandler() notification", t);
+      }
+    }
+
+  }
+
+  protected void notifyMethodEntered (ThreadInfo ti, MethodInfo mi){
+    if (listener != null){
       lastThreadInfo = ti;
       lastMethodInfo = mi;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].methodEntered(this);
-      }
+      listener.methodEntered(this);
       lastMethodInfo = null;
       lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during methodEntered() notification", t);
     }
   }
 
-  protected void notifyMethodExited(ThreadInfo ti, MethodInfo mi) {
-    try {
+  protected void notifyMethodExited (ThreadInfo ti, MethodInfo mi){
+    if (listener != null){
       lastThreadInfo = ti;
       lastMethodInfo = mi;
-
-      for (int i = 0; i < listeners.length; i++) {
-        listeners[i].methodExited(this);
-      }
+      listener.methodExited(this);
       lastMethodInfo = null;
       lastThreadInfo = null;
-    } catch (UncaughtException x) {
-      throw x;
-    } catch (JPF.ExitException x) {
-      throw x;
-    } catch (Throwable t) {
-      throw new JPFListenerException("exception during methodExited() notification", t);
     }
   }
 
@@ -1180,7 +1033,7 @@ public class JVM {
   // VMListener acquisition
   public int getThreadNumber () {
     if (lastThreadInfo != null) {
-      return lastThreadInfo.getId();
+      return lastThreadInfo.getIndex();
     } else {
       return -1;
     }
@@ -1199,6 +1052,22 @@ public class JVM {
     return ti.getPC();
   }
 
+
+  public int getAbstractionNonDeterministicThreadCount () {
+    int n = 0;
+    int imax = ss.getThreadCount();
+
+    for (int i = 0; i < imax; i++) {
+      ThreadInfo th = ss.getThreadInfo(i);
+
+      if (th.isAbstractionNonDeterministic()) {
+        n++;
+      }
+    }
+
+    return n;
+  }
+
   public int getAliveThreadCount () {
     return getThreadList().getLiveThreadCount();
   }
@@ -1213,6 +1082,35 @@ public class JVM {
     }
   }
 
+  public boolean isBoringState () {
+    return ss.isBoring();
+  }
+
+  public StaticElementInfo getClassReference (String name) {
+    return ss.ks.sa.get(name);
+  }
+
+  public boolean hasPendingException () {
+    return (ThreadInfo.currentThread.pendingException != null);
+  }
+
+  public boolean isDeadlocked () {
+    return ss.isDeadlocked();
+  }
+
+  public boolean isEndState () {
+    // note this uses 'alive', not 'runnable', hence isEndStateProperty won't
+    // catch deadlocks - but that would be NoDeadlockProperty anyway
+    return ss.isEndState();
+  }
+
+  public Exception getException () {
+    return ss.getUncaughtException();
+  }
+
+  public boolean isInterestingState () {
+    return ss.isInteresting();
+  }
 
   public Step getLastStep () {
     Transition trail = ss.getTrail();
@@ -1277,9 +1175,7 @@ public class JVM {
   /**
    * answer the Object that was most recently created or collected
    * part of the VMListener state acqusition (only valid from inside of
-   * object related notification)
-   *
-   * NOTE - this is currently not set for instructionExecuted notifications
+   * notification)
    */
   public ElementInfo getLastElementInfo () {
     return lastElementInfo;
@@ -1302,7 +1198,7 @@ public class JVM {
 
   public ClassInfo getClassInfo (int objref) {
     if (objref != MJIEnv.NULL) {
-      return getElementInfo(objref).getClassInfo();
+      return getDynamicArea().get(objref).getClassInfo();
     } else {
       return null;
     }
@@ -1361,12 +1257,12 @@ public class JVM {
   public ThreadList getThreadList () {
     return getKernelState().getThreadList();
   }
-  
+
   /**
    * Bundles up the state of the system for export
    */
-  public RestorableVMState getRestorableState () {
-    return new RestorableVMState(this);
+  public VMState getState () {
+    return new VMState(this);
   }
 
   /**
@@ -1377,19 +1273,11 @@ public class JVM {
   }
 
   public KernelState getKernelState () {
-    return ss.getKernelState();
+    return ss.ks;
   }
 
-  public void kernelStateChanged(){
-    ss.getKernelState().changed();
-  }
-  
   public Config getConfig() {
     return config;
-  }
-
-  public SchedulerFactory getSchedulerFactory(){
-    return ss.getSchedulerFactory();
   }
 
   public Backtracker getBacktracker() {
@@ -1406,6 +1294,10 @@ public class JVM {
       } else {
         // config read only if serializer is not also a restorer
         restorer = config.getInstance("vm.restorer.class", StateRestorer.class);
+        if (serializer instanceof IncrementalChangeTracker &&
+            restorer instanceof IncrementalChangeTracker) {
+          config.throwException("Incompatible serializer and restorer!");
+        }
       }
       restorer.attach(this);
     }
@@ -1422,11 +1314,6 @@ public class JVM {
     return serializer;
   }
 
-  public void setSerializer (StateSerializer newSerializer){
-    serializer = newSerializer;
-    serializer.attach(this);
-  }
-  
   /**
    * Returns the stateSet if states are being matched.
    */
@@ -1443,20 +1330,11 @@ public class JVM {
     return ss.getChoiceGenerator();
   }
 
-  public ChoiceGenerator<?> getNextChoiceGenerator() {
-    return ss.getNextChoiceGenerator();
-  }
-
-  public boolean setNextChoiceGenerator (ChoiceGenerator<?> cg){
-    return ss.setNextChoiceGenerator(cg);
-  }
-  
-  
   /**
    * return the latest registered ChoiceGenerator used in this transition
    * that matches the provided 'id' and is of 'cgType'.
    * 
-   * This should be the tiMain getter for clients that are cascade aware
+   * This should be the main getter for clients that are cascade aware
    */
   public <T extends ChoiceGenerator<?>> T getCurrentChoiceGenerator (String id, Class<T> cgType) {
     return ss.getCurrentChoiceGenerator(id,cgType);
@@ -1473,12 +1351,8 @@ public class JVM {
     return ss.getChoiceGeneratorsOfType(cgType);
   }
 
-  public <T extends ChoiceGenerator<?>> T getLastChoiceGeneratorOfType (Class<T> cgType){
-    return ss.getLastChoiceGeneratorOfType(cgType);
-  }
-  
-  public StaticElementInfo getClassReference (String name) {
-    return ss.ks.statics.get(name);
+  public boolean isTerminated () {
+    return ss.ks.isTerminated();
   }
 
   public void print (String s) {
@@ -1613,8 +1487,6 @@ public class JVM {
    * this is here so that we can intercept it in subclassed VMs
    */
   public Instruction handleException (ThreadInfo ti, int xObjRef){
-    ti = null;        // Get rid of IDE warning
-    xObjRef = 0;
     return null;
   }
 
@@ -1628,29 +1500,34 @@ public class JVM {
   }
 
   public ThreadInfo[] getLiveThreads () {
-    return getThreadList().getThreads();
+    int n = ss.getThreadCount();
+    ThreadInfo[] list = new ThreadInfo[n];
+    for (int i=0; i<n; i++){
+      list[i] = ss.getThreadInfo(i);
+    }
+    return list;
   }
 
   /**
    * print call stacks of all live threads
    * this is also used for debugging purposes, so we can't move it to the Reporter system
-   * (it's also using a bit too many internals for that)
+   * (it's also using a bit too much internals for that)
    */
   public void printLiveThreadStatus (PrintWriter pw) {
-    int nThreads = ss.getThreadCount();
-    ThreadInfo[] threads = getThreadList().getThreads();
+    int imax = ss.getThreadCount();
     int n=0;
 
-    for (int i = 0; i < nThreads; i++) {
-      ThreadInfo ti = threads[i];
+    for (int i = 0; i < imax; i++) {
+      ThreadInfo ti = ss.getThreadInfo(i);
+      List<StackFrame> stack = ti.getStack();
 
-      if (ti.getStackDepth() > 0){
+      if (stack.size() > 0) {
         n++;
         //pw.print("Thread: ");
-        //pw.print(tiMain.getName());
+        //pw.print(ti.getName());
         pw.println(ti.getStateDescription());
 
-        List<ElementInfo> locks = ti.getLockedObjects();
+        LinkedList<ElementInfo> locks = ti.getLockedObjects();
         if (!locks.isEmpty()) {
           pw.print("  owned locks:");
           boolean first = true;
@@ -1676,7 +1553,8 @@ public class JVM {
         }
 
         pw.println("  call stack:");
-        for (StackFrame frame : ti){
+        for (int j=stack.size()-1; j>=0; j--) { // we have to print this reverse
+          StackFrame frame = stack.get(j);
           if (!frame.isDirectCallFrame()) {
             pw.print("\tat ");
             pw.println(frame.getStackTraceInfo());
@@ -1692,8 +1570,8 @@ public class JVM {
     }
   }
 
-  // just a debugging aid
-  public void dumpThreadStates () {
+  // just a Q&D debugging aid
+  void dumpThreadStates () {
     java.io.PrintWriter pw = new java.io.PrintWriter(System.out, true);
     printLiveThreadStatus(pw);
     pw.flush();
@@ -1707,18 +1585,13 @@ public class JVM {
    * and restoring the second one)
    */
   public boolean backtrack () {
-    transitionOccurred = false;
-
     boolean success = backtracker.backtrack();
     if (success) {
-      if (CHECK_CONSISTENCY) checkConsistency(false);
-      
       // restore the path
       path.removeLast();
       lastTrailInfo = path.getLast();
 
-      return true;
-      
+      return ((ss.getId() != StateSet.UNKNOWN_ID) || (stateSet == null));
     } else {
       return false;
     }
@@ -1751,82 +1624,89 @@ public class JVM {
   }
 
   /**
-   * advance the program state
-   *
+   * try to advance the state
    * forward() and backtrack() are the two primary interfaces towards the Search
-   * driver. note that the caller still has to check if there is a next state,
-   * and if the executed instruction sequence led into a new or already visited state
-   *
-   * @return 'true' if there was an un-executed sequence out of the current state,
+   * driver
+   * return 'true' if there was an un-executed sequence out of the current state,
    * 'false' if it was completely explored
-   *
+   * note that the caller still has to check if there is a next state, and if
+   * the executed instruction sequence led into a new or already visited state
    */
   public boolean forward () {
-
-    // the reason we split up CG initialization and transition execution
-    // is that program state storage is not required if the CG initialization
-    // does not produce a new choice since we have to backtrack in that case
-    // anyways. This can be caused by complete enumeration of CGs and/or by
-    // CG listener intervention (i.e. not just after backtracking). For a large
-    // number of matched or end states and ignored transitions this can be a
-    // huge saving.
-    // The downside is that CG notifications are NOT allowed anymore to change the
-    // KernelState (modify fields or thread states) since those changes would
-    // happen before storing the KernelState, and hence would make backtracking
-    // inconsistent. This is advisable anyways since all program state changes
-    // should take place during transitions, but the real snag is that this
-    // cannot be easily enforced.
-
-    // actually, it hasn't occurred yet, but will
-    transitionOccurred = ss.initializeNextTransition(this);
-    
-    if (transitionOccurred){
-      if (CHECK_CONSISTENCY) {
-        checkConsistency(true); // don't push an inconsistent state
-      }
-
-      backtracker.pushKernelState();
-
-      // cache this before we execute (and increment) the next insn(s)
-      lastTrailInfo = path.getLast();
-
+    while (true) { // loop until we find a state that isn't ignored
       try {
-        ss.executeNextTransition(jvm);
+        // saves the current state for backtracking purposes of depth first
+        // searches and state observers. If there is a previously cached
+        // kernelstate, use that one
+        backtracker.pushKernelState();
+
+        // cache this before we execute (and increment) the next insn(s)
+        lastTrailInfo = path.getLast();
+
+        // execute the instruction(s) to get to the next state
+        // this changes the SystemState (e.g. finds the next thread to run)
+        if (ss.nextSuccessor(this)) {
+          //for debugging locks:  -peterd
+          //ss.ks.da.verifyLockInfo();
+
+          if (ss.isIgnored()) {
+            // do it again
+            backtracker.backtrackKernelState();
+            continue;
+
+          } else { // this is the normal forward that executed insns, and wasn't ignored
+            // runs the garbage collector (if necessary), which might change the
+            // KernelState (DynamicArea). We need to do this before we hash the state to
+            // find out if it is a new one
+            // Note that we don't collect if there is a pending exception, since
+            // we want to preserve as much state as possible for debug purposes
+            if (runGc && !hasPendingException()) {
+              ss.gcIfNeeded();
+            }
+
+            // saves the backtrack information. Unfortunately, we cannot cache
+            // this (except of the optional lock graph) because it is changed
+            // by the subsequent operations (before we return from forward)
+            backtracker.pushSystemState();
+
+            updatePath();
+            break;
+          }
+
+        } else { // state was completely explored, no transition ocurred
+          backtracker.popKernelState();
+          return false;
+        }
 
       } catch (UncaughtException e) {
-        // we don't pass this up since it means there were insns executed and we are
-        // in a consistent state
-      } // every other exception goes upwards
-
-      backtracker.pushSystemState();
-      updatePath();
-
-      if (!isIgnoredState()) {
-        // if this is ignored we are going to backtrack anyways
-        // matching states out of ignored transitions is also not a good idea
-        // because this transition is usually incomplete
-
-        if (runGc && !hasPendingException()) {
-          ss.gcIfNeeded();
-        }
-
-        if (stateSet != null) {
-          newStateId = stateSet.size();
-          int id = stateSet.addCurrent();
-          ss.setId(id);
-
-        } else { // this is 'state-less' model checking, i.e. we don't match states
-          ss.setId(++newStateId); // but we still should have states numbered in case listeners use the id
-        }
+        backtracker.pushSystemState(); // we need this in case we backtrack (multiple_errors)
+        updatePath(); // or we loose the last transition
+        // something blew up, so we definitely executed something (hence return true)
+        return true;
+      } catch (RuntimeException e) {
+        throw e;
+        //throw new JPFException(e);
       }
-      
-      return true;
-
-    } else {
-
-      return false;  // no transition occurred
     }
+
+    if (stateSet != null) {
+      newStateId = stateSet.size();
+      int id = stateSet.addCurrent();
+      ss.setId(id);
+    } else { // this is 'state-less' model checking, i.e. we don't match states
+      ss.setId(newStateId++); // but we still should have states numbered in case listeners use the id
+    }
+
+    // the idea is that search objects or observers can query the state
+    // *after* forward/backtrack was called, and that all changes of the
+    // System/KernelStates happen from *within* forward/backtrack, i.e. the
+    // (expensive) getBacktrack/storingData operations can be cached and used
+    // w/o re-computation in the next forward pushXState()
+    //cacheKernelState(); // for subsequent getState() and the next forward()
+
+    return true;
   }
+
 
   /**
    * Prints the current stack trace. Just for debugging purposes
@@ -1840,7 +1720,7 @@ public class JVM {
   }
 
 
-  public void restoreState (RestorableVMState state) {
+  public void restoreState (VMState state) {
     if (state.path == null) {
       throw new JPFException("tried to restore partial VMState: " + state);
     }
@@ -1851,9 +1731,6 @@ public class JVM {
   public void activateGC () {
     ss.activateGC();
   }
-
-
-  //--- various state attribute getters and setters (mostly forwarding to SystemState)
 
   public void retainStateAttributes (boolean isRetained){
     ss.retainAttributes(isRetained);
@@ -1868,12 +1745,8 @@ public class JVM {
    * the heap or stacks.
    * use this with care, since it prunes whole search subtrees
    */
-  public void ignoreState (boolean cond) {
-    ss.setIgnored(cond);
-  }
-
-  public void ignoreState(){
-    ignoreState(true);
+  public void ignoreState () {
+    ss.setIgnored(true);
   }
 
   /**
@@ -1884,77 +1757,24 @@ public class JVM {
     ti.breakTransition();
   }
 
-  public boolean transitionOccurred(){
-    return transitionOccurred;
-  }
-
   /**
    * answers if the current state already has been visited. This is mainly
    * used by the searches (to control backtracking), but could also be useful
    * for observers to build up search graphs (based on the state ids)
-   *
-   * this returns true if no state has been produced yet, and false if
-   * no transition occurred after a forward call
    */
   public boolean isNewState() {
-
-    if (!transitionOccurred){
-      return false;
-    }
-
     if (stateSet != null) {
       if (ss.isForced()){
         return true;
       } else if (ss.isIgnored()){
         return false;
       } else {
-        return (newStateId == ss.getId());
+        return newStateId == ss.getId();
       }
-
-    } else { // stateless model checking - each transition leads to a new state
+    } else {
       return true;
     }
   }
-
-  public boolean isEndState () {
-    // note this uses 'alive', not 'runnable', hence isEndStateProperty won't
-    // catch deadlocks - but that would be NoDeadlockProperty anyway
-    return ss.isEndState();
-  }
-
-  public boolean isVisitedState(){
-    return !isNewState();
-  }
-
-  public boolean isIgnoredState(){
-    return ss.isIgnored();
-  }
-
-  public boolean isInterestingState () {
-    return ss.isInteresting();
-  }
-
-  public boolean isBoringState () {
-    return ss.isBoring();
-  }
-
-  public boolean hasPendingException () {
-    return (getPendingException() != null);
-  }
-
-  public boolean isDeadlocked () {
-    return ss.isDeadlocked();
-  }
-
-  public boolean isTerminated () {
-    return ss.ks.isTerminated();
-  }
-
-  public Exception getException () {
-    return ss.getUncaughtException();
-  }
-
-
 
   /**
    * get the numeric id for the current state
@@ -1969,16 +1789,28 @@ public class JVM {
     return newStateId;
   }
 
+  public void addThread (ThreadInfo ti) {
+    // link the new thread into the list
+    ThreadList tl = getThreadList();
 
-  /**
-   * <2do> this is a band aid to bundle all these legacy reference chains
-   * from JPFs past. The goal is to replace them with proper accessors (normally
-   * through ThreadInfo, MJIEnv or JVM, which all act as facades) wherever possible,
-   * and use JVM.getVM() where there is no access to such a facade. Once this
-   * has been completed, we can start refactoring the users of JVM.getVM() to
-   * get access to a suitable facade. 
-   */
+    int idx = tl.add(ti);
+    ti.setListInfo(tl, idx);  // link back the thread to the list
+
+    getKernelState().changed();
+  }
+
+
+  public ThreadInfo createThread (int objRef) {
+    ThreadInfo ti = ThreadInfo.createThreadInfo(this, objRef);
+
+    // we don't add this thread to the threadlist before it starts to execute
+    // since it would otherwise already be a root object
+
+    return ti;
+  }
+
   public static JVM getVM () {
+    // <2do> remove this, no more static refs!
     return jvm;
   }
 
@@ -1989,40 +1821,17 @@ public class JVM {
     error_id = 0;
   }
 
-  public Heap getHeap() {
-    return ss.getHeap();
-  }
-
-  public ElementInfo getElementInfo(int objref){
-    return ss.getHeap().get(objref);
+  /**
+   * return the 'heap' object, which is a global service
+   */
+  public DynamicArea getDynamicArea () {
+    return ss.ks.da;
   }
 
   public ThreadInfo getCurrentThread () {
     return ThreadInfo.currentThread;
   }
 
-  ThreadInfo[] getRunnableThreads(){
-    return getThreadList().getRunnableThreads();
-  }
-  
-  public boolean hasOtherRunnablesThan (ThreadInfo ti){
-    return getThreadList().hasOtherRunnablesThan(ti);
-  }
-
-  public boolean hasOtherNonDaemonRunnablesThan (ThreadInfo ti){
-    return getThreadList().hasOtherNonDaemonRunnablesThan(ti);
-  }
-
-  public boolean hasOnlyDaemonRunnablesOtherThan (ThreadInfo ti){
-    return getThreadList().hasOnlyDaemonRunnablesOtherThan(ti);
-  }
-  
-  public int registerThread (ThreadInfo ti){
-    getKernelState().changed();
-    return getThreadList().add(ti);    
-  }
-  
-  
   public boolean isAtomic() {
     return ss.isAtomic();
   }
@@ -2031,40 +1840,46 @@ public class JVM {
    * same for "loaded classes", but be advised it will probably go away at some point
    */
   public StaticArea getStaticArea () {
-    return ss.ks.statics;
+    return ss.ks.sa;
   }
 
-    
   /**
    * <2do> this is where we will hook in a better time model
    */
   public long currentTimeMillis () {
-    return timeModel.currentTimeMillis();
+    switch (timeModel) {
+       case ConstantZero:
+       case ConstantStartTime:
+       case ConstantConfig:
+         return(milliTime);
+       
+       case SystemTime:
+         return(System.currentTimeMillis());
+    }
+
+    throw new JPFException("Unhandled time model: " + timeModel);
   }
 
   /**
    * <2do> this is where we will hook in a better time model
    */
   public long nanoTime() {
-    return timeModel.nanoTime();
+    switch (timeModel) {
+      case ConstantZero:
+      case ConstantStartTime:
+      case ConstantConfig:
+        return(nanoTime);
+
+      case SystemTime:
+        return(System.nanoTime());
+    }
+
+    throw new JPFException("Unhandled time model: " + timeModel);
   }
 
   public void resetNextCG() {
     if (ss.nextCg != null) {
       ss.nextCg.reset();
     }
-  }
-  
-  /**
-   * only for debugging, this is expensive
-   *
-   * If this is a store (forward) this is called before the state is stored.
-   *
-   * If this is a restore (visited forward or backtrack), this is called after
-   * the state got restored
-   */
-  public void checkConsistency(boolean isStateStore) {
-    getThreadList().checkConsistency( isStateStore);
-    getHeap().checkConsistency( isStateStore);
   }
 }

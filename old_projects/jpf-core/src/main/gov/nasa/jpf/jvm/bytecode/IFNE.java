@@ -26,12 +26,7 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * ..., value => ...
  */
 public class IFNE extends IfInstruction {
-
-  public IFNE(int targetPc) {
-    super(targetPc);
-  }
-
-
+    
   public boolean popConditionValue (ThreadInfo ti) {
     return (ti.pop() != 0);
   }

@@ -19,10 +19,13 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.Heap;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
+
+import org.apache.bcel.Constants;
+import org.apache.bcel.classfile.ConstantPool;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.Types;
 
 
@@ -30,20 +33,17 @@ import gov.nasa.jpf.jvm.Types;
  * Create new array
  * ..., count => ..., arrayref
  */
-public class NEWARRAY extends NewArrayInstruction {
+public class NEWARRAY extends Instruction {
+  protected String type;
 
-  public NEWARRAY(int typeCode) {
-    type = Types.getElementDescriptorOfType(typeCode);
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    type = Constants.SHORT_TYPE_NAMES[((org.apache.bcel.generic.NEWARRAY) i).getTypecode()];
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    arrayLength = ti.pop();
-    Heap heap = ti.getHeap();
-
-    if (arrayLength < 0){
-      return ti.createAndThrowException("java.lang.NegativeArraySizeException");
-    }
-
+    int size = ti.pop();
+    DynamicArea heap = DynamicArea.getHeap();
+    
     // there is no clinit for array classes, but we still have  to create a class object
     // since its a builtin class, we also don't have to bother with NoClassDefFoundErrors
     String clsName = "[" + type;
@@ -54,14 +54,14 @@ public class NEWARRAY extends NewArrayInstruction {
       ci.setInitialized();
     }
    
-    if (heap.isOutOfMemory()) { // simulate OutOfMemoryError
+    if (heap.getOutOfMemory()) { // simulate OutOfMemoryError
       return ti.createAndThrowException("java.lang.OutOfMemoryError",
                                         "trying to allocate new " +
-                                          getTypeName() +
-                                        "[" + arrayLength + "]");
+                                          Types.getTypeName(type) +
+                                        "[" + size + "]");
     }
     
-    int arrayRef = heap.newArray(type, arrayLength, ti);
+    int arrayRef = heap.newArray(type, size, ti);
     ti.push(arrayRef, true);
 
     ss.checkGC(); // has to happen after we push the new object ref
@@ -79,18 +79,5 @@ public class NEWARRAY extends NewArrayInstruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
-  }
-
-  public String toString() {
-    StringBuilder sb = new StringBuilder();
-    sb.append("newarray ");
-    sb.append(getTypeName());
-    sb.append('[');
-    if (arrayLength >=0){
-      sb.append(arrayLength);
-    }
-    sb.append(']');
-
-    return sb.toString();
   }
 }

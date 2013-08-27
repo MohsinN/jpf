@@ -20,11 +20,11 @@ package gov.nasa.jpf.listener;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
+import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.jvm.JVM;
+import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.search.Search;
 
 public class CGMonitor extends ListenerAdapter {
   int depth;
@@ -73,13 +73,13 @@ public class CGMonitor extends ListenerAdapter {
       //printPrefix(' ');
       
       System.out.print(" : [");
-      System.out.print(ti.getId());
+      System.out.print(ti.getIndex());
       System.out.print("] ");
       System.out.print(insn);
       System.out.print(" (in ");
       System.out.print(insn.getMethodInfo().getFullName());
       System.out.print(":");
-      System.out.print(insn.getInstructionIndex());
+      System.out.print(insn.getOffset());
       System.out.println(')');
       
       isFirstInsn = false;

@@ -18,6 +18,16 @@
 //
 package gov.nasa.jpf.report;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.Error;
 import gov.nasa.jpf.jvm.ClassInfo;
@@ -29,14 +39,7 @@ import gov.nasa.jpf.jvm.Transition;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.util.Left;
 import gov.nasa.jpf.util.RepositoryEntry;
-
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.PrintWriter;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
+import gov.nasa.jpf.util.Source;
 
 public class ConsolePublisher extends Publisher {
 
@@ -362,33 +365,21 @@ public class ConsolePublisher extends Publisher {
     }
   }
 
-  public static final String STATISTICS_TOPIC = "statistics";
-  
-  // this is useful if somebody wants to monitor progress from a specialized ConsolePublisher
-  public synchronized void printStatistics (PrintWriter pw){
+  protected void publishStatistics() {
     Statistics stat = reporter.getStatistics();
-    publishTopicStart( STATISTICS_TOPIC);
-    
-    pw.println("elapsed time:       " + formatHMS(reporter.getElapsedTime()));
-    pw.println("states:             new=" + stat.newStates + ", visited=" + stat.visitedStates
-            + ", backtracked=" + stat.backtracked + ", end=" + stat.endStates);
-    pw.println("search:             maxDepth=" + stat.maxDepth + ", constraints hit=" + stat.constraints);
-    pw.println("choice generators:  thread=" + stat.threadCGs
-            + " (signal=" + stat.signalCGs + ", lock=" + stat.monitorCGs + ", shared ref=" + stat.sharedAccessCGs
-            + "), data=" + stat.dataCGs);
-    pw.println("heap:               " + "new=" + stat.nNewObjects
-            + ", released=" + stat.nReleasedObjects
-            + ", max live=" + stat.maxLiveObjects
-            + ", gc-cycles=" + stat.gcCycles);
-    pw.println("instructions:       " + stat.insns);
-    pw.println("max memory:         " + (stat.maxUsed >> 20) + "MB");
+    publishTopicStart("statistics");
+    out.println("elapsed time:       " + formatHMS(reporter.getElapsedTime()));
+    out.println("states:             new=" + stat.newStates + ", visited=" + stat.visitedStates
+                                     + ", backtracked=" + stat.backtracked + ", end=" + stat.endStates);
+    out.println("search:             maxDepth=" + stat.maxDepth + ", constraints=" + stat.constraints);
+    out.println("choice generators:  thread=" + stat.threadCGs + ", data=" + stat.dataCGs);
+    out.println("heap:               gc=" + stat.gcCycles + ", new=" + stat.nObjects +
+                                                         ", free=" + stat.nRecycled);
+    out.println("instructions:       " + stat.insns);
+    out.println("max memory:         " + (stat.maxUsed >>20) + "MB");
 
-    pw.println("loaded code:        classes=" + ClassInfo.getNumberOfLoadedClasses() + ", methods="
-            + MethodInfo.getNumberOfLoadedMethods());    
-  }
-  
-  public void publishStatistics() {
-    printStatistics(out);
+    out.println("loaded code:        classes=" + ClassInfo.getNumberOfLoadedClasses() + ", methods=" +
+                                      MethodInfo.getNumberOfLoadedMethods());
   }
 
 }

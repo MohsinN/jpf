@@ -18,33 +18,25 @@
 //
 package gov.nasa.jpf.jvm.choice;
 
-import gov.nasa.jpf.jvm.ChoiceGeneratorBase;
 import gov.nasa.jpf.jvm.ThreadChoiceGenerator;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
 import java.io.PrintWriter;
-import java.util.Arrays;
-import java.util.Comparator;
 
-public class ThreadChoiceFromSet extends ChoiceGeneratorBase<ThreadInfo> implements ThreadChoiceGenerator {
+public class ThreadChoiceFromSet extends ThreadChoiceGenerator {
 
-  protected boolean isSchedulingPoint;
   protected ThreadInfo[] values;
   protected int count;
-    
+  
   public ThreadChoiceFromSet (String id, ThreadInfo[] set, boolean isSchedulingPoint) {
-    super(id);
-        
+    super(id, isSchedulingPoint);
+    
     values = set;
     count = -1;
-    
-    this.isSchedulingPoint = isSchedulingPoint;
   }
   
   public void reset () {
     count = -1;
-
-    isDone = false;
   }
   
   public ThreadInfo getNextChoice () {
@@ -70,9 +62,29 @@ public class ThreadChoiceFromSet extends ChoiceGeneratorBase<ThreadInfo> impleme
    * <2do> this should be in SystemState.nextSuccessor - there might be
    * other ThreadChoiceGenerators, and we should handle this consistently
    */
-  public void advance () {    
+  public void advance () {
+    
+    if (count >= 0) {
+      ThreadInfo ti = values[count]; // this was the previous choice
+
+      if (ti.isTimedOut()) {
+        // we've temporarily set this to TIMEDOUT in the previous choice, now
+        // set it to TIMEOUT_WAITING again before we run the next choice, i.e.
+        // all subsequent transitions will see this as TIMEOUT_WAITING (until
+        // it gets notified)
+        ti.resetTimedOut();
+      }
+    }
+    
     if (count < values.length-1) { // at least one choice left
       count++;
+
+      ThreadInfo ti = values[count];
+      if (ti.isTimeoutWaiting()) {
+        // first time we see a TIMEOUT_WAITING thread, we change its status
+        // to TIMEDOUT and run it.
+        ti.setTimedOut();
+      }
     }
   }
 
@@ -86,21 +98,6 @@ public class ThreadChoiceFromSet extends ChoiceGeneratorBase<ThreadInfo> impleme
 
   public Object getNextChoiceObject () {
     return getNextChoice();
-  }
-  
-  public ThreadInfo[] getChoices(){
-    return values;
-  }
-  
-  public boolean supportsReordering(){
-    return true;
-  }
-  
-  public ThreadChoiceGenerator reorder (Comparator<ThreadInfo> comparator){
-    ThreadInfo[] newValues = values.clone();
-    Arrays.sort(newValues, comparator);
-    
-    return new ThreadChoiceFromSet( id, newValues, isSchedulingPoint);
   }
   
   public void printOn (PrintWriter pw) {
@@ -137,22 +134,4 @@ public class ThreadChoiceFromSet extends ChoiceGeneratorBase<ThreadInfo> impleme
 	  return values; 
   }
   
-  @Override
-  public boolean contains (ThreadInfo ti){
-    for (int i=0; i<values.length; i++){
-      if (values[i] == ti){
-        return true;
-      }
-    }
-    return false;
-  }
-
-  @Override
-  public Class<ThreadInfo> getChoiceType() {
-    return ThreadInfo.class;
-  }
-  
-  public boolean isSchedulingPoint() {
-    return isSchedulingPoint;
-  }
 }

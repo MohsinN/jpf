@@ -20,18 +20,19 @@ package gov.nasa.jpf.listener;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.PropertyListenerAdapter;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.bytecode.ArrayElementInstruction;
 import gov.nasa.jpf.jvm.bytecode.ArrayInstruction;
 import gov.nasa.jpf.jvm.bytecode.FieldInstruction;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.jvm.choice.ThreadChoiceFromSet;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.StringSetMatcher;
+import gov.nasa.jpf.vm.ChoiceGenerator;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.MethodInfo;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.choice.ThreadChoiceFromSet;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -68,7 +69,7 @@ public class PreciseRaceDetector extends PropertyListenerAdapter {
     ElementInfo ei;
 
     boolean isRace() {
-      return insn2 != null;
+      return insn2 != null && ti1 != null && ti2 != null && ( ! ti1.equals(ti2) );
     }
 
     void printOn(PrintWriter pw){
@@ -134,15 +135,15 @@ public class PreciseRaceDetector extends PropertyListenerAdapter {
     }
   }
 
-  static class ArrayRace extends Race {
+  static class ArrayElementRace extends Race {
     int idx;
 
     static Race check (Race prev, ThreadInfo ti, Instruction insn, ElementInfo ei, int idx){
       for (Race r = prev; r != null; r = r.prev){
-        if (r instanceof ArrayRace){
-          ArrayRace ar = (ArrayRace)r;
+        if (r instanceof ArrayElementRace){
+          ArrayElementRace ar = (ArrayElementRace)r;
           if (ar.ei == ei && ar.idx == idx){
-            if (!((ArrayInstruction)ar.insn1).isRead() || !((ArrayInstruction)insn).isRead()){
+            if (!((ArrayElementInstruction)ar.insn1).isRead() || !((ArrayElementInstruction)insn).isRead()){
               ar.ti2 = ti;
               ar.insn2 = insn;
               return ar;
@@ -151,7 +152,7 @@ public class PreciseRaceDetector extends PropertyListenerAdapter {
         }
       }
 
-      ArrayRace ar = new ArrayRace();
+      ArrayElementRace ar = new ArrayElementRace();
       ar.ei = ei;
       ar.ti1 = ti;
       ar.insn1 = insn;
@@ -185,10 +186,12 @@ public class PreciseRaceDetector extends PropertyListenerAdapter {
     excludes = StringSetMatcher.getNonEmpty(conf.getStringArray("race.exclude"));
   }
   
-  public boolean check(Search search, JVM vm) {
+  @Override
+  public boolean check(Search search, VM vm) {
     return (race == null);
   }
 
+  @Override
   public void reset() {
     race = null;
   }
@@ -222,13 +225,13 @@ public class PreciseRaceDetector extends PropertyListenerAdapter {
 
           candidate = FieldRace.check(candidate, ti, finsn, ei, fi);
 
-        } else if (insn instanceof ArrayInstruction) {
-          ArrayInstruction ainsn = (ArrayInstruction) insn;
+        } else if (insn instanceof ArrayElementInstruction) {
+          ArrayElementInstruction ainsn = (ArrayElementInstruction) insn;
           int aref = ainsn.getArrayRef(ti);
           int idx = ainsn.getIndex(ti);
           ElementInfo ei = ti.getElementInfo(aref);
 
-          candidate = ArrayRace.check(candidate, ti, ainsn, ei, idx);
+          candidate = ArrayElementRace.check(candidate, ti, ainsn, ei, idx);
         }
       }
 
@@ -251,19 +254,19 @@ public class PreciseRaceDetector extends PropertyListenerAdapter {
   // from the operand stack, and not cached in the insn from a previous exec
   // (all the insns we look at are pre-exec, i.e. don't have their caches
   // updated yet)
-  public void choiceGeneratorSet(JVM vm) {
-    ChoiceGenerator<?> cg = vm.getLastChoiceGenerator();
+  @Override
+  public void choiceGeneratorSet(VM vm, ChoiceGenerator<?> newCG) {
 
-    if (cg instanceof ThreadChoiceFromSet) {
-      ThreadInfo[] threads = ((ThreadChoiceFromSet)cg).getAllThreadChoices();
+    if (newCG instanceof ThreadChoiceFromSet) {
+      ThreadInfo[] threads = ((ThreadChoiceFromSet)newCG).getAllThreadChoices();
       checkRace(threads);
     }
   }
 
-  public void executeInstruction (JVM jvm) {
+  @Override
+  public void executeInstruction (VM vm, ThreadInfo ti, Instruction insnToExecute) {
     if (race != null) {
       // we're done, report as quickly as possible
-      ThreadInfo ti = jvm.getLastThreadInfo();
       //ti.skipInstruction();
       ti.breakTransition();
     }

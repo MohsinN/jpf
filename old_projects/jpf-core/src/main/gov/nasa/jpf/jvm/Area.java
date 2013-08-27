@@ -22,7 +22,6 @@ import gov.nasa.jpf.util.HashData;
 import gov.nasa.jpf.util.ObjVector;
 
 import java.util.BitSet;
-import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 /**
@@ -54,203 +53,31 @@ public abstract class Area<EI extends ElementInfo> implements Iterable<EI> {
    */
   protected final BitSet hasChanged;
 
-  // our default memento implementation
-  static abstract class AreaMemento<A extends Area>  {
-    Memento<ElementInfo>[] liveEI;
-
-    public AreaMemento (A area){
-      int len = area.size();
-      Memento<ElementInfo>[] a = new Memento[len];
-
-      int i=0;
-      // it actually makes sense to use the elements iterator at this point
-      // since this happens after gc, i.e. there is a good chance that the
-      // area got fragmented again
-      for (ElementInfo ei : (Iterable<ElementInfo>)area.elements()){
-        Memento<ElementInfo> m = null;
-        if (!ei.hasChanged()){
-          m = ei.cachedMemento;
-        }
-        if (m == null){
-          m = ei.getMemento();
-          ei.cachedMemento = m;
-        }
-        a[i++] = m;
-      }
-
-      area.markUnchanged();
-      liveEI = a;
-    }
-
-    public A restore(A area) {
-      ObjVector<ElementInfo> e = area.elements;
-      Memento<ElementInfo>[] a = liveEI;
-      int len = a.length;
-
-      area.resetVolatiles();
-
-      int index = -1;
-      int lastIndex = -1;
-      for (int i=0; i<len; i++){
-        Memento<ElementInfo> m = a[i];
-        // ElementInfo mementos are Softreferences, so we don't need to get the
-        // restore-objRef upfront in order to retrieve the right inSitu object
-        ElementInfo ei = m.restore(null);
-
-        index = ei.getObjectRef();
-
-        area.removeRange(lastIndex+1, index);
-        lastIndex = index;
-
-        ei.cachedMemento = m;
-
-        // can't call elements.set() directly because our concrete area
-        // might have to do its own housekeeping (e.g. update bitsets)
-        area.set(index,ei);
-      }
-
-      if (index >= 0){
-        area.removeAllFrom(index+1);
-      }
-
-      area.nElements = len;
-      area.restoreVolatiles();
-      area.markUnchanged();
-
-      return area;
-    }
-  }
-
   /**
-   * support for iterators that return all allocated objects, so that
-   * clients don't have to know our concrete implementation
-   *
-   * sometimes it sucks not having variant generics
+   * very simplistic iterator so that clients can abstract away from
+   * our internal heap representation during Object enumeration
    */
-
-  protected class ElementInfoIterator implements Iterator<ElementInfo>, Iterable<ElementInfo> {
-    int index, visited;
+  public class Iterator implements java.util.Iterator<EI> {
+    int i, visited;
 
     public void remove() {
       throw new UnsupportedOperationException ("illegal operation, only GC can remove objects");
     }
 
     public boolean hasNext() {
-      return (index < elements.size()) && (visited < nElements);
+      return (i < elements.size()) && (visited < nElements);
     }
 
-    public ElementInfo next() {
-      int len = elements.size();
-      for (; index < len; index++) {
-        EI ei = elements.get(index);
+    public EI next() {
+      for (; i < elements.size(); i++) {
+        EI ei = elements.get(i);
         if (ei != null) {
-          index++; visited++;
+          i++; visited++;
           return ei;
         }
       }
 
       throw new NoSuchElementException();
-    }
-
-    public Iterator<ElementInfo> iterator() {
-      return this;
-    }
-  }
-
-  protected class MarkedElementInfoIterator implements Iterator<ElementInfo>, Iterable<ElementInfo> {
-    int index;
-
-    MarkedElementInfoIterator() {
-      index = getNextMarked(0);
-    }
-
-    public boolean hasNext() {
-      return (index >= 0);
-    }
-
-    public ElementInfo next() {
-      if (index >= 0){
-        int i = index;
-        index = getNextMarked(index + 1);
-        return elements.get(i);
-      } else {
-        throw new NoSuchElementException();
-      }
-    }
-
-    public Iterator<ElementInfo> iterator() {
-      return this;
-    }
-
-    public void remove() {
-      throw new UnsupportedOperationException ("illegal operation, only GC can remove objects");
-    }
-  }
-
-
-  public Iterable<EI> elements() {
-    return elements.elements();
-  }
-
-  /**
-   * extended iterator that just returns changed elements entries. Note that next()
-   * can return 'null' elements, in which case we can to query the current ref value
-   * with getLastRef()
-   */
-  public class ChangedIterator implements java.util.Iterator<EI> {
-    int i = getNextChanged(0);
-    int ref = -1;
-
-    public void remove() {
-      throw new UnsupportedOperationException ("illegal operation, only GC can remove objects");
-    }
-
-    public boolean hasNext() {
-      return (i >= 0);
-    }
-
-    public EI next() {
-      if (i >= 0){
-        EI ei = elements.get(i);
-        ref = i;
-        i = getNextChanged(i+1);
-        return ei;
-
-      } else {
-        throw new NoSuchElementException();
-      }
-    }
-
-    /**
-     * this returns the objRef of the last element returned by next()
-     */
-    public int getLastRef() {
-      return ref;
-    }
-  }
-
-  // this one answers the changed reference values (ints).
-  // It's not a standard java.util.EIiterator because we don't want to box ints
-  public class ChangedReferenceIterator implements gov.nasa.jpf.util.IntIterator {
-    int i = getNextChanged(0);
-
-    public void remove() {
-      throw new UnsupportedOperationException ("illegal operation, only GC can remove objects");
-    }
-
-    public boolean hasNext() {
-      return (i >= 0);
-    }
-
-    public int next() {
-      if (i >= 0){
-        int ref = i;
-        i = getNextChanged(i+1);
-        return ref;
-
-      } else {
-        throw new NoSuchElementException();
-      }
     }
   }
 
@@ -261,73 +88,34 @@ public abstract class Area<EI extends ElementInfo> implements Iterable<EI> {
     hasChanged = new BitSet();
   }
 
-
-  public Iterator<EI> iterator() {
-    return elements.nonNullIterator();
+  public Iterator iterator() {
+    return new Iterator();
   }
-
-  public ChangedIterator changedIterator() {
-    return new ChangedIterator();
-  }
-
-  public ChangedReferenceIterator changedReferenceIterator() {
-    return new ChangedReferenceIterator();
-  }
-
-  public int numberOfChanged() {
-    return hasChanged.cardinality();
-  }
-
 
   /**
    * reset any information that has to be re-computed in a backtrack
-   * (objRef.e. hasn't been stored explicitly)
+   * (i.e. hasn't been stored explicitly)
    */
-  public void resetVolatiles () {
+  void resetVolatiles () {
     // nothing yet
   }
 
-  public void restoreVolatiles () {
+  void restoreVolatiles () {
     // nothing to do
   }
 
-  public void cleanUpDanglingReferences (Heap heap) {
-    ThreadInfo ti = ThreadInfo.getCurrentThread();
-    int tid = ti.getId();
-    boolean isThreadTermination = ti.isTerminated();
-    
+  void cleanUpDanglingReferences () {
     for (ElementInfo e : this) {
       if (e != null) {
-        e.cleanUp(heap, isThreadTermination, tid);
+        e.cleanUp();
       }
     }
   }
 
-  public int size () {
+  public int count () {
     return nElements;
   }
 
-  int getNextMarked(int fromIndex) {
-    int len = elements.size();
-    for (int i = fromIndex; i < len; i++) {
-      EI ei = elements.get(i);
-      if (ei != null && ei.isMarked()) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  public void unmarkAll() {
-    int len = elements.size();
-    for (int i = 0; i < len; i++) {
-      EI ei = elements.get(i);
-      if (ei != null && ei.isMarked()) {
-        ei.setUnmarked();
-      }
-    }
-  }
-  
   public int getNextChanged (int startIdx) {
     return hasChanged.nextSetBit(startIdx);
   }
@@ -376,20 +164,14 @@ public abstract class Area<EI extends ElementInfo> implements Iterable<EI> {
     return hd.getValue();
   }
 
-  public void removeAll() { 
-    elements.clear();
-    nElements = 0;
-  }
+  public void removeAll() { removeAllFrom(0); }
 
-  // this is called during restoration, we don't have to mark changes
   public void removeAllFrom (int idx) {
-    int n = elements.removeFrom(idx);
-    nElements -= n;
-  }
+    int l = elements.size();
 
-  public void removeRange( int fromIdx, int toIdx){
-    int n = elements.removeRange(fromIdx, toIdx);
-    nElements -= n;
+    for (int i = idx; i < l; i++) {
+      remove(i,true);
+    }
   }
 
   public String toString () {
@@ -400,7 +182,8 @@ public abstract class Area<EI extends ElementInfo> implements Iterable<EI> {
   // somtimes it seems to be bigger
   // UPDATE: fixed? -pcd
   protected void add (int index, EI e) {
-    e.setObjectRef(index);
+    e.setArea(this);
+    e.setIndex(index);
 
     assert (elements.get(index) == null) :
       "trying to overwrite non-null object: " + elements.get(index) + " with: " + e;
@@ -410,14 +193,7 @@ public abstract class Area<EI extends ElementInfo> implements Iterable<EI> {
     markChanged(index);
   }
 
-  // for Restorer use only (EI is already properly initialized)
-  protected void set (int index, EI e) {
-    e.setObjectRef(index);
-    elements.set(index,e);
-  }
-
-
-  public void markChanged (int index) {
+  protected void markChanged (int index) {
     hasChanged.set(index);
     ks.changed();
   }
@@ -430,17 +206,13 @@ public abstract class Area<EI extends ElementInfo> implements Iterable<EI> {
     return !hasChanged.isEmpty();
   }
 
-  public boolean hasChanged(int index){
-    return hasChanged.get(index);
-  }
-
   protected void remove (int index, boolean nullOk) {
     EI ei = elements.get(index);
 
     if (nullOk && ei == null) return;
 
     assert (ei != null) : "trying to remove null object at index: " + index;
-
+    
     if (ei.recycle()) {
       elements.set(index, null);
       elements.squeeze();

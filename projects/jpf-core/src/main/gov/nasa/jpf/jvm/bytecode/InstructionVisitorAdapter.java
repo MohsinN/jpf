@@ -18,6 +18,8 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.vm.Instruction;
+
 public abstract class InstructionVisitorAdapter 
 							implements InstructionVisitor {
 
@@ -37,6 +39,8 @@ public abstract class InstructionVisitorAdapter
 
 	public void visit(ArrayInstruction ins) {}
 
+	public void visit(ArrayElementInstruction ins) {}
+  
 	public void visit(ARRAYLENGTH ins) {}
 
 	public void visit(ArrayLoadInstruction ins) {}

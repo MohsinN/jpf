@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2011 United States Government as represented by the
+// Copyright (C) 2006 United States Government as represented by the
 // Administrator of the National Aeronautics and Space Administration
 // (NASA).  All Rights Reserved.
 // 
@@ -19,51 +19,115 @@
 package gov.nasa.jpf.jvm.choice;
 
 import gov.nasa.jpf.Config;
+import gov.nasa.jpf.JPF;
+import gov.nasa.jpf.JPFException;
+import gov.nasa.jpf.jvm.DoubleChoiceGenerator;
 
-public class DoubleChoiceFromSet extends DoubleChoiceFromList {
+import java.util.logging.Logger;
 
-  public DoubleChoiceFromSet (Config conf, String id) {
-    super(conf, id);
-  }
-
+/**
+ * simple DoubleChoiceGenerator that takes it's values from a single
+ * property "values" (comma or blank separated list)
+ */
+public class DoubleChoiceFromSet extends DoubleChoiceGenerator {
   
-  public DoubleChoiceFromSet(String id, double... val){
-    super(id, val);
-    removeDuplicates();
+  static Logger log = JPF.getLogger("gov.nasa.jpf.jvm.choice");
+  
+  protected Object[] values;
+  protected int count;
+  
+  public DoubleChoiceFromSet (Config conf, String id) {
+    super(id);
+    
+    values = conf.getStringArray(id + ".values");
+    if (values == null) {
+      throw new JPFException("value set for <" + id + "> choice did not load");
+    }
+      
     count = -1;
   }
 
-  /** super constructor for subclasses that want to configure themselves
-   * 
-   * @param id name used in choice config
-   */
-  protected DoubleChoiceFromSet(String id){
+  public DoubleChoiceFromSet (String id, double... val){
     super(id);
+
+    if (val != null){
+      values = new Double[val.length];
+      for (int i=0; i<val.length; i++){
+        values[i] = new Double(val[i]);
+      }
+    } else {
+      throw new JPFException("empty set for DoubleChoiceFromSet");
+    }
+
+    count = -1;
+  }
+
+
+  public void reset () {
+    count = -1;
   }
   
-  /*
-   *  Remove duplicate values. This is pretty redundant to IntChoiceFromSet, but
-   *  unfortunately we rely on boxing/unboxing and array creation, for which the compiler
-   *  needs the concrete type
-   */
-  private void removeDuplicates() {
-    int len = values.length;
-    for (int i = 0; i < len; i++) {
-      int j = i + 1;
-      while (j < len) {
-        if (values[i] == values[j]) {
-          values[j] = values[len - 1];
-          len--;
-          // don't increment j as new element has been placed there and needs to be re-tested
-        } else {
-          j++;
-        }
+  public Double getNextChoice () {
+    if ((count >= 0) && (count < values.length)) {
+      Object val = values[count];
+
+      if (val instanceof String){
+        return new Double( DoubleSpec.eval((String) val));
+      } else if (val instanceof Double){
+        return (Double)val;
+      } else {
+      throw new JPFException("unknown DoubleChoiceFromSet value spec: " + val);
       }
     }
-    if (len < values.length) {
-      Double[] uniqVals = new Double[len];
-      System.arraycopy(values, 0, uniqVals, 0, len);
-      values = uniqVals;
-    }
+    
+    return Double.NaN;  // Hmm, maybe we should return the last value
   }
+  
+  public boolean hasMoreChoices () {
+    return !isDone && (count < values.length-1);
+  }
+  
+  public void advance () {
+    if (count < values.length-1) count++;
+  }
+
+  public int getTotalNumberOfChoices () {
+    return values.length;
+  }
+
+  public int getProcessedNumberOfChoices () {
+    return count+1;
+  }
+  
+  public String toString() {
+    StringBuilder sb = new StringBuilder();
+    sb.append(getClass().getName());
+
+    sb.append("[id=\"");
+    sb.append(id);
+    sb.append("\",");
+
+    for (int i=0; i<values.length; i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      if (i == count) {
+        sb.append(MARKER);
+      }
+      sb.append(values[i]);
+    }
+    sb.append(']');
+    return sb.toString();
+  }
+
+  public DoubleChoiceFromSet randomize () {
+    for (int i = values.length - 1; i > 0; i--) {
+      int j = random.nextInt(i + 1);
+      Object tmp = values[i];
+      values[i] = values[j];
+      values[j] = tmp;
+    }
+    return this;
+  }
+  
 }

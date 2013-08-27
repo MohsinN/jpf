@@ -18,42 +18,34 @@
 //
 package gov.nasa.jpf.listener;
 
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintWriter;
+
+import java.util.Enumeration;
+import java.util.Map;
+
+import java.util.jar.JarFile;
+import java.util.jar.JarEntry;
+import java.util.logging.Logger;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.AnnotationInfo;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ExceptionHandler;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.NoClassInfoException;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.*;
 import gov.nasa.jpf.jvm.bytecode.GOTO;
 import gov.nasa.jpf.jvm.bytecode.IfInstruction;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
-import gov.nasa.jpf.report.ConsolePublisher;
-import gov.nasa.jpf.report.HTMLPublisher;
-import gov.nasa.jpf.report.Publisher;
-import gov.nasa.jpf.report.PublisherExtension;
-import gov.nasa.jpf.util.Misc;
-import gov.nasa.jpf.util.StringSetMatcher;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.Comparator;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
-import java.util.logging.Logger;
+import gov.nasa.jpf.report.*;
+import gov.nasa.jpf.util.*;
 
 /**
  * a listener to report coverage statistics
@@ -136,7 +128,7 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
     }
 
     void setExecuted(ThreadInfo ti, Instruction insn) {
-      int idx = ti.getId();
+      int idx = ti.getIndex();
 
       if (covered == null) {
         covered = new BitSet[idx + 1];
@@ -150,7 +142,7 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
         covered[idx] = new BitSet(mi.getInstructions().length);
       }
 
-      int off = insn.getInstructionIndex();
+      int off = insn.getOffset();
       covered[idx].set(off);
 
       if (showBranchCoverage && (insn instanceof IfInstruction)) {
@@ -172,7 +164,7 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
       BitSet bb = getBasicBlocks();
       Instruction next = insn.getNext();
       if (next != null) { // insn might be a sync return
-        bb.set(next.getInstructionIndex());
+        bb.set(next.getOffset());
       }
     }
 
@@ -245,11 +237,8 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
 
       for (i = inst.length - 1; i >= 0; i--) {
         line = inst[i].getLineNumber();
-         
-        if (line > 0) {
-          executable.set(line);
-          covered.set(line);
-        }
+        executable.set(line);
+        covered.set(line);
       }
 
       for (i = inst.length - 1; i >= 0; i--) {
@@ -290,7 +279,7 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
       if (handler != null) {
         for (int i = 0; i < handler.length; i++) {
           Instruction hs = mi.getInstructionAt(handler[i].getHandler());
-          b.set(hs.getInstructionIndex());
+          b.set(hs.getOffset());
         }
       }
 
@@ -314,7 +303,7 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
             if (insn instanceof GOTO) {
               GOTO gotoInsn = (GOTO) insn;
               if (!gotoInsn.isBackJump() && hs.get(i + 1)) { // jump around handler
-                int handlerEnd = gotoInsn.getTarget().getInstructionIndex();
+                int handlerEnd = gotoInsn.getTarget().getOffset();
                 for (i++; i < handlerEnd; i++) {
                   b.set(i);
                 }
@@ -368,19 +357,19 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
             IfInstruction ifInsn = (IfInstruction) insn;
 
             Instruction tgt = ifInsn.getTarget();
-            bb.set(tgt.getInstructionIndex());
+            bb.set(tgt.getOffset());
 
             tgt = ifInsn.getNext();
-            bb.set(tgt.getInstructionIndex());
+            bb.set(tgt.getOffset());
           } else if (insn instanceof GOTO) {
             Instruction tgt = ((GOTO) insn).getTarget();
-            bb.set(tgt.getInstructionIndex());
+            bb.set(tgt.getOffset());
           } else if (insn instanceof InvokeInstruction) {
             // hmm, this might be a bit too conservative, but who says we
             // don't jump out of a caller into a handler, or even that we
             // ever return from the call?
             Instruction tgt = insn.getNext();
-            bb.set(tgt.getInstructionIndex());
+            bb.set(tgt.getOffset());
           }
         }
 
@@ -389,7 +378,7 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
         if (handlers != null) {
           for (int i = 0; i < handlers.length; i++) {
             Instruction tgt = mi.getInstructionAt(handlers[i].getHandler());
-            bb.set(tgt.getInstructionIndex());
+            bb.set(tgt.getOffset());
           }
         }
 
@@ -1093,7 +1082,6 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
 
     void printMethodCoverages(ClassCoverage cc) {
       String classNameTree = "cc-" + cc.className.replace('.', '-') + '-';
-      int line, lineNumbers[];
       boolean result = true;
 
       if (cc.methods == null) {
@@ -1115,7 +1103,7 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
           }
         }
       });
-      
+
       for (Map.Entry<MethodInfo, MethodCoverage> e : mthEntries) {
         MethodCoverage mc = e.getValue();
         MethodInfo mi = mc.getMethodInfo();
@@ -1127,15 +1115,8 @@ public class CoverageAnalyzer extends ListenerAdapter implements PublisherExtens
 
         HTMLPublisher.writeTableTreeNodeBegin(pw, classNameTree + HTMLPublisher.escape(mi.getLongName()));
         pw.print("            <td class=\"firstCol\">");
-         
-        lineNumbers = mi.getLineNumbers();
-        if ((lineNumbers != null) && (lineNumbers.length > 0)) {
-          line = lineNumbers[0]; 
-        } else {
-          line = 0; 
-        }
-         
-        ((HTMLPublisher) publisher).writeSourceAnchor(pw, mi.getSourceFileName(), line);
+
+        ((HTMLPublisher) publisher).writeSourceAnchor(pw, mi.getSourceFileName(), mi.getLineNumbers()[0]);
 
         pw.print(HTMLPublisher.escape(mi.getLongName()));
         pw.println("</a></td>");

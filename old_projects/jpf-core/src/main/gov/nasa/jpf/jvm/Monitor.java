@@ -39,10 +39,7 @@ public class Monitor {
   /** the nesting level for recursive lock acquisition */
   private int lockCount;
   
-  /** 
-   * the list of threads that try to acquire the lock (can be in blocked, waiting,
-   * interrupted or running state).
-   */
+  /** the list of waiting or blocked threads */
   ThreadInfo[] lockedThreads;
 
   /**
@@ -61,11 +58,10 @@ public class Monitor {
     Arrays.sort(lockedThreads);
   }
   
-  public void printFields (PrintWriter pw) {
+  void printFields (PrintWriter pw) {
     int i;
-
-    pw.print(this);
-    pw.print(" [");
+    
+    pw.print("[");
     if (lockingThread != null) {
       pw.print( "locked by: ");
       pw.print( lockingThread.getName());
@@ -86,12 +82,6 @@ public class Monitor {
     pw.println("}]");
   }
   
-  // for debugging purposes
-  public void dump() {
-    PrintWriter pw = new PrintWriter(System.out);
-    printFields(pw);
-    pw.flush();
-  }
   
   Monitor cloneWithLocked (ThreadInfo ti) {
     return new Monitor(lockingThread, lockCount, add(lockedThreads, ti));
@@ -145,13 +135,13 @@ public class Monitor {
 
   public void hash (HashData hd) {
     if (lockingThread != null) {
-      hd.add(lockingThread.getId());
+      hd.add(lockingThread.getIndex());
     }
     
     hd.add(lockCount);
     
-    for (int i = 0; i < lockedThreads.length; i++) {
-      hd.add(lockedThreads[i].getId());
+    for (int i = 0, l = lockedThreads.length; i < l; i++) {
+      hd.add(lockedThreads[i].getIndex());
     }    
   }
 
@@ -200,107 +190,6 @@ public class Monitor {
 
     return false;
   }
-
-  public int getNumberOfWaitingThreads() {
-    int n=0;
-
-    for (ThreadInfo ti : lockedThreads){
-      if (ti.isWaiting()){
-        n++;
-      }
-    }
-
-    return n;
-  }
-
-
-  public ThreadInfo[] getWaitingThreads() {
-    int n = getNumberOfWaitingThreads();
-
-    if (n > 0){
-      ThreadInfo[] list = new ThreadInfo[n];
-      int i=0;
-      for (int j=0; j<lockedThreads.length && i<n; j++){
-        ThreadInfo ti = lockedThreads[j];
-        if (ti.isWaiting()){
-          list[i++] = ti;
-        }
-      }
-
-      return list;
-
-    } else {
-      return emptySet;
-    }
-  }
-
-  public int getNumberOfBlockedThreads() {
-    int n=0;
-
-    for (ThreadInfo ti : lockedThreads){
-      if (ti.isBlocked()){
-        n++;
-      }
-    }
-
-    return n;
-  }
-
-
-  public ThreadInfo[] getBlockedThreads() {
-    int n = getNumberOfBlockedThreads();
-
-    if (n > 0){
-      ThreadInfo[] list = new ThreadInfo[n];
-      int i=0;
-      for (int j=0; j<lockedThreads.length && i<n; j++){
-        ThreadInfo ti = lockedThreads[j];
-        if (ti.isBlocked()){
-          list[i++] = ti;
-        }
-      }
-
-      return list;
-
-    } else {
-      return emptySet;
-    }
-  }
-
-
-  public int getNumberOfBlockedOrWaitingThreads() {
-    int n=0;
-
-    for (ThreadInfo ti : lockedThreads){
-      if (ti.isBlocked() || ti.isWaiting()){
-        n++;
-      }
-    }
-
-    return n;
-  }
-
-
-  public ThreadInfo[] getBlockedOrWaitingThreads() {
-    int n = getNumberOfBlockedThreads();
-
-    if (n > 0){
-      ThreadInfo[] list = new ThreadInfo[n];
-      int i=0;
-      for (int j=0; j<lockedThreads.length && i<n; j++){
-        ThreadInfo ti = lockedThreads[j];
-        if (ti.isBlocked() || ti.isWaiting()){
-          list[i++] = ti;
-        }
-      }
-
-      return list;
-
-    } else {
-      return emptySet;
-    }
-  }
-
   
   /**
    * Returns true if it is possible to lock the monitor.
@@ -343,48 +232,14 @@ public class Monitor {
     lockedThreads = emptySet;
   }
 
-  public boolean isLocking(ThreadInfo ti){
-    if (lockedThreads != null){
-      for (ThreadInfo lti : lockedThreads){
-        if (lti == ti){
-          return true;
-        }
-      }
-    }
-    
-    return false;
-  }
-
-  
-  static boolean containsLocked(ThreadInfo[] list, ThreadInfo ti){
-    int len = list.length;
- 
-    for (int i=0; i<len; i++){
-      if (list[i] == ti){
-        return true;
-      }
-    }
-    
-    return false;
-  }
-  
   static ThreadInfo[] add (ThreadInfo[] list, ThreadInfo ti) {
     int len = list.length;
-    
-    //--- first, check if its already there
-    if (containsLocked(list, ti)){
-      // this is required because interrupted parks/joins can try to
-      // re-park/join from their respective handlers (they don't hold locks) 
-      return list;
-    }
-        
     ThreadInfo[] newList = new ThreadInfo[len+1];
-
+    
     int pos = 0;
     for (; pos < len && ti.compareTo(list[pos]) > 0; pos++) {
       newList[pos] = list[pos];
     }
-    
     newList[pos] = ti;
     for (; pos < len; pos++) {
       newList[pos+1] = list[pos];
@@ -410,14 +265,6 @@ public class Monitor {
         return list;
       }
     } else {
-      
-      //--- first, check if its already there
-      if (!containsLocked(list, ti)) {
-        // no known case yet, but we keep it symmetric
-        // <2do> maybe worth a warning
-        return list;
-      }
-      
       for (int i=0; i<len; i++) {
         if (list[i] == ti) {
           int newLen = len-1;

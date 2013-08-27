@@ -1,9 +1,0 @@
-@using jpf-symbc
-target=finite.always.SimpleRand
-
-finite=true
-classpath=${jpf-ltl}/build/examples
-
-sourcepath=${jpf-ltl}/src/examples
-
-cg.enumerate_random=true

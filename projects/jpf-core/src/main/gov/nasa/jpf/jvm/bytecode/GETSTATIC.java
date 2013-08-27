@@ -19,12 +19,13 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.JPFException;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.StaticElementInfo;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.LoadOnJPFRequired;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -37,58 +38,77 @@ public class GETSTATIC extends StaticFieldInstruction {
     super(fieldName, clsDescriptor, fieldDescriptor);
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
+  @Override
+  protected void popOperands1 (StackFrame frame) {
+    // nothing to pop
+  }
+  
+  @Override
+  protected void popOperands2 (StackFrame frame) {
+    // nothing to pop
+  }
 
-    ClassInfo clsInfo = getClassInfo();
-    if (clsInfo == null){
-      return ti.createAndThrowException("java.lang.NoClassDefFoundError", className);
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    ClassInfo ciField;
+    FieldInfo fieldInfo;
+    
+    try {
+      fieldInfo = getFieldInfo();
+    } catch(LoadOnJPFRequired lre) {
+      return ti.getPC();
     }
-
-    FieldInfo fieldInfo = getFieldInfo();
+    
     if (fieldInfo == null) {
       return ti.createAndThrowException("java.lang.NoSuchFieldError",
           (className + '.' + fname));
     }
 
     // this can be actually different (can be a base)
-    clsInfo = fieldInfo.getClassInfo();
-
-    if (!mi.isClinit(clsInfo) && requiresClinitExecution(ti, clsInfo)) {
+    ciField = fieldInfo.getClassInfo();
+    
+    if (!mi.isClinit(ciField) && ciField.pushRequiredClinits(ti)) {
+      // note - this returns the next insn in the topmost clinit that just got pushed
       return ti.getPC();
     }
 
-    StaticElementInfo ei = clsInfo.getStaticElementInfo();
+    ElementInfo ei = ciField.getStaticElementInfo();
 
     if (ei == null){
-      throw new JPFException("attempt to access field: " + fname + " of uninitialized class: " + clsInfo.getName());
+      throw new JPFException("attempt to access field: " + fname + " of uninitialized class: " + ciField.getName());
     }
 
     if (isNewPorFieldBoundary(ti)) {
-      if (createAndSetFieldCG(ss, ei, ti)) {
+      if (createAndSetSharedFieldAccessCG( ei, ti)) {
         return this;
       }
     }
    
     Object attr = ei.getFieldAttr(fieldInfo);
+    StackFrame frame = ti.getModifiableTopFrame();
 
     if (size == 1) {
       int ival = ei.get1SlotField(fieldInfo);
       lastValue = ival;
 
-      ti.push(ival, fieldInfo.isReference());
+      if (fieldInfo.isReference()) {
+        frame.pushRef(ival);
+      } else {
+        frame.push(ival);
+      }
       
       if (attr != null) {
-        ti.setOperandAttrNoClone(attr);
+        frame.setOperandAttr(attr);
       }
 
     } else {
       long lval = ei.get2SlotField(fieldInfo);
       lastValue = lval;
       
-      ti.longPush(lval);
+      frame.pushLong(lval);
       
       if (attr != null) {
-        ti.setLongOperandAttrNoClone(attr);
+        frame.setLongOperandAttr(attr);
       }
     }
         

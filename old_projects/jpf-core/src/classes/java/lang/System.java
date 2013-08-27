@@ -18,17 +18,19 @@
 //
 package java.lang;
 
-import java.io.InputStream;
 import java.io.PrintStream;
+import java.io.InputStream;
+import java.lang.annotation.Annotation;
 import java.nio.channels.Channel;
 import java.util.Map;
 import java.util.Properties;
 
-import sun.misc.JavaLangAccess;
+//--- all the stuff that's dragged in via the JavaLangAccess backdoor
 import sun.misc.SharedSecrets;
-import sun.nio.ch.Interruptible;
+import sun.misc.JavaLangAccess;
 import sun.reflect.ConstantPool;
 import sun.reflect.annotation.AnnotationType;
+import sun.nio.ch.Interruptible;
 
 
 public class System {
@@ -61,9 +63,6 @@ public class System {
     // <2do> - most if this isn't supported yet
     SharedSecrets.setJavaLangAccess( createJavaLangAccess());
 
-    // <2do> this is an approximation that isn't particularly safe since we don't
-    // initialize sun.misc.VM
-    //sun.misc.VM.booted();
   }
 
   static JavaLangAccess createJavaLangAccess () {
@@ -86,16 +85,6 @@ public class System {
       public void blockedOn(Thread t, Interruptible b) {
         throw new UnsupportedOperationException("JavaLangAccess.blockedOn() not supported yet");
         //t.blockedOn(b);
-      }
-      public void registerShutdownHook(int slot, Runnable r) {
-        throw new UnsupportedOperationException("JavaLangAccess.registerShutdownHook() not supported yet");
-      }
-      public int getStackTraceDepth(Throwable t) {
-        return t.getStackTraceDepth();
-      }
-      public StackTraceElement getStackTraceElement(Throwable t, int i) {
-        StackTraceElement[] st = t.getStackTrace();
-        return st[i];
       }
     };
   }

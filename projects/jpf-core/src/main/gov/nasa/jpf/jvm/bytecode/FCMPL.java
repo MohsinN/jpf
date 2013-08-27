@@ -18,25 +18,31 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.Types;
 
 
 /**
  * Compare float
  * ..., value1, value2 => ..., result
  */
-public class FCMPL extends Instruction {
+public class FCMPL extends JVMInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    float v1 = Types.intToFloat(th.pop());
-    float v2 = Types.intToFloat(th.pop());
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+
+    float v1 = frame.popFloat();
+    float v2 = frame.popFloat();
     
-    th.push(conditionValue(v1, v2), false);
+    int condVal = conditionValue(v1, v2);
+    
+    frame.push(condVal);
 
-    return getNext(th);
+    return getNext(ti);
   }
   
   protected int conditionValue(float v1, float v2) {
@@ -51,10 +57,12 @@ public class FCMPL extends Instruction {
     }      
   }
 
+  @Override
   public int getByteCode () {
     return 0x95;
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

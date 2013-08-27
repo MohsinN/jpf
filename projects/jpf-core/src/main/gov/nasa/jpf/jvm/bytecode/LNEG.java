@@ -18,27 +18,34 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Negate long
  * ..., value => ..., result
  */
-public class LNEG extends Instruction {
+public class LNEG extends JVMInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    th.longPush(-th.longPop());
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+    
+    long v = frame.popLong();    
+    frame.pushLong(-v);
 
-    return getNext(th);
+    return getNext(ti);
   }
 
+  @Override
   public int getByteCode () {
     return 0x75;
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

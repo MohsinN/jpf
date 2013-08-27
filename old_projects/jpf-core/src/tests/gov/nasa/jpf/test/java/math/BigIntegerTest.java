@@ -19,12 +19,14 @@
 package gov.nasa.jpf.test.java.math;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.math.BigInteger;
-
 import org.junit.Test;
 
 public class BigIntegerTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   /************************** test methods ************************/
   @Test
@@ -34,11 +36,10 @@ public class BigIntegerTest extends TestJPF {
 
       BigInteger big = new BigInteger("4200000000000000000");
       BigInteger o = new BigInteger("100000000000000");
-      BigInteger notSoBig = new BigInteger("1");
+      BigInteger noSoBig = new BigInteger("1");
 
-      BigInteger x = big.add(notSoBig);
+      BigInteger x = big.add(noSoBig);
       String s = x.toString();
-      System.out.println("x = " + s);
       assert s.equals("4200000000000000001");
 
       x = big.divide(o);

@@ -18,20 +18,23 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.LocalVarInfo;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.StackFrame;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.ChoiceGenerator;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.LocalVarInfo;
+import gov.nasa.jpf.vm.MethodInfo;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.Types;
 
 
 /**
  * abstraction for all invoke instructions
  */
-public abstract class InvokeInstruction extends Instruction {
+public abstract class InvokeInstruction extends JVMInstruction {
   /* Those are all from the BCEL class, i.e. straight from the class file.
    * Note that we can't directly resolve to MethodInfo objects because
    * the corresponding class might not be loaded yet (has to be done
@@ -136,6 +139,16 @@ public abstract class InvokeInstruction extends Instruction {
     return ti.getStackFrameExecuting(this, 0);
   }
 
+  //--- invocation processing
+
+  protected void setupCallee (ThreadInfo ti, MethodInfo callee){
+    ClassInfo ciCaller = callee.getClassInfo();
+    StackFrame frame = ciCaller.createStackFrame( ti, callee);
+    
+    ti.pushFrame(frame);
+    ti.enter();
+  }
+  
   /**
    * this is a little helper to find out about call argument values from listeners that
    * don't want to dig through MethodInfos and Types. Reference arguments are returned as
@@ -222,11 +235,11 @@ public abstract class InvokeInstruction extends Instruction {
         break;
 
       case Types.T_LONG:
-        args[i] = new Long(frame.longPeek(off));
+        args[i] = new Long(frame.peekLong(off));
         off+=2;
         break;
       case Types.T_DOUBLE:
-        args[i] = new Double(Types.longToDouble(frame.longPeek(off)));
+        args[i] = new Double(Types.longToDouble(frame.peekLong(off)));
         off+=2;
         break;
 
@@ -298,7 +311,7 @@ public abstract class InvokeInstruction extends Instruction {
 
   /**
    * <2do> - this relies on same order of arguments and LocalVariableTable entries, which
-   * seems to hold for javac, but is not required by the JVM spec, which only
+   * seems to hold for javac, but is not required by the VM spec, which only
    * says that arguments are stored in consecutive slots starting at 0
    */
   public Object getArgumentValue (String id, ThreadInfo ti){
@@ -321,15 +334,19 @@ public abstract class InvokeInstruction extends Instruction {
   }
 
 
-  protected boolean checkSyncCG (ElementInfo ei, SystemState ss, ThreadInfo ti){
+  protected boolean checkSyncCG (ElementInfo ei, ThreadInfo ti){
     if (!ti.isFirstStepInsn()) {
+      ei = ei.getInstanceWithUpdatedSharedness(ti);
+      
       if (ei.getLockingThread() != ti) {  // maybe its a recursive lock
+        VM vm = ti.getVM();
 
         if (ei.canLock(ti)) { // we can lock the object, check if we need a CG
-          if (ei.checkUpdatedSharedness(ti)) { // is this a shared object?
-            ChoiceGenerator<?> cg = ss.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
+          if (ei.isShared()) {
+            ChoiceGenerator<?> cg = vm.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
             if (cg != null) {
-              if (ss.setNextChoiceGenerator(cg)) {
+              if (vm.setNextChoiceGenerator(cg)) {
+                ei = ei.getModifiableInstance();
                 ei.registerLockContender(ti);  // Record that this thread would lock the object upon next execution
                 return true;
               }
@@ -337,12 +354,12 @@ public abstract class InvokeInstruction extends Instruction {
           }
 
         } else { // already locked by another thread, we have to block and therefore need a CG
-          ei.updateRefTidWith(ti.getId()); // Ok, now we know it is shared
-
+          ei = ei.getModifiableInstance();
+          // the top half already did set the object shared
           ei.block(ti); // do this before we obtain the CG so that this thread is not in its choice set
 
-          ChoiceGenerator<?> cg = ss.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
-          ss.setMandatoryNextChoiceGenerator(cg, "blocking sync without CG");
+          ChoiceGenerator<?> cg = vm.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
+          vm.setMandatoryNextChoiceGenerator(cg, "blocking sync without CG");
           return true;
         }
       }
@@ -355,5 +372,23 @@ public abstract class InvokeInstruction extends Instruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
+  }
+
+  @Override
+  public Instruction typeSafeClone(MethodInfo mi) {
+    InvokeInstruction clone = null;
+
+    try {
+      clone = (InvokeInstruction) super.clone();
+
+      // reset the method that this insn belongs to
+      clone.mi = mi;
+
+      clone.invokedMethod = null;
+    } catch (CloneNotSupportedException e) {
+      e.printStackTrace();
+    }
+
+    return clone;
   }
 }

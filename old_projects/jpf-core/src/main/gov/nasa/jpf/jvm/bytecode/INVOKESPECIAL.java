@@ -18,6 +18,7 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.KernelState;
@@ -35,18 +36,17 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public class INVOKESPECIAL extends InstanceInvocation {
 
-  public INVOKESPECIAL (String clsDescriptor, String methodName, String signature){
-    super(clsDescriptor, methodName, signature);
-  }
+  private boolean m_skipLocalSync;    // Can't store this in a static since there might be multiple VM instances.
+  private boolean m_skipLocalSyncSet;
 
+  public INVOKESPECIAL () {}
 
   public int getByteCode () {
     return 0xB7;
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    int argSize = getArgSize();
-    int objRef = ti.getCalleeThis( argSize);
+    int objRef = ti.getCalleeThis( getArgSize());
     lastObj = objRef;
 
     // we don't have to check for NULL objects since this is either a ctor, a 
@@ -54,17 +54,20 @@ public class INVOKESPECIAL extends InstanceInvocation {
 
     MethodInfo mi = getInvokedMethod(ti);
 
-    if (mi == null){
-      return ti.createAndThrowException("java.lang.NoSuchMethodException", "Calling " + cname + '.' + mname);
-    }
+    if (mi == null)
+      return ti.createAndThrowException("java.lang.NoSuchMethodException", "Calling " + cname + "." + mname);
 
-    ElementInfo ei = ks.heap.get(objRef);
+    ElementInfo ei = ks.da.get(objRef);
 
-    if (mi.isSynchronized()){
-      if (checkSyncCG(ei, ss, ti)){
-        return this;
-      }
-    }
+    if (mi.isSynchronized())
+      if (!isLockOwner(ti, ei))           // If the object isn't already owned by this thread, then consider a choice point
+        if (isShared(ti, ei)) {           // If the object is shared, then consider a choice point
+          ChoiceGenerator<?> cg = getSyncCG(objRef, mi, ss, ks, ti);
+          if (cg != null) {
+            ss.setNextChoiceGenerator(cg);
+            return this;   // repeat exec, keep insn on stack
+          }
+        }
 
     return mi.execute(ti);
   }
@@ -86,6 +89,26 @@ public class INVOKESPECIAL extends InstanceInvocation {
   }
 
   /**
+   * If the object isn't shared, then the current thread can go on.
+   * For example, this object isn't reachable by other threads.
+   */
+  protected boolean isShared(ThreadInfo ti, ElementInfo ei) {
+    if (!getSkipLocalSync(ti))
+      return true;
+
+    return ei.isShared();
+  }
+
+  private boolean getSkipLocalSync(ThreadInfo ti) {
+    if (!m_skipLocalSyncSet) {
+      m_skipLocalSync = ti.getVM().getConfig().getBoolean("vm.por.skip_local_sync", false); // Default is false to keep original behavior.
+      m_skipLocalSyncSet = true;
+    }
+
+    return m_skipLocalSync;
+  }
+
+  /**
     * we can do some more caching here - the MethodInfo should be const
     */
   public MethodInfo getInvokedMethod (ThreadInfo th) {
@@ -95,21 +118,22 @@ public class INVOKESPECIAL extends InstanceInvocation {
 
     if (invokedMethod == null) {
       ClassInfo ci = ClassInfo.getResolvedClassInfo(cname);
-      boolean recursiveLookup = (mname.charAt(0) != '<'); // no hierarchy lookup for <init>
-      invokedMethod = ci.getMethod(mname, recursiveLookup);
+      invokedMethod = ci.getMethod(mname, true);
     }
 
     return invokedMethod; // we can store internally
   }
 
   public String toString() {
-    return ("invokespecial " + cname + '.' + mname);
+    MethodInfo callee = getInvokedMethod();
+
+    return "invokespecial " + ((callee != null) ? callee.getFullName() : "?");
   }
 
   @Override
   public Object getFieldValue (String id, ThreadInfo ti) {
     int objRef = getCalleeThis(ti);
-    ElementInfo ei = ti.getElementInfo(objRef);
+    ElementInfo ei = ti.getVM().getDynamicArea().get(objRef);
 
     Object v = ei.getFieldValueObject(id);
 

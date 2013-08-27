@@ -18,6 +18,8 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.JPFException;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.FieldInfo;
 import gov.nasa.jpf.jvm.KernelState;
@@ -31,10 +33,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public class GETFIELD extends InstanceFieldInstruction {
 
-  public GETFIELD (String fieldName, String classType, String fieldDescriptor){
-    super(fieldName, classType, fieldDescriptor);
-  }
-
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
     int objRef = ti.peek(); // don't pop yet, we might re-execute
     lastThis = objRef;
@@ -43,7 +41,7 @@ public class GETFIELD extends InstanceFieldInstruction {
                                         "referencing field '" + fname + "' on null object");
     }
 
-    ElementInfo ei = ti.getElementInfo(objRef);
+    ElementInfo ei = DynamicArea.getHeap().get(objRef);
 
     FieldInfo fi = getFieldInfo();
     if (fi == null) {
@@ -61,32 +59,32 @@ public class GETFIELD extends InstanceFieldInstruction {
     ti.pop(); // Ok, now we can remove the object ref from the stack
     Object attr = ei.getFieldAttr(fi);
 
-    // We could encapsulate the push in ElementInfo, but not the GET, so we keep it at a similiar level
-    if (fi.getStorageSize() == 1) { // 1 slotter
-      int ival = ei.get1SlotField(fi);
-      lastValue = ival;
-
-      ti.push(ival, fi.isReference());
-      if (attr != null) {
-        ti.setOperandAttrNoClone(attr);
-      }
-
-    } else {  // 2 slotter
-      long lval = ei.get2SlotField(fi);
-      lastValue = lval;
-
-      ti.longPush(lval);
-      if (attr != null) {
-        ti.setLongOperandAttrNoClone(attr);
-      }
+    // We could encapsulate the push in ElementInfo, but not the GET, so
+    // we keep it at a similiar level
+    switch (fi.getStorageSize()) {
+      case 1:
+        ti.push( ei.getIntField(fi), fi.isReference());
+        if (attr != null){
+          ti.setOperandAttrNoClone(attr);
+        }
+        break;
+      case 2:
+        ti.longPush( ei.getLongField(fi));
+        if (attr != null){
+          ti.setLongOperandAttrNoClone(attr);
+        }
+        break;
+      default:
+        throw new JPFException("invalid field type");
     }
+
 
     return getNext(ti);
   }
 
   public ElementInfo peekElementInfo (ThreadInfo ti) {
     int objRef = ti.peek();
-    ElementInfo ei = ti.getElementInfo(objRef);
+    ElementInfo ei = DynamicArea.getHeap().get(objRef);
     return ei;
   }
 

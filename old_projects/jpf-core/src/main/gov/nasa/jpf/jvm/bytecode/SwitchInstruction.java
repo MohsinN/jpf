@@ -19,6 +19,11 @@
 
 package gov.nasa.jpf.jvm.bytecode;
 
+import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.generic.InstructionHandle;
+
+import gov.nasa.jpf.jvm.ChoiceGenerator;
+import gov.nasa.jpf.jvm.IntChoiceGenerator;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
@@ -26,9 +31,6 @@ import gov.nasa.jpf.jvm.choice.IntIntervalGenerator;
 
 /**
  * common root class for LOOKUPSWITCH and TABLESWITCH insns
- *
- * <2do> this is inefficient. First, we should store targets as instruction indexes
- * to avoid execution() looping. Second, there are no matches for a TABLESWITCH
  */
 public abstract class SwitchInstruction extends Instruction {
 
@@ -39,49 +41,44 @@ public abstract class SwitchInstruction extends Instruction {
   protected int[] matches;  // branch consts
 
   protected int lastIdx;
+  
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    target = ((org.apache.bcel.generic.Select) i).getTarget()
+                                                     .getPosition();
+    matches = ((org.apache.bcel.generic.Select) i).getMatchs();
 
-  protected SwitchInstruction (int defaultTarget, int numberOfTargets){
-    target = defaultTarget;
-    targets = new int[numberOfTargets];
-    matches = new int[numberOfTargets];
+    int length = matches.length;
+    targets = new int[length];
+
+    InstructionHandle[] ih = ((org.apache.bcel.generic.Select) i).getTargets();
+
+    for (int j = 0; j < length; j++) {
+      targets[j] = ih[j].getPosition();
+    }
   }
 
-  public int getNumberOfEntries() {
-    return targets.length;
-  }
-
-  protected Instruction executeConditional (SystemState ss, KernelState ks, ThreadInfo ti){
+  
+  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
     int value = ti.pop();
 
     lastIdx = DEFAULT;
-
+    
     for (int i = 0, l = matches.length; i < l; i++) {
       if (value == matches[i]) {
         lastIdx = i;
-        return mi.getInstructionAt(targets[i]);
+        return ti.getMethod().getInstructionAt(targets[i]);
       }
     }
 
-    return mi.getInstructionAt(target);
-  }
-  
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    // this can be overridden by subclasses, so we have to delegate the conditional execution
-    // to avoid getting recursive in executeAllBranches()
-    return executeConditional(ss,ks,ti);
+    return ti.getMethod().getInstructionAt(target);
   }
 
   /** useful for symbolic execution modes */
   public Instruction executeAllBranches (SystemState ss, KernelState ks, ThreadInfo ti) {
     if (!ti.isFirstStepInsn()) {
       IntIntervalGenerator cg = new IntIntervalGenerator("switchAll", 0,matches.length);
-      if (ss.setNextChoiceGenerator(cg)){
-        return this;
-
-      } else {
-        // listener did override CG, fall back to conditional execution
-        return executeConditional(ss,ks,ti);
-      }
+      ss.setNextChoiceGenerator(cg);
+      return this;
       
     } else {
       IntIntervalGenerator cg = ss.getCurrentChoiceGenerator("switchAll", IntIntervalGenerator.class);
@@ -92,10 +89,10 @@ public abstract class SwitchInstruction extends Instruction {
       
       if (idx == matches.length){ // default branch
         lastIdx = DEFAULT;
-        return mi.getInstructionAt(target);
+        return ti.getMethod().getInstructionAt(target);        
       } else {
         lastIdx = idx;
-        return mi.getInstructionAt(targets[idx]);
+        return ti.getMethod().getInstructionAt(targets[idx]);        
       }
     }
   }
@@ -116,17 +113,5 @@ public abstract class SwitchInstruction extends Instruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
-  }
-
-  public int getTarget() {
-	return target;
-  }
-
-  public int[] getTargets() {
-	return targets;
-  }
-
-  public int[] getMatches() {
-	return matches;
   }
 }

@@ -19,11 +19,12 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.JPFException;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ChoiceGenerator;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -33,24 +34,27 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public class MONITORENTER extends LockInstruction {
 
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    int objref = ti.peek();      // Don't pop yet before we know we really execute
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getTopFrame();
 
+    int objref = frame.peek();      // Don't pop yet before we know we really enter
     if (objref == -1){
       return ti.createAndThrowException("java.lang.NullPointerException", "Attempt to acquire lock for null object");
     }
 
     lastLockRef = objref;
-    ElementInfo ei = ks.heap.get(objref);
+    ElementInfo ei = ti.getModifiableElementInfo(objref);
 
     if (!ti.isFirstStepInsn()){ // check if we have a choicepoint
       if (!isLockOwner(ti, ei)){  // maybe its a recursive lock
+        VM vm = ti.getVM();
 
         if (ei.canLock(ti)) { // we can lock the object, the CG is optional
-          if (ei.checkUpdatedSharedness(ti)) { // is this a shared object?
-            ChoiceGenerator<?> cg = ss.getSchedulerFactory().createMonitorEnterCG(ei, ti);
+          ei = ei.getInstanceWithUpdatedSharedness(ti); 
+          if (ei.isShared()) {
+            ChoiceGenerator<?> cg = vm.getSchedulerFactory().createMonitorEnterCG(ei, ti);
             if (cg != null) {
-              if (ss.setNextChoiceGenerator(cg)) {
+              if (vm.setNextChoiceGenerator(cg)) {
                 ei.registerLockContender(ti);  // Record that this thread would lock the object upon next execution
                 return this;
               }
@@ -58,13 +62,13 @@ public class MONITORENTER extends LockInstruction {
           }
 
         } else { // already locked by another thread, we have to block and therefore need a CG
-          ei.updateRefTidWith(ti.getId()); // Ok, now we know its shared
+          // the top half already did set the object shared
 
           ei.block(ti); // do this before we obtain the CG so that this thread is not in its choice set
 
-          ChoiceGenerator<?> cg = ss.getSchedulerFactory().createMonitorEnterCG(ei, ti);
+          ChoiceGenerator<?> cg = vm.getSchedulerFactory().createMonitorEnterCG(ei, ti);
           if (cg != null) {
-            if (ss.setNextChoiceGenerator(cg)) {
+            if (vm.setNextChoiceGenerator(cg)) {
               return this;
             } else {
               throw new JPFException("listener did override ChoiceGenerator for blocking MONITOR_ENTER");
@@ -77,7 +81,8 @@ public class MONITORENTER extends LockInstruction {
     }
 
     // this is only executed in the bottom half
-    ti.pop();
+    frame = ti.getModifiableTopFrame(); // now we need to modify it
+    frame.pop();
     ei.lock(ti);  // Still have to increment the lockCount
     
     return getNext(ti);

@@ -18,11 +18,11 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ArrayIndexOutOfBoundsExecutiveException;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ArrayIndexOutOfBoundsExecutiveException;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -30,29 +30,32 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  *
  *  ... array, index, <value> => ...
  */
-public abstract class ArrayStoreInstruction extends ArrayInstruction implements StoreInstruction {
+public abstract class ArrayStoreInstruction extends ArrayElementInstruction implements StoreInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
+  @Override
+  public Instruction execute (ThreadInfo ti) {
     int aref = peekArrayRef(ti); // need to be poly, could be LongArrayStore
     if (aref == -1) {
       return ti.createAndThrowException("java.lang.NullPointerException");
     }
 
-    ElementInfo e = ti.getElementInfo(aref);
+    ElementInfo e = ti.getModifiableElementInfo(aref);
 
     if (isNewPorBoundary(e, ti)) {
-      if (createAndSetArrayCG(ss,e,ti, aref, peekIndex(ti), false)) {
+      if (createAndSetArrayCG(e,ti, aref, peekIndex(ti), false)) {
         return this;
       }
     }
 
     int esize = getElementSize();
-    Object attr = esize == 1 ? ti.getOperandAttr() : ti.getLongOperandAttr();
+    StackFrame frame = ti.getModifiableTopFrame();
 
-    popValue(ti);
-    index = ti.pop();
+    Object attr = esize == 1 ? frame.getOperandAttr() : frame.getLongOperandAttr();
+    
+    popValue(frame);
+    index = frame.pop();
     // don't set 'arrayRef' before we do the CG check (would kill loop optimization)
-    arrayRef = ti.pop();
+    arrayRef = frame.pop();
 
     Instruction xInsn = checkArrayStoreException(ti, e);
     if (xInsn != null){
@@ -72,28 +75,32 @@ public abstract class ArrayStoreInstruction extends ArrayInstruction implements 
   /**
    * this is for pre-exec use
    */
+  @Override
   protected int peekArrayRef(ThreadInfo ti) {
-    return ti.peek(2);
+    return ti.getTopFrame().peek(2);
   }
 
+  @Override
   protected int peekIndex(ThreadInfo ti){
-    return ti.peek(1);
+    return ti.getTopFrame().peek(1);
   }
 
   protected Instruction checkArrayStoreException(ThreadInfo ti, ElementInfo ei){
     return null;
   }
 
-  protected abstract void popValue(ThreadInfo ti);
+  protected abstract void popValue(StackFrame frame);
 
   protected abstract void setField (ElementInfo e, int index)
                     throws ArrayIndexOutOfBoundsExecutiveException;
 
 
+  @Override
   public boolean isRead() {
     return false;
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

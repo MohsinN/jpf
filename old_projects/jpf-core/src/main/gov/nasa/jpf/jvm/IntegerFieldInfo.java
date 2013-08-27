@@ -18,35 +18,24 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.JPFException;
-
+import org.apache.bcel.classfile.*;
 
 
 /**
  * type, name, mod info about integer fields
  */
-public class IntegerFieldInfo extends SingleSlotFieldInfo {
+public class IntegerFieldInfo extends FieldInfo {
   int init;
 
-  public IntegerFieldInfo (String name, int modifiers,
-                           ClassInfo ci, int idx, int off) {
-     super(name, "I", modifiers, ci, idx, off);
+  public IntegerFieldInfo (String name, String type, int modifiers,
+                           ConstantValue cv, ClassInfo ci, int idx, int off) {
+    super(name, type, modifiers, cv, ci, idx, off);
+    init = (cv != null) ? Integer.parseInt(cv.toString()) : 0;
   }
 
   public void initialize (ElementInfo ei) {
-    ei.getFields().setIntValue( storageOffset, init);
+    ei.getFields().setIntValue(ei, storageOffset, init);
   }
-
-  public void setConstantValue(Object constValue){
-    if (constValue instanceof Integer){
-      cv = constValue;
-      init = (Integer)constValue;
-
-    } else {
-      throw new JPFException("illegal int ConstValue=" + constValue);
-    }
-  }
-
 
   public Class<? extends ChoiceGenerator<?>> getChoiceGeneratorType() {
     return IntChoiceGenerator.class;
@@ -59,15 +48,19 @@ public class IntegerFieldInfo extends SingleSlotFieldInfo {
 
   public Object getValueObject (Fields f){
     int i = f.getIntValue(storageOffset);
-    return new Integer(i);
-  }
 
-  public boolean isIntField(){
-    // booleans, byte, char and short are too
-    return true;
-  }
-
-  public boolean isNumericField(){
-    return true;
+    if (type.equals("int")){
+      return new Integer(i);
+    } else if (type.equals("boolean")){
+      return new Boolean(i != 0);
+    } else if (type.equals("byte")){
+      return new Byte((byte)i);
+    } else if (type.equals("char")){
+      return new Character((char)i);
+    } else if (type.equals("short")){
+      return new Short((short)i);
+    } else {
+      throw new UnsupportedOperationException("unknown field type: " + type);
+    }
   }
 }

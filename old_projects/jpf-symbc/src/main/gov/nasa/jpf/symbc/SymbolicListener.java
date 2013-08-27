@@ -26,6 +26,7 @@ import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.PropertyListenerAdapter;
 import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.DoubleFieldInfo;
 import gov.nasa.jpf.jvm.DynamicElementInfo;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.FieldInfo;
@@ -79,8 +80,6 @@ import java.util.StringTokenizer;
 import java.util.Vector;
 
 import gov.nasa.jpf.symbc.numeric.MinMax;
-import gov.nasa.jpf.symbc.numeric.solvers.ProblemCompare;
-import gov.nasa.jpf.symbc.numeric.solvers.DebugSolvers;
 import gov.nasa.jpf.symbc.numeric.solvers.ProblemCVC3;
 import gov.nasa.jpf.symbc.numeric.solvers.ProblemCVC3BitVector;
 import gov.nasa.jpf.symbc.numeric.solvers.ProblemChoco;
@@ -422,9 +421,6 @@ public class SymbolicListener extends PropertyListenerAdapter implements Publish
 	   */
 	  public void searchFinished(Search search) {
 		  //writeTable();
-//		  if (search.getConfig().getStringArray("symbolic.dp")[0].equalsIgnoreCase("compare")) {
-//			  ProblemCompare.dump(search);
-//		  }
 	  }
 
 	  /*

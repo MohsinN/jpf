@@ -1,0 +1,11 @@
+@using jpf-ltl
+target=infinite.AlwaysDoubleEventually
+finite=false
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+listener=gov.nasa.jpf.ltl.ddfs.InfiniteListener
+search.class=gov.nasa.jpf.ltl.ddfs.DDFSearch
+vm.storage.class=gov.nasa.jpf.jvm.FullStateSet
+cg.enumerate_random=true
+debug=true

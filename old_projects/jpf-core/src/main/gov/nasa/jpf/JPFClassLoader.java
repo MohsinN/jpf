@@ -67,8 +67,4 @@ public class JPFClassLoader extends URLClassLoader {
       super.addURL(url);
     }
   }
-  
-  public void setNativeLibs (String[] libs){
-    nativeLibs = libs;
-  }
 }

@@ -49,8 +49,6 @@ public class TraceStorer extends ListenerAdapter {
   // property violation?
   boolean terminateOnStore;
   
-  boolean storeOnConstraintHit;
-  
   // search depth at what we store the tace 
   int storeDepth;
   
@@ -74,7 +72,6 @@ public class TraceStorer extends ListenerAdapter {
     verbose = config.getBoolean("trace.verbose", false);
     
     terminateOnStore = config.getBoolean("trace.terminate", false);
-    storeOnConstraintHit = config.getBoolean("trace.store_constraint", false);
     
     storeCalls = StringSetMatcher.getNonEmpty(config.getStringArray("trace.store_calls"));
     storeThreads = StringSetMatcher.getNonEmpty(config.getStringArray("trace.store_threads"));
@@ -104,12 +101,6 @@ public class TraceStorer extends ListenerAdapter {
     if (search.getDepth() == storeDepth){
       storeTrace("search depth reached: " + storeDepth);
       checkSearchTermination();
-    }
-  }
-  
-  public void searchConstraintHit (Search search){
-    if (storeOnConstraintHit){
-      storeTrace("search constraint hit: " + search.getLastSearchConstraint());      
     }
   }
   

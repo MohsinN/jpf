@@ -22,8 +22,8 @@ import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.PropertyListenerAdapter;
 import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.Heap;
 import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.jvm.MethodInfo;
 import gov.nasa.jpf.jvm.ThreadInfo;
@@ -41,6 +41,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Stack;
+import java.util.regex.Pattern;
 
 /**
  * HeapTracker - property-listener class to check heap utilization along all
@@ -317,13 +318,13 @@ public class HeapTracker extends PropertyListenerAdapter {
   }
 
   public void gcEnd(JVM jvm) {
-    Heap heap = jvm.getHeap();
+    DynamicArea da = jvm.getDynamicArea();
 
     int n = 0;
     int nShared = 0;
     int nImmutable = 0;
 
-    for (ElementInfo ei : heap.liveObjects()) {
+    for (ElementInfo ei : da) {
       n++;
 
       if (ei.isShared()) nShared++;
@@ -369,7 +370,7 @@ public class HeapTracker extends PropertyListenerAdapter {
 
   public void objectCreated(JVM jvm) {
     ElementInfo ei = jvm.getLastElementInfo();
-    int idx = ei.getObjectRef();
+    int idx = ei.getIndex();
     ThreadInfo ti = jvm.getLastThreadInfo();
     int line = ti.getLine();
     MethodInfo mi = ti.getMethod();
@@ -407,7 +408,7 @@ public class HeapTracker extends PropertyListenerAdapter {
     if (throwOutOfMemory) {
       if (((maxHeapSizeLimit >=0) && (stat.heapSize > maxHeapSizeLimit)) ||
           ((maxLiveLimit >=0) && ((stat.nNew - stat.nReleased) > maxLiveLimit))){
-        jvm.getHeap().setOutOfMemory(true);
+        DynamicArea.getHeap().setOutOfMemory(true);
       }
     }
   }
@@ -435,7 +436,7 @@ public class HeapTracker extends PropertyListenerAdapter {
   protected void printElementInfo(ElementInfo ei) {
     boolean first = false;
 
-    System.out.print( ei.getObjectRef());
+    System.out.print( ei.getIndex());
     System.out.print( ": ");
     System.out.print( ei.getClassInfo().getName());
     System.out.print( "  [");
@@ -450,7 +451,7 @@ public class HeapTracker extends PropertyListenerAdapter {
     }
     System.out.print( "] ");
 
-    SourceRef sr = loc.get(ei.getObjectRef());
+    SourceRef sr = loc.get(ei.getIndex());
     if (sr != null) {
       System.out.println(sr);
     } else {

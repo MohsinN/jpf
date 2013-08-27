@@ -18,16 +18,17 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Increment local variable by constant
  * No change
  */
-public class IINC extends Instruction {
+public class IINC extends JVMInstruction {
 
 	protected int index;
 	protected int increment;
@@ -37,20 +38,28 @@ public class IINC extends Instruction {
 		this.increment = increment;
 	}
 
-	public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-		th.setLocalVariable(index, th.getLocalVariable(index) + increment, false);
+	@Override
+	public Instruction execute (ThreadInfo ti) {
+	  StackFrame frame = ti.getModifiableTopFrame();
+	  
+	  int v = frame.getLocalVariable(index);
+	  v += increment;
+	  
+	  frame.setLocalVariable(index, v, false);
 
-		return getNext(th);
+		return getNext(ti);
 	}
 
 	public int getLength() {
 		return 3; // opcode, index, const
 	}
 
+	@Override
 	public int getByteCode () {
 		return 0x84; // ?? wide
 	}
 
+	@Override
 	public void accept(InstructionVisitor insVisitor) {
 		insVisitor.visit(this);
 	}

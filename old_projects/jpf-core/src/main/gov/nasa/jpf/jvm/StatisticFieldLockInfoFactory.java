@@ -18,11 +18,11 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.JPF;
-
 import java.util.List;
 import java.util.logging.Logger;
+
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.JPF;
 
 /**
  * a FieldLockInfo implementation with the following strategy:
@@ -93,12 +93,12 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
         ElementInfo eiLockCandidate = strongProtectionCandidate(ei,fi,currentLocks);
         if (eiLockCandidate != null) {
           // NOTE we raise the checklevel
-          return new SingleLockFli( ti, eiLockCandidate.getObjectRef(), CHECK_THRESHOLD);
+          return new SingleLockFli( ti, eiLockCandidate.getIndex(), CHECK_THRESHOLD);
         }
       }
       
       if (n == 1) { // most common case
-        return new SingleLockFli( ti, currentLocks.get(0).getObjectRef(), 0);
+        return new SingleLockFli( ti, currentLocks.get(0).getIndex(), 0);
       
       } else {
         return new MultiLockFli( ti, fi, currentLocks);
@@ -125,7 +125,7 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
 
       for (int i=0; i<n; i++) {
         ElementInfo e = currentLocks.get(i); // the locked object
-        if (e.getObjectRef() == cref) {
+        if (e.getIndex() == cref) {
           log.info("sync-detection: " + ei + " assumed to be synced on class object: " + e);
           return e;
         }
@@ -134,7 +134,7 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
     } else { // instance field, use lock distance as a heuristic
       for (int i=0; i<n; i++) {
         ElementInfo e = currentLocks.get(i); // the locked object
-        int eidx = e.getObjectRef();
+        int eidx = e.getIndex();
 
         // case 1: synchronization on field owner itself
         if (ei == e) {
@@ -143,7 +143,7 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
         }
 
         // case 2: synchronization on owner of object holding field (sync wrapper)
-        if (e.hasRefField(ei.getObjectRef())) {
+        if (e.hasRefField(ei.getIndex())) {
           log.info("sync-detection: " + ei + " assumed to be synced on object wrapper: " + e);
           return e;
         }
@@ -205,7 +205,7 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
       
       for (int i=0; i<n; i++) {
         ElementInfo lei = currentLocks.get(i);
-        if (lei.getObjectRef() == lockRef) {
+        if (lei.getIndex() == lockRef) {
           return this;
         }
       }
@@ -214,13 +214,9 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
       return empty;
     }
 
-    /**
-     * only called at the end of the gc on all live objects. The recycled ones
-     * are either already nulled in the heap, or are not marked as live
-     */
-    public FieldLockInfo cleanUp (Heap heap) {
-      ElementInfo ei = heap.get(lockRef);
-      if (!heap.isAlive(ei)) {
+    public FieldLockInfo cleanUp () {
+      DynamicArea area = DynamicArea.getHeap();
+      if (area.get(lockRef) == null) {
         return FieldLockInfo.empty;
       } else {
         return this;
@@ -244,7 +240,7 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
       lockRefSet = new int[n];
       
       for (int i=0; i<n; i++) {
-        lockRefSet[i] = currentLocks.get(i).getObjectRef();
+        lockRefSet[i] = currentLocks.get(i).getIndex();
       }
     }
     
@@ -269,7 +265,7 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
 
         for (int i=0; i<nLocks; i++) { // get the set intersection
           ElementInfo lei = currentLocks.get(i);
-          int leidx = lei.getObjectRef();
+          int leidx = lei.getIndex();
 
           for (int j=0; j<lockRefSet.length; j++) {
             if (lockRefSet[j] == leidx) {
@@ -299,19 +295,15 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
       return this;
     }
 
-    /**
-     * only called at the end of the gc on all live objects. The recycled ones
-     * are either already nulled in the heap, or are not marked as live
-     */
-    public FieldLockInfo cleanUp (Heap heap) {
+    public FieldLockInfo cleanUp () {
+      DynamicArea area = DynamicArea.getHeap();
       int[] newSet = null;
       int l = 0;
 
       if (lockRefSet != null) {
         for (int i=0; i<lockRefSet.length; i++) {
-          ElementInfo ei = heap.get(lockRefSet[i]);
+          if (area.get(lockRefSet[i]) == null) { // we got a stale one, so we have to change us
 
-          if (!heap.isAlive(ei)) { // we got a stale one, so we have to change us
             if (newSet == null) { // first one, copy everything up to it
               newSet = new int[lockRefSet.length-1];
               if (i > 0) {
@@ -319,7 +311,6 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
                 l = i;
               }
             }
-
           } else {
             if (newSet != null) { // we already had a dangling ref, now copy the live ones
               newSet[l++] = lockRefSet[i];
@@ -331,7 +322,6 @@ public class StatisticFieldLockInfoFactory implements FieldLockInfoFactory {
       if (l == 1) {
           assert (newSet != null);
           return new SingleLockFli(tiLastCheck, newSet[0], checkLevel);
-          
       } else {
         if (newSet != null) {
           if (l == newSet.length) { // we just had one stale ref

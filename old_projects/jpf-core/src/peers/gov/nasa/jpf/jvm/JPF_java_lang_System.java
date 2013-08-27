@@ -18,40 +18,154 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.JPFConfigException;
-import gov.nasa.jpf.classfile.ClassPath;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.jvm.choice.BreakGenerator;
-
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.util.Map;
 import java.util.Properties;
+import java.util.Map;
+
+import org.apache.bcel.util.ClassPath;
+
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.JPFConfigException;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
+import gov.nasa.jpf.jvm.choice.BreakGenerator;
 
 /**
  * MJI NativePeer class for java.lang.System library abstraction
  */
 public class JPF_java_lang_System {
   
+  // <2do> - now this baby really needs to be fixed. Imagine what it
+  // does to an app that works with large vectors
   public static void arraycopy__Ljava_lang_Object_2ILjava_lang_Object_2II__V (MJIEnv env, int clsObjRef,
                                                                               int srcArrayRef, int srcIdx, 
                                                                               int dstArrayRef, int dstIdx,
                                                                               int length) {
-    if ((srcArrayRef == MJIEnv.NULL) || (dstArrayRef == MJIEnv.NULL)) {
+    int i;
+    
+    if ((srcArrayRef == -1) || (dstArrayRef == -1)) {
       env.throwException("java.lang.NullPointerException");
       return;
     }
 
-    ElementInfo eiSrc = env.getElementInfo(srcArrayRef);
-    ElementInfo eiDst = env.getElementInfo(dstArrayRef);
+    if (!env.isArray(srcArrayRef) || !env.isArray(dstArrayRef)) {
+      env.throwException("java.lang.ArrayStoreException");
+      return;
+    }
+
+    int sts = env.getArrayTypeSize(srcArrayRef);
+    int dts = env.getArrayTypeSize(dstArrayRef);
+
+    if (sts != dts) {
+      env.throwException("java.lang.ArrayStoreException");
+      return;
+    }
+
+    // ARGHH <2do> pcm - at some point, we should REALLY do this with a block
+    // operation (saves lots of state, speed if arraycopy is really used)
+    // we could also use the native checks in that case
+    int sl = env.getArrayLength(srcArrayRef);
+    int dl = env.getArrayLength(dstArrayRef);
+
+    // <2do> - we need detail messages!
+    if ((srcIdx < 0) || ((srcIdx + length) > sl)) {
+      env.throwException("java.lang.ArrayIndexOutOfBoundsException");
+      return;
+    }
+
+    if ((dstIdx < 0) || ((dstIdx + length) > dl)) {
+      env.throwException("java.lang.ArrayIndexOutOfBoundsException");
+      return;
+    }
     
-    try {
-      eiDst.copyElements( env.getThreadInfo(), eiSrc ,srcIdx, dstIdx, length);
-    } catch (IndexOutOfBoundsException iobx){
-      env.throwException("java.lang.IndexOutOfBoundsException", iobx.getMessage());
-    } catch (ArrayStoreException asx){
-      env.throwException("java.lang.ArrayStoreException", asx.getMessage());      
+    ClassInfo srcArrayCi = env.getClassInfo(srcArrayRef);    
+    ClassInfo dstArrayCi = env.getClassInfo(dstArrayRef);      
+    
+    // finally do the copying
+    if (sts == 1) {  // word-size array
+      
+      // self copy - no checks required
+      if (srcArrayRef == dstArrayRef && srcIdx < dstIdx) {
+        // bugfix case by peterd; see docs for System.arraycopy
+        for (i = length - 1; i >= 0; i--) {
+          int v = env.getIntArrayElement(srcArrayRef, srcIdx + i);
+          env.setIntArrayElement(dstArrayRef, dstIdx + i, v);
+        }
+        
+      } else { // different array objects
+
+        // check reference types (fix from Milos Gligoric and Tihomir Gvero)
+        boolean isDstReferenceArray = dstArrayCi.isReferenceArray();
+        if (isDstReferenceArray != srcArrayCi.isReferenceArray()) {
+          env.throwException("java.lang.ArrayStoreException");          
+        }
+        
+        if (!isDstReferenceArray) {
+          // builtin element types have to be identical
+          if (srcArrayCi != dstArrayCi) {
+            env.throwException("java.lang.ArrayStoreException");            
+          }
+          
+          for (i = 0; i < length; i++) {
+            int v = env.getIntArrayElement(srcArrayRef, srcIdx + i);
+            env.setIntArrayElement(dstArrayRef, dstIdx + i, v);
+          }
+          
+        } else {
+          ClassInfo dstArrayElementCi = dstArrayCi.getComponentClassInfo();
+          
+          for (i = 0; i < length; i++) {
+            // check element type compatibility
+            int srcArrayElementRef = env.getReferenceArrayElement(srcArrayRef, srcIdx + i);
+            if (srcArrayElementRef != MJIEnv.NULL) {
+              ClassInfo srcArrayElementCi = env.getClassInfo(srcArrayElementRef);
+              if (!srcArrayElementCi.isInstanceOf(dstArrayElementCi)) {                   
+                env.throwException("java.lang.ArrayStoreException");
+                return;            
+              }
+            }
+
+            env.setIntArrayElement(dstArrayRef, dstIdx + i, srcArrayElementRef);
+          }
+        }
+      }
+      
+    } else {  // double word size array
+      
+      if (srcArrayRef == dstArrayRef && srcIdx < dstIdx) {
+        // self copy - no checks required
+        // bugfix case by peterd; see docs for System.arraycopy
+        for (i = length - 1; i >= 0; i--) {
+          long v = env.getLongArrayElement(srcArrayRef, srcIdx + i);
+          env.setLongArrayElement(dstArrayRef, dstIdx + i, v);
+        }    
+        
+      } else { // different array objects
+        
+        // builtin element types have to be identical
+        if (srcArrayCi != dstArrayCi) {
+          env.throwException("java.lang.ArrayStoreException");            
+        }
+        
+        for (i = 0; i < length; i++) {
+          long v = env.getLongArrayElement(srcArrayRef, srcIdx + i);
+          env.setLongArrayElement(dstArrayRef, dstIdx + i, v);
+        }
+      }
+    }
+    
+    if (env.hasFieldAttrs(srcArrayRef)){
+      if (srcArrayRef == dstArrayRef && srcIdx < dstIdx) { // self copy
+        for (i = length - 1; i >= 0; i--) {
+          Object a = env.getElementAttr(srcArrayRef, srcIdx+i);
+          env.setElementAttr(dstArrayRef, dstIdx+i, a);
+        }        
+      } else {
+        for (i = 0; i < length; i++) {
+          Object a = env.getElementAttr(srcArrayRef, srcIdx+i);
+          env.setElementAttr(dstArrayRef, dstIdx+i, a);
+        }          
+      }
     }
   }
 
@@ -71,7 +185,7 @@ public class JPF_java_lang_System {
   static int createPrintStream (MJIEnv env, int clsObjRef){
     ThreadInfo ti = env.getThreadInfo();
     Instruction insn = ti.getPC();
-    StackFrame frame = ti.getTopFrame();
+
     ClassInfo ci = ClassInfo.getResolvedClassInfo("gov.nasa.jpf.ConsoleOutputStream");
 
     // it's not really used, but it would be hack'ish to use a class whose
@@ -81,7 +195,7 @@ public class JPF_java_lang_System {
     }
 
     if (!ci.isInitialized()) {
-      if (ci.initializeClass(ti)) {
+      if (ci.initializeClass(ti, insn)) {
         env.repeatInvocation();
         return MJIEnv.NULL;
       }
@@ -151,40 +265,6 @@ public class JPF_java_lang_System {
   
   static String JAVA_CLASS_PATH = "java.class.path";
   
-  public static String getSUTJavaClassPath(JVM vm) {
-    ClassInfo system = ClassInfo.getResolvedClassInfo("java.lang.System");
-    
-    if (system == null) {
-      return null; 
-    }
-    
-    MethodInfo getProperty = system.getMethod("getProperty(Ljava/lang/String;)Ljava/lang/String;", true);
-    MethodInfo stub = getProperty.createDirectCallStub("getSUTJavaClassPath");
-    stub.setFirewall(true);
-
-    ThreadInfo thread = vm.getCurrentThread();
-    Heap heap = vm.getHeap();
-    int javaClassPath = heap.newString(JAVA_CLASS_PATH, thread);
-    
-    DirectCallStackFrame frame = new DirectCallStackFrame(stub);
-    frame.push(javaClassPath);
-    
-    try {
-      thread.executeMethodHidden(frame);
-    } catch (UncaughtException e) {
-       thread.clearPendingException();
-       thread.popFrame();
-       thread.advancePC();
-       return null;
-    }
-    
-    int ref = frame.peek();
-    ElementInfo metaResult = heap.get(ref);
-    String result = metaResult.asString();
-    
-    return result;
-  }
-  
   static int getSelectedSysPropsFromHost (MJIEnv env){
     Config conf = env.getConfig();
     String keys[] = conf.getStringArray("vm.sysprop.keys");
@@ -239,29 +319,25 @@ public class JPF_java_lang_System {
         
     return aref;
   }
-
-  /**
-   * policy of how to initialize system properties of the system under test
-   */
-  static enum SystemPropertyPolicy {
-    SELECTED,  // copy host values for keys specified in  
-    FILE, 
-    HOST
-  };
+  
+  static String SYSPROP_SRC_KEY = "vm.sysprop.source";
+  static enum SYSPROP_SRC { selected, file, host };
 
   public static int getKeyValuePairs_____3Ljava_lang_String_2 (MJIEnv env, int clsObjRef){
     Config conf = env.getConfig();
-    SystemPropertyPolicy sysPropSrc = conf.getEnum( "vm.sysprop.source", SystemPropertyPolicy.values(), SystemPropertyPolicy.SELECTED);
+    SYSPROP_SRC sysPropSrc = conf.getEnum(SYSPROP_SRC_KEY, SYSPROP_SRC.values(), SYSPROP_SRC.selected);
 
-    if (sysPropSrc == SystemPropertyPolicy.FILE){
+    // <2do> temporary workaround - a switch would cause an anonymous inner class that gets
+    // erroneously associated with a different ..$1 class (anonymous JavaLangAccess) from our model
+    if (sysPropSrc == SYSPROP_SRC.file){
       return getSysPropsFromFile(env);
-    } else if (sysPropSrc == SystemPropertyPolicy.HOST){
+    } else if (sysPropSrc == SYSPROP_SRC.host){
       return getSysPropsFromHost(env);
-    } else if (sysPropSrc == SystemPropertyPolicy.SELECTED){
+    } else if (sysPropSrc == SYSPROP_SRC.selected){
       return getSelectedSysPropsFromHost(env);
+    } else {
+        throw new JPFConfigException("unsupported system properties source: " + conf.getString(SYSPROP_SRC_KEY));
     }
-    
-    return 0;
   }
   
   // <2do> - this break every app which uses time delta thresholds
@@ -269,26 +345,28 @@ public class JPF_java_lang_System {
   // real time, but we could at least give some SystemState dependent
   // increment
   public static long currentTimeMillis____J (MJIEnv env, int clsObjRef) {
-    return env.currentTimeMillis();
+    return env.getVM().currentTimeMillis();
   }
 
   // <2do> - likewise. Java 1.5's way to measure relative time
   public static long nanoTime____J (MJIEnv env, int clsObjRef) {
-    return env.nanoTime();
+    return env.getVM().nanoTime();
   }  
   
   // this works on the assumption that we sure break the transition, and
   // then the search determines that it is an end state (all terminated)
   public static void exit__I__V (MJIEnv env, int clsObjRef, int ret) {
     SystemState ss = env.getSystemState();
-    ThreadInfo[] liveThreads = env.getLiveThreads();
+    ThreadList tl = env.getVM().getThreadList();
 
-    for (int i = 0; i < liveThreads.length; i++) {
+    for (int i = 0; i < tl.length(); i++) {
+      ThreadInfo ti = tl.get(i);
+
       // keep the stack frames around, so that we can inspect the snapshot
-      liveThreads[i].setTerminated();
+      ti.setTerminated();
     }
     
-    ss.setMandatoryNextChoiceGenerator( new BreakGenerator("exit", env.getThreadInfo(), true), "exit without break CG");
+    ss.setNextChoiceGenerator( new BreakGenerator("exit", env.getThreadInfo(), true));
   }
 
   public static void gc____V (MJIEnv env, int clsObjRef) {

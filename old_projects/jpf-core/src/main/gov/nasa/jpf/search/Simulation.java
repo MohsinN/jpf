@@ -19,8 +19,9 @@
 package gov.nasa.jpf.search;
 
 
-import gov.nasa.jpf.Config;
 import gov.nasa.jpf.jvm.JVM;
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.util.Debug;
 
 
 /**
@@ -28,19 +29,19 @@ import gov.nasa.jpf.jvm.JVM;
  * all (i.e. it doesn't backtrack), but just behaves like a 'normal' VM,
  * going forward() until there is no next state
  *
- * <2do> of course it doesn't quite behave like a normal VM, since it
+ * <2do> pcm - of course it doesn't quite behave like a normal VM, since it
  * doesn't honor thread priorities yet (needs a special scheduler)
  *
- * <2do> it's not really clear to me how this differs from a 'PathSearch'
+ * <?> pcm - it's not really clear to me how this differs from a 'PathSearch'
  * other than using a different scheduler. Looks like there should be just one
- *
- * <2do> this needs to be updated & tested
  *
  */
 public class Simulation extends Search {
   
   public Simulation (Config config, JVM vm) {
     super(config, vm);
+
+    Debug.println(Debug.WARNING, "Simulation Search");
   }
 
   public void search () {
@@ -55,23 +56,19 @@ public class Simulation extends Search {
     notifySearchStarted();
     
     while (!done) {
-      if (forward()) {
+      boolean next = vm.forward();
 
-        if (currentError != null){
-          notifyPropertyViolated();
-
-          if (hasPropertyTermination()) {
-            return;
-          }
+      if (next) {
+        if (hasPropertyTermination()) {
+          return;
         }
 
         depth++;
-
       } else { // no next state
 
         // <2do> we could check for more things here. If the last insn wasn't
         // the main return, or a System.exit() call, we could flag a JPFException
-        checkPropertyViolation();
+        isPropertyViolated();
         done = true;
       }
     }

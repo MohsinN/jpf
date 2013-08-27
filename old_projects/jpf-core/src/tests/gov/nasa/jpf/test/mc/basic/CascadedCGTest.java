@@ -24,23 +24,28 @@ import gov.nasa.jpf.ListenerAdapter;
 import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.FieldInfo;
 import gov.nasa.jpf.jvm.JVM;
+import gov.nasa.jpf.jvm.StackFrame;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.Verify;
-import gov.nasa.jpf.jvm.bytecode.EXECUTENATIVE;
 import gov.nasa.jpf.jvm.bytecode.GETFIELD;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
+import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.choice.IntChoiceFromSet;
 import gov.nasa.jpf.jvm.choice.IntIntervalGenerator;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
  * regression test for cascaded ChoiceGenerators
  */
 public class CascadedCGTest extends TestJPF {
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
+
 
   public static class IntChoiceCascader extends ListenerAdapter {
     static int result;
@@ -50,10 +55,10 @@ public class CascadedCGTest extends TestJPF {
       ThreadInfo ti = vm.getLastThreadInfo();
       SystemState ss = vm.getSystemState();
 
-      if (insn instanceof EXECUTENATIVE) { // break on native method exec
-        EXECUTENATIVE exec = (EXECUTENATIVE) insn;
+      if (insn instanceof InvokeInstruction) { // break on method call
+        InvokeInstruction call = (InvokeInstruction) insn;
 
-        if (exec.getExecutedMethodName().equals("getInt")){// this insn did create a CG
+        if ("getInt(II)I".equals(call.getInvokedMethodName())){ // this insn did create a CG
           if (!ti.isFirstStepInsn()){
             result = 0;
 
@@ -131,7 +136,7 @@ public class CascadedCGTest extends TestJPF {
           IntChoiceFromSet cg = ss.getCurrentChoiceGenerator("fieldReplace", IntChoiceFromSet.class);
           if (cg == null){
 
-            // we might get here after a preceding rescheduling exec, i.e.
+            // we might get here after a preceeding rescheduling exec, i.e.
             // partial execution (with successive re-execution), or after
             // non-rescheduling exec has been completed (only one runnable thread).
             // In the first case we have to restore the operand stack so that

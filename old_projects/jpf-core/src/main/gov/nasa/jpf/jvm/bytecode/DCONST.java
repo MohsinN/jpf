@@ -21,6 +21,9 @@ package gov.nasa.jpf.jvm.bytecode;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.classfile.ConstantPool;
 
 
 /**
@@ -30,20 +33,15 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public class DCONST extends Instruction {
   private long value;
 
-  public DCONST() {} // this is going away
-
-  public DCONST (double d){
-    value = Double.doubleToLongBits(d);
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    value = Types.doubleToLong(((org.apache.bcel.generic.DCONST) i).getValue()
+                                                                 .doubleValue());
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     th.longPush(value);
 
     return getNext(th);
-  }
-  
-  public long getValue(){
-	  return value;
   }
 
   public int getByteCode () {

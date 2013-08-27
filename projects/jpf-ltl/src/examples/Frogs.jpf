@@ -1,8 +1,0 @@
-#@using jpf-symbc
-target = Frogs
-
-finite=true
-report.console.property_violation=error,snapshot,output
-#search.class = .search.heuristic.BFSHeuristic
-vm.por.sync_detection=false
-#vm.storage.class=gov.nasa.jpf.jvm.FullStateSet

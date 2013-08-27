@@ -19,7 +19,6 @@
 package gov.nasa.jpf.test.vm.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
@@ -27,6 +26,10 @@ import org.junit.Test;
  */
 public class CastTest extends TestJPF {
   
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
+
   @SuppressWarnings("cast")
   @Test public void testCast () {
     if (verifyNoPropertyViolation()){

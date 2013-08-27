@@ -19,7 +19,6 @@
 package gov.nasa.jpf.test.mc.basic;
 
 import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.FieldInfo;
 import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.jvm.SystemState;
@@ -29,7 +28,6 @@ import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.PUTFIELD;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 
@@ -60,6 +58,11 @@ public class BreakTest extends TestJPF {
 
   int data;
   
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
+
+
   //--- test setIgnored
 
   public static class FieldIgnorer extends BreakListener {
@@ -80,8 +83,7 @@ public class BreakTest extends TestJPF {
 
   @Test
   public void testSimpleIgnore () {
-    if (verifyNoPropertyViolation("+listener=.test.mc.basic.BreakTest$FieldIgnorer",
-                                  "+vm.max_transition_length=1000000")) { 
+    if (verifyNoPropertyViolation("+listener=.test.mc.basic.BreakTest$FieldIgnorer")) {
       int i = 42;
       data = i; // we ignore here
       fail("should never get here");
@@ -114,8 +116,7 @@ public class BreakTest extends TestJPF {
 
   @Test 
   public void testSimpleBreak () {
-    if (verifyNoPropertyViolation("+listener=.test.mc.basic.BreakTest$FieldBreaker",
-                                  "+vm.max_transition_length=1000000")) { 
+    if (verifyNoPropertyViolation("+listener=.test.mc.basic.BreakTest$FieldBreaker")) {
       int i = 42;
       data = i; // we break after that
       i = 0;
@@ -142,7 +143,7 @@ public class BreakTest extends TestJPF {
         if ("foo()V".equals(call.getInvokedMethodName())) {
           System.out.println("# breaking & pruning after: " + insn);
           System.out.println("# registered (ignored) CG: " + vm.getSystemState().getNextChoiceGenerator());
-          ti.breakTransition(); // not required since we ignore
+          ti.breakTransition();
           ss.setIgnored(true);
         }
       }
@@ -189,17 +190,21 @@ public class BreakTest extends TestJPF {
   //--- test ignore after setting nextCG
 
   public static class VerifyNextIntBreaker extends BreakListener {
-    public void choiceGeneratorRegistered(JVM vm) {
+    public void instructionExecuted(JVM vm) {
+      Instruction insn = vm.getLastInstruction();
       ThreadInfo ti = vm.getLastThreadInfo();
       SystemState ss = vm.getSystemState();
-      
-      ChoiceGenerator<?> cg = ss.getNextChoiceGenerator();
-      if (cg.getId().equals("verifyGetInt(II)")) {
-        System.out.println("# breaking & pruning after: " + ti.getPC());
-        System.out.println("# registered (ignored) CG: " + cg);
 
-        ss.setIgnored(true); // should reset the IntIntervalCG registered by the native getInt()
-        ti.breakTransition(); // should have no effect
+      if (insn instanceof InvokeInstruction) { // break on method call
+        InvokeInstruction call = (InvokeInstruction) insn;
+
+        if ("getInt(II)I".equals(call.getInvokedMethodName())){ // this insn did create a CG
+          System.out.println("# breaking & pruning after: " + insn);
+          System.out.println("# registered (ignored) CG: " + vm.getSystemState().getNextChoiceGenerator());
+
+          ss.setIgnored(true); // should reset the IntIntervalCG registered by the native getInt()
+          ti.breakTransition(); // should have no effect
+        }
       }
     }
   }

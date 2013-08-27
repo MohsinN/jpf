@@ -18,26 +18,27 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.AllocInstruction;
 import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.Heap;
+import gov.nasa.jpf.jvm.DynamicArea;
+import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.NoClassInfoException;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.classfile.ConstantPool;
 
 
 /**
  * Create new object
  * ... => ..., objectref
  */
-public class NEW extends Instruction implements AllocInstruction {
+public class NEW extends Instruction {
   protected String cname;
-  protected int newObjRef = -1;
 
-  public NEW (String clsDescriptor){
-    cname = Types.getClassNameFromTypeName(clsDescriptor);
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    cname = cp.constantToString(cp.getConstant(
+                                      ((org.apache.bcel.generic.NEW) i).getIndex()));
   }
   
   public String getClassName()    // Needed for Java Race Finder
@@ -46,7 +47,8 @@ public class NEW extends Instruction implements AllocInstruction {
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    Heap heap = ti.getHeap();
+    JVM vm = ti.getVM();
+    DynamicArea da = vm.getDynamicArea();
     ClassInfo ci;
 
     try {
@@ -63,24 +65,23 @@ public class NEW extends Instruction implements AllocInstruction {
 
     // since this is a NEW, we also have to pushClinit
     if (!ci.isInitialized()) {
-      if (ci.initializeClass(ti)) {
-        return ti.getPC();  // reexecute this instruction once we return from the clinits
+      if (ci.initializeClass(ti, this)) {
+        return ti.getPC();
       }
     }
 
-    if (heap.isOutOfMemory()) { // simulate OutOfMemoryError
+    if (da.getOutOfMemory()) { // simulate OutOfMemoryError
       return ti.createAndThrowException("java.lang.OutOfMemoryError",
                                         "trying to allocate new " + cname);
     }
 
-    int objRef = heap.newObject(ci, ti);
-    newObjRef = objRef;
+    int objRef = da.newObject(ci, ti);
 
     // pushes the return value onto the stack
     ti.push(objRef, true);
 
     ss.checkGC(); // has to happen after we push the new object ref
-    
+
     return getNext(ti);
   }
 
@@ -94,18 +95,5 @@ public class NEW extends Instruction implements AllocInstruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
-  }
-
-  public int getNewObjectRef() {
-    return newObjRef;
-  }
-
-  public String toString() {
-    if (newObjRef != -1){
-      return "new " + cname + '@' + Integer.toHexString(newObjRef);
-
-    } else {
-      return "new " + cname;
-    }
   }
 }

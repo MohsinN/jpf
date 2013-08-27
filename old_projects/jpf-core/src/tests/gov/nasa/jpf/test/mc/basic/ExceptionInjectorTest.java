@@ -20,19 +20,21 @@
 package gov.nasa.jpf.test.mc.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.io.File;
 import java.io.IOException;
-
 import org.junit.Test;
 
 /**
  * regression test for ExceptionInjector listener
  */
 public class ExceptionInjectorTest extends TestJPF {
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
+  }
+
   @Test public void testAbsLine () {
     if (verifyNoPropertyViolation("+listener=.listener.ExceptionInjector",
-                                  "+ei.exception=ArithmeticException@gov.nasa.jpf.test.mc.basic.ExceptionInjectorTest:38")){
+                                  "+ei.exception=ArithmeticException@gov.nasa.jpf.test.mc.basic.ExceptionInjectorTest:42")){
       boolean handled = false;
       try {
         int x = 10;

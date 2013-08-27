@@ -18,18 +18,15 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 /**
  * Set field in object
  * ..., objectref, value => ...
- *
- * Hmm, this is at the upper level of complexity because of the unified CG handling
  */
 public class PUTFIELD extends InstanceFieldInstruction implements StoreInstruction {
 
@@ -38,75 +35,60 @@ public class PUTFIELD extends InstanceFieldInstruction implements StoreInstructi
   public PUTFIELD(String fieldName, String clsDescriptor, String fieldDescriptor){
     super(fieldName, clsDescriptor, fieldDescriptor);
   }
-
-  /**
-   * only meaningful in instructionExecuted notification
-   */
-
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-
-    FieldInfo fi = getFieldInfo();
-    if (fi == null) {
-      // Hmm, we should do the NPE check first, but need the fi to get the object ref
-      return ti.createAndThrowException("java.lang.NoSuchFieldError", fname);
-    }
-
-    int storageSize = fi.getStorageSize();
-    int objRef = ti.peek( (storageSize == 1) ? 1 : 2);
+  
+  @Override
+  protected void popOperands1 (StackFrame frame) {
+    frame.pop(2); // .. objref, val => ..
+  }
+  
+  @Override
+  protected void popOperands2 (StackFrame frame) {
+    frame.pop(3); // .. objref, highVal,lowVal => ..
+  }
+    
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getTopFrame();
+    int objRef = frame.peek( size);
     lastThis = objRef;
+    
+    if (!ti.isFirstStepInsn()) { // top half
 
-    // if this produces an NPE, force the error w/o further ado
-    if (objRef == -1) {
-      return ti.createAndThrowException("java.lang.NullPointerException",
-                                 "referencing field '" + fname + "' on null object");
-    }
-    ElementInfo ei = ti.getElementInfo(objRef);
-
-    // check if this breaks the current transition
-    if (isNewPorFieldBoundary(ti, fi, objRef)) {
-      if (createAndSetFieldCG(ss, ei, ti)) {
-        return this;
+      // if this produces an NPE, force the error w/o further ado
+      if (objRef == -1) {
+        return ti.createAndThrowException("java.lang.NullPointerException",
+                                   "referencing field '" + fname + "' on null object");
       }
-    }
-
-    // start the real execution by getting the value from the operand stack
-    Object attr = null; // attr handling has to be consistent with PUTSTATIC
-
-    if (storageSize == 1){
-      attr = ti.getOperandAttr();
-
-      int ival = ti.pop();
-      lastValue = ival;
-
-      if (fi.isReference()) {
-        ei.setReferenceField(fi, ival);
-      } else {
-        ei.set1SlotField(fi, ival);
+      
+      ElementInfo ei = ti.getElementInfo(objRef);
+      FieldInfo fi = getFieldInfo();
+      if (fi == null) {
+        return ti.createAndThrowException("java.lang.NoSuchFieldError", 
+            "no field " + fname + " in " + ei);
       }
 
-    } else {
-        attr = ti.getLongOperandAttr();
+      // check if this breaks the current transition
+      // note this will also set the shared attribute of the field owner
+      if (isNewPorFieldBoundary(ti, fi, objRef)) {
+        if (createAndSetSharedFieldAccessCG(ei, ti)) {
+          return this;
+        }
+      }
+      
+      return put( ti, frame, ei);
+      
+    } else { // re-execution
+      // no need to redo the exception checks, we already had them in the top half
+      ElementInfo ei = ti.getElementInfo(objRef);
 
-        long lval = ti.longPop();
-        lastValue = lval;
-
-        ei.set2SlotField(fi, lval);
+      return put( ti, frame, ei);      
     }
-
-    // this is kind of policy, but it seems more natural to overwrite
-    // (if we want to accumulate, this has to happen in ElementInfo/Fields
-    ei.setFieldAttrNoClone(fi, attr);  // <2do> what if the value is the same but not the attr?
-
-    ti.pop(); // we already have the objRef
-    lastThis = objRef;
-
-    return getNext(ti);
   }
 
   public ElementInfo peekElementInfo (ThreadInfo ti) {
     FieldInfo fi = getFieldInfo();
     int storageSize = fi.getStorageSize();
-    int objRef = ti.peek( (storageSize == 1) ? 1 : 2);
+    int objRef = ti.getTopFrame().peek( (storageSize == 1) ? 1 : 2);
     ElementInfo ei = ti.getElementInfo( objRef);
 
     return ei;

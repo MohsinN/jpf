@@ -19,7 +19,7 @@
 
 package gov.nasa.jpf.jvm;
 
-import java.util.ArrayList;
+import org.apache.bcel.classfile.AnnotationEntry;
 
 /**
  * common root for ClassInfo, MethodInfo, FieldInfo (and maybe more to follow)
@@ -29,46 +29,24 @@ import java.util.ArrayList;
  */
 public abstract class InfoObject {
 
-  static AnnotationInfo[] NO_ANNOTATIONS = new AnnotationInfo[0];
-  
   // he number of annotations per class/method/field is usually
   // small enough so that simple arrays are more efficient than HashMaps
-  protected AnnotationInfo[] annotations;
+  AnnotationInfo[] annotations;
 
-  protected void startAnnotations(int count){
-    annotations = new AnnotationInfo[count];
-  }
-
-  protected void setAnnotation(int index, AnnotationInfo ai){
-    annotations[index] = ai;
-  }
-
-  public void addAnnotation (AnnotationInfo newAnnotation){
-    AnnotationInfo[] ai = annotations;
-    if (ai == null){
-      ai = new AnnotationInfo[1];
-      ai[0] = newAnnotation;
-
-    } else {
-      int len = annotations.length;
-      ai = new AnnotationInfo[len+1];
-      System.arraycopy(annotations, 0, ai, 0, len);
-      ai[len] = newAnnotation;
+  protected void loadAnnotations (AnnotationEntry[] ae){
+    
+    if ((ae != null) && (ae.length > 0)){
+      AnnotationInfo[] ai = new AnnotationInfo[ae.length];
+      for (int i=0; i<ae.length; i++){
+        ai[i] = new AnnotationInfo(ae[i]);
+      }
+      
+      annotations = ai;
     }
-
-    annotations = ai;
-  }
-
-  public boolean hasAnnotations(){
-    return (annotations != null);
   }
   
   public AnnotationInfo[] getAnnotations() {
-    if (annotations == null){
-      return NO_ANNOTATIONS; // make life a bit easier for clients and keep it similar to the model class API
-    } else {
-      return annotations;
-    }
+    return annotations;
   }
   
   public AnnotationInfo getAnnotation (String name){
@@ -87,21 +65,4 @@ public abstract class InfoObject {
    * return the ClassInfo this object represents or belongs to
    */
   public abstract ClassInfo getClassInfo();
-
-  public void computeInheritedAnnotations (InfoObject superClass){
-    if (superClass != null){
-      AnnotationInfo[] superClassAnn = superClass.getAnnotations();
-      ArrayList<AnnotationInfo> inheritedAnn = new ArrayList<AnnotationInfo>();
-      for (AnnotationInfo ai : superClassAnn){
-        if (AnnotationInfo.annotationAttributes.get(ai.getName()).isInherited){
-          if (ai.isInherited()){
-            inheritedAnn.add(ai);
-          } else{
-            inheritedAnn.add(ai.cloneInherited());
-          }
-        }
-      }
-      annotations = inheritedAnn.toArray(new AnnotationInfo[inheritedAnn.size()]);
-    }
-  }
 }

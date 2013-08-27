@@ -18,11 +18,11 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -35,8 +35,21 @@ public class GETFIELD extends InstanceFieldInstruction {
     super(fieldName, classType, fieldDescriptor);
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    int objRef = ti.peek(); // don't pop yet, we might re-execute
+  @Override
+  protected void popOperands1 (StackFrame frame) {
+    frame.pop(); // .. val => ..
+  }
+  
+  @Override
+  protected void popOperands2 (StackFrame frame) {
+    frame.pop(2);  // .. highVal, lowVal => ..
+  }
+  
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+    
+    int objRef = frame.peek(); // don't pop yet, we might re-enter
     lastThis = objRef;
     if (objRef == -1) {
       return ti.createAndThrowException("java.lang.NullPointerException",
@@ -50,34 +63,40 @@ public class GETFIELD extends InstanceFieldInstruction {
       return ti.createAndThrowException("java.lang.NoSuchFieldError",
                                         "referencing field '" + fname + "' in " + ei);
     }
-
+    
     // check if this breaks the current transition
     if (isNewPorFieldBoundary(ti, fi, objRef)) {
-      if (createAndSetFieldCG(ss, ei, ti)) {
+      if (createAndSetSharedFieldAccessCG( ei, ti)) {
         return this;
       }
     }
 
-    ti.pop(); // Ok, now we can remove the object ref from the stack
+    frame.pop(); // Ok, now we can remove the object ref from the stack
     Object attr = ei.getFieldAttr(fi);
 
     // We could encapsulate the push in ElementInfo, but not the GET, so we keep it at a similiar level
     if (fi.getStorageSize() == 1) { // 1 slotter
       int ival = ei.get1SlotField(fi);
       lastValue = ival;
-
-      ti.push(ival, fi.isReference());
+      
+      if (fi.isReference()){
+        frame.pushRef(ival);
+        
+      } else {
+        frame.push(ival);
+      }
+      
       if (attr != null) {
-        ti.setOperandAttrNoClone(attr);
+        frame.setOperandAttr(attr);
       }
 
     } else {  // 2 slotter
       long lval = ei.get2SlotField(fi);
       lastValue = lval;
 
-      ti.longPush(lval);
+      frame.pushLong( lval);
       if (attr != null) {
-        ti.setLongOperandAttrNoClone(attr);
+        frame.setLongOperandAttr(attr);
       }
     }
 
@@ -85,7 +104,8 @@ public class GETFIELD extends InstanceFieldInstruction {
   }
 
   public ElementInfo peekElementInfo (ThreadInfo ti) {
-    int objRef = ti.peek();
+    StackFrame frame = ti.getTopFrame();
+    int objRef = frame.peek();
     ElementInfo ei = ti.getElementInfo(objRef);
     return ei;
   }

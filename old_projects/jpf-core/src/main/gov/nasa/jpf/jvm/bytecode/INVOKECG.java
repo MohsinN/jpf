@@ -19,6 +19,13 @@
 
 package gov.nasa.jpf.jvm.bytecode;
 
+import java.util.List;
+
+import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.Constants;
+
+import gov.nasa.jpf.jvm.ChoiceGenerator;
+import gov.nasa.jpf.jvm.InstructionFactory;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.MethodInfo;
 import gov.nasa.jpf.jvm.Ref;
@@ -27,8 +34,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.Types;
 import gov.nasa.jpf.jvm.choice.InvocationCG;
 import gov.nasa.jpf.util.Invocation;
-
-import java.util.List;
 
 /**
  * a sytnthetic INVOKE instruction that gets it's parameters from an
@@ -40,12 +45,13 @@ public class INVOKECG extends Instruction {
 
   List<Invocation>  invokes;
   InvokeInstruction realInvoke;
+  
+  public INVOKECG() {}
 
-  public INVOKECG(List<Invocation> invokes){
-    this.invokes = invokes;
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    // nothing - this is an artificial instruction
   }
-
-
+  
   public void setInvokes(List<Invocation> invokes) {
     this.invokes = invokes;
   }
@@ -54,9 +60,8 @@ public class INVOKECG extends Instruction {
     
     if (!ti.isFirstStepInsn()) {
       InvocationCG cg = new InvocationCG( "INVOKECG", invokes);
-      if (ss.setNextChoiceGenerator(cg)){
-        return this;
-      }
+      ss.setNextChoiceGenerator(cg);
+      return this;
       
     } else {
       InvocationCG cg = ss.getCurrentChoiceGenerator( "INVOKECG", InvocationCG.class);
@@ -64,25 +69,21 @@ public class INVOKECG extends Instruction {
 
       Invocation call = cg.getNextChoice();
       MethodInfo callee = call.getMethodInfo();
-      gov.nasa.jpf.jvm.InstructionFactory insnFactory = MethodInfo.getInstructionFactory();
+      InstructionFactory insnFactory = MethodInfo.getInstructionFactory();
 
-      String clsName = callee.getClassInfo().getName();
-      String mthName = callee.getName();
-      String signature = callee.getSignature();
-
-      Instruction realInvoke;
       if (callee.isStatic()){
-        realInvoke = insnFactory.invokestatic(clsName, mthName, signature);
+        realInvoke = (InvokeInstruction) insnFactory.create(null, Constants.INVOKESTATIC);
       } else {
-        realInvoke = insnFactory.invokevirtual(clsName, mthName, signature);
+        realInvoke = (InvokeInstruction) insnFactory.create(null, Constants.INVOKENONVIRTUAL);
       }
+      realInvoke.init(mi, offset, position);
+      realInvoke.setInvokedMethod( callee.getClassInfo().getName(),
+                                   callee.getName(), callee.getSignature());
       
       pushArguments(ti, call.getArguments(), call.getAttrs());
       
       return realInvoke;
     }
-
-    return getNext();
   }
 
   void pushArguments (ThreadInfo ti, Object[] args, Object[] attrs){
@@ -115,9 +116,9 @@ public class INVOKECG extends Instruction {
 
         if (attrs != null && attrs[i] != null){
           if (isLong){
-            ti.setLongOperandAttrNoClone(attrs[i]);
+            ti.setLongOperandAttr(attrs[i]);
           } else {
-            ti.setOperandAttrNoClone(attrs[i]);
+            ti.setOperandAttr(attrs[i]);
           }
         }
       }
@@ -127,11 +128,9 @@ public class INVOKECG extends Instruction {
   public boolean isExtendedInstruction() {
     return true;
   }
-
-  public static final int OPCODE = 258;
-
+  
   public int getByteCode () {
-    return OPCODE;
+    return 258;
   }
   
   public void accept(InstructionVisitor insVisitor) {

@@ -27,11 +27,8 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * Store float into local variable
  * ..., value => ...
  */
-public class FSTORE extends LocalVariableInstruction implements StoreInstruction {
-
-  public FSTORE(int localVarIndex) {
-    super(localVarIndex);
-  }
+public class FSTORE extends LocalVariableInstruction implements StoreInstruction
+{
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     //th.setLocalVariable(index, th.pop(), false);
@@ -59,8 +56,14 @@ public class FSTORE extends LocalVariableInstruction implements StoreInstruction
     return 0x38;  // ?? wide
   }
   
-  public String getBaseMnemonic() {
-    return "fstore";
+  public String getMnemonic() {
+    String mnemonic = "fstore";
+    
+    if (index >=0) {
+      return mnemonic + '_' + index;
+    } else {
+      return mnemonic;
+    }
   }
   
   public void accept(InstructionVisitor insVisitor) {

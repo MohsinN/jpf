@@ -21,6 +21,10 @@ package gov.nasa.jpf.jvm;
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.util.StringSetMatcher;
 
+import org.apache.bcel.classfile.JavaClass;
+import org.apache.bcel.classfile.Method;
+import org.apache.bcel.classfile.Field;
+
 /**
  * default Attributor implementation to set method and fiel attributes
  * at class load time. Note this is critical functionality, esp.
@@ -50,38 +54,38 @@ public class DefaultAttributor implements Attributor {
   // <2do> we should turn atomicity and scheduling relevance into general
   // MethodInfo attributes, to keep it consistent with object and field attrs
   
-  public void setMethodInfoAttributes (MethodInfo mi) {
-    ClassInfo ci = mi.getClassInfo();
-    String clsName = ci.getName();
-    String uniqueName = mi.getUniqueName();
-
+  public boolean isMethodAtomic (JavaClass jc, Method mth, String uniqueName) {
+    
     // per default, we set all standard library methods atomic
     // (aren't we nicely optimistic, are we?)
-    if (clsName.startsWith( "java.")) {
+    if (jc.getPackageName().startsWith( "java.")) {
+      String clsName = jc.getClassName();
       
       // except of the signal methods, of course
       if (clsName.equals("java.lang.Object")) {
         if (uniqueName.startsWith("wait(") ||
             uniqueName.equals("notify()V")) {
-          return;
+          return false;
         }
       } else if (clsName.equals("java.lang.Thread")) {
         if (uniqueName.equals("join()V")) {
-          return;
+          return false;
         }
       }
       
-      mi.setAtomic(true);
+      return true;
     }
+    
+    return false;
   }
     
   /**
    * answer the type based object attributes for this class. See
    * ElementInfo for valid choices
    */
-  public void setElementInfoAttributes (ClassInfo ci) {
-    String clsName = ci.getName();
-
+  public int getObjectAttributes (JavaClass jc) {
+    String clsName = jc.getClassName();
+    
     // very very simplistic for now
     if (clsName.equals("java.lang.String") ||
        clsName.equals("java.lang.Integer") ||
@@ -89,18 +93,26 @@ public class DefaultAttributor implements Attributor {
        clsName.equals("java.lang.Class")
         /* ..and a lot more.. */
        ) {
-      ci.setElementInfoAttrs(ElementInfo.ATTR_IMMUTABLE);
+      return ElementInfo.ATTR_IMMUTABLE;
+    } else {
+      return 0;
     }
   }
   
   
-  public void setFieldInfoAttributes (FieldInfo fi) {
-    int attr = 0;
+  public int getFieldAttributes (JavaClass jc, Field f) {
+    int attr = ElementInfo.ATTR_PROP_MASK;
     
-    String fid = fi.getFullName();
+    String fid = jc.getClassName() + '.' + f.getName();
 
+    // this field would make everything reachable, so blank it out
+    // <2do> - this is bad because the field is apparently named differently in
+    // non-Sun Java implementations
+    if (fid.equals("java.lang.ThreadGroup.threads")) {
+      attr &= ~ElementInfo.ATTR_TSHARED;
+    }
     
-    if (fi.isFinal()) {
+    if (f.isFinal()) {
       // <2do> Hmm, finals are not really immutable, they only
       // can be set once
       attr |= ElementInfo.ATTR_IMMUTABLE;
@@ -121,7 +133,7 @@ public class DefaultAttributor implements Attributor {
       }
     }
         
-    fi.setAttributes(attr);
+    return attr;
   }
 }
 

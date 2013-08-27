@@ -18,9 +18,9 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -40,11 +40,13 @@ public class ALOAD extends LocalVariableInstruction {
     this.index = index;    
   }
   
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    //th.push(th.getLocalVariable(index), true);
-    th.pushLocal(index);
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+    
+    frame.pushLocal(index);
 
-    return getNext(th);
+    return getNext(ti);
   }
 
   public int getLength() {

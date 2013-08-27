@@ -18,6 +18,7 @@
 //
 package gov.nasa.jpf.jvm;
 
+import gov.nasa.jpf.Config;
 
 
 public abstract class AbstractSerializer
@@ -25,12 +26,10 @@ implements StateSerializer, KernelState.ChangeListener {
   // INVARIANT: non-null iff registered for changes to KernelState
   protected int[] cached = null;
 
-  protected JVM vm;
   protected KernelState ks = null;
 
 
   public void attach(JVM jvm) {
-    vm = jvm;
     ks = jvm.getKernelState();
   }
 

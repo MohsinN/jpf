@@ -22,7 +22,6 @@ package gov.nasa.jpf.util;
 import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.MethodInfo;
 import gov.nasa.jpf.jvm.Types;
-
 import java.util.BitSet;
 
 /**
@@ -36,8 +35,6 @@ import java.util.BitSet;
  *   "x.y.Foo.*"
  *   "java.util.HashMap.add(java.lang.Object,^java.lang.Object)"
  *   "*.*(x.y.MyClass)"
- *
- * <2do> we should extend this to allow alternatives
  */
 public class MethodSpec extends FeatureSpec {
 
@@ -49,6 +46,7 @@ public class MethodSpec extends FeatureSpec {
 
   String  sigSpec;  // this is only the argument part, including parenthesis
   BitSet  markedArgs;
+
 
   /**
    * factory method that includes the parser
@@ -115,7 +113,7 @@ public class MethodSpec extends FeatureSpec {
           m.set(i);
           a = a.substring(1);
         }
-        String tc = Types.getTypeSignature(a, false);
+        String tc = Types.getTypeCode(a, false);
         sb.append(tc);
         i++;
 
@@ -133,10 +131,8 @@ public class MethodSpec extends FeatureSpec {
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("MethodSpec {");
-    sb.append("matchInverted:");
-    sb.append(matchInverted);
     if (clsSpec != null){
-      sb.append(",clsSpec:\"");
+      sb.append("clsSpec:\"");
       sb.append(clsSpec);
       sb.append('"');
     }
@@ -179,29 +175,48 @@ public class MethodSpec extends FeatureSpec {
   }
 
   public boolean matches (MethodInfo mi){
-    boolean isMatch = false;
-
     ClassInfo ci = mi.getClassInfo();
+
     if (isMatchingType(ci)){
       if (nameSpec.matches(mi.getName())){
+        boolean isMatch = false;
         if (sigSpec != null){
           // sigSpec includes '(',')' but not return type
           isMatch = mi.getSignature().startsWith(sigSpec);
         } else { // no sigSpec -> matches all signatures
           isMatch = true;
         }
+
+        return isMatch != matchInverted;
       }
     }
 
-    return (isMatch != matchInverted);
+    return false;
   }
 
-  public boolean matches (String clsName, String mthName){
-    boolean isMatch = clsSpec.matches(clsName) && nameSpec.matches(mthName);
-    return isMatch != matchInverted;
-  }
+  //--- testing & debugging
+  public static void main (String[] args){
+    MethodSpec ms = createMethodSpec("x.y.Foo.bar(java.lang.String,^float[])");
+    System.out.println(ms);
 
-  public boolean matchesClass (String clsName){
-    return clsSpec.matches(clsName) != matchInverted;
+    ms = createMethodSpec("x.y.Foo+.*");
+    System.out.println(ms);
+
+    ms = createMethodSpec("*.foo(^int, ^double)");
+    System.out.println(ms);
+
+    ms = createMethodSpec("( ^int, ^double)");
+    System.out.println(ms);
+
+    ms = createMethodSpec(".foo");
+    System.out.println(ms);
+
+    System.out.println("---- those should produce null");
+
+    ms = createMethodSpec(".(bla)");
+    System.out.println(ms);
+
+    ms = createMethodSpec("*.foo(^int, ^double");
+    System.out.println(ms);
   }
 }

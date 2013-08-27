@@ -15,7 +15,6 @@
       <pathelement location="src/peers"/>
     </sourcepath>
 
-    <property name="testrunner" value="gov.nasa.jpf.util.test.TestJPFHelper"/>
 
     <!-- TODO: do we really have to duplicate this for each container dir? -->
     <!-- TODO: !!! automatic recompile doesn't work, this is a NetBeans/Ant problem !!! -->
@@ -123,6 +122,7 @@
         <ant antfile="build.xml" inheritall="false" target="compile"/>
         <!-- -->
         <java classname="gov.nasa.jpf.JPF" failonerror="true" fork="true">
+            <arg value="-c"/>
             <arg value="${jpf.config}"/>
             <classpath>
                 <pathelement location="build/examples"/>
@@ -165,13 +165,12 @@
         <fail unless="run.class">Must set property 'run.class'</fail>
         <ant antfile="build.xml" inheritall="false" target="compile"/>
         <input message="please enter arguments" addproperty="arg.input"/>
-        <java classname="${testrunner}" failonerror="true" fork="true">
+        <java classname="${run.class}" failonerror="true" fork="true">
             <classpath>
                 <pathelement location="build/tests"/>
                 <path refid="base.path"/>
             </classpath>
             <jvmarg value="-ea"/>
-            <arg value="${run.class}"/>
             <arg line="${arg.input}"/>
         </java>
     </target>
@@ -196,12 +195,11 @@
 
         <input message="please enter arguments" addproperty="arg.input"/>
 
-        <java classname="${testrunner}" fork="true">
+        <java classname="${debug.class}" fork="true">
             <classpath refid="cp.tests"/>
             <jvmarg value="-ea"/>
             <jvmarg value="-Xdebug"/>
             <jvmarg value="-Xrunjdwp:transport=dt_socket,address=${jpda.address}"/>
-            <arg value="${debug.class}"/>
             <arg line="${arg.input}"/>
         </java>
     </target>
@@ -211,6 +209,7 @@
         <ant antfile="build.xml" inheritall="false" target="compile"/>
         <java classname="gov.nasa.jpf.JPF" failonerror="true" fork="true">
             <jvmarg value="-ea"/>
+            <arg value="-c"/>
             <arg value="${jpf.config}"/>
             <classpath>
                 <pathelement location="build/tests"/>

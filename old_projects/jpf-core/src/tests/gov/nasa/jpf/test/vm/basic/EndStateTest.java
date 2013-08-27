@@ -21,7 +21,6 @@ package gov.nasa.jpf.test.vm.basic;
 
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
@@ -29,7 +28,7 @@ import org.junit.Test;
  */
 public class EndStateTest extends TestJPF {
 
-  public static void main (String[] args) {  // <2do> Fix test so that it doesn't require a main
+  public static void main (String[] args) {
     runTestsOfThisClass(args);
   }
 

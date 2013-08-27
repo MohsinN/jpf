@@ -18,15 +18,21 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.jvm.JVMInstruction;
 import gov.nasa.jpf.Config;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.FieldLockInfo;
-import gov.nasa.jpf.jvm.FieldLockInfoFactory;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.vm.ChoiceGenerator;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.FieldLockInfo;
+import gov.nasa.jpf.vm.FieldLockInfoFactory;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.SchedulerFactory;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadChoiceGenerator;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.SystemState;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.Types;
 
 /**
  * parent class for PUT/GET FIELD/STATIC insns
@@ -35,7 +41,7 @@ import gov.nasa.jpf.jvm.Types;
  * fields - w/o the instance/static helper methods we would have to duplicate
  * code in the getters/setters
  */
-public abstract class FieldInstruction extends Instruction implements VariableAccessor
+public abstract class FieldInstruction extends JVMInstruction implements VariableAccessor
 {
   //--- vm.por.sync_detection related settings
   static FieldLockInfoFactory fliFactory;
@@ -55,16 +61,19 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
 
   protected long lastValue;
   
-  public static void init (Config config) {
-    if (config.getBoolean("vm.por") && config.getBoolean("vm.por.sync_detection")) {
-      fliFactory = config.getEssentialInstance("vm.por.fli_factory.class", FieldLockInfoFactory.class);
+  
+   public static void init (Config config) {
+    if (config.getBoolean("vm.por")) {
+       skipFinals = config.getBoolean("vm.por.skip_finals", true);
+       skipStaticFinals = config.getBoolean("vm.por.skip_static_finals", false);
+       skipConstructedFinals = config.getBoolean("vm.por.skip_constructed_finals", false);
 
-      skipFinals = config.getBoolean("vm.por.skip_finals", true);
-      skipStaticFinals = config.getBoolean("vm.por.skip_static_finals", false);
-      skipConstructedFinals = config.getBoolean("vm.por.skip_constructed_finals", false);
-    }
-  }
-
+      if (config.getBoolean("vm.por.sync_detection")) {
+        fliFactory = config.getEssentialInstance("vm.por.fli_factory.class", FieldLockInfoFactory.class);
+      }
+     }
+   }
+  
   protected FieldInstruction() {}
 
   protected FieldInstruction(String name, String clsName, String fieldDescriptor){
@@ -78,12 +87,16 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
      return className;
   }
 
+  public String getFieldName(){
+	  return fname;
+  }
   /**
    * only defined in instructionExecuted() notification context
    */
   public long getLastValue() {
     return lastValue;
   }
+
 
   
   public abstract boolean isRead();
@@ -96,10 +109,87 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
   // that's for an executeInstruction() or choiceGeneratorSet() context
   public abstract ElementInfo peekElementInfo (ThreadInfo ti);
 
+  // pop operands for a 1 slot value
+  protected abstract void popOperands1( StackFrame frame);
+
+  // pop operands for a 2 slot value
+  protected abstract void popOperands2( StackFrame frame);
+
+  protected abstract boolean isSkippedFinalField (ElementInfo ei);
+
+  
   public boolean isReferenceField () {
     return isReferenceField;
   }
 
+  protected Instruction put1 (ThreadInfo ti, StackFrame frame, ElementInfo eiFieldOwner) {
+    Object attr = frame.getOperandAttr();
+    int val = frame.peek();
+    lastValue = val;
+
+    // we only have to modify the field owner if the values have changed, and only
+    // if this is a modified reference do we might have to potential exposure re-enter
+    if ((eiFieldOwner.get1SlotField(fi) != val) || (eiFieldOwner.getFieldAttr(fi) != attr)) {
+      eiFieldOwner = eiFieldOwner.getModifiableInstance();
+      
+      if (fi.isReference()) {
+        eiFieldOwner.setReferenceField(fi, val);
+        
+        // this is kind of policy, but it seems more natural to overwrite instead of accumulate
+        // (if we want to accumulate, this has to happen in ElementInfo/Fields)
+        eiFieldOwner.setFieldAttr(fi, attr);
+
+        // check if this might expose a previously unshared object
+        if (ti.useBreakOnExposure()) {
+          if (ti.isFirstStepInsn()) { // no use to break for exposure if we didn't break on shared field access
+            ElementInfo eiFieldValue = ti.getElementInfo(val);
+            if ((eiFieldValue != null)  && !eiFieldValue.isReferencedBySameThreads(eiFieldOwner)) {
+              // this is a potential exposure point, re-enter AFTER having done the assignment,
+              // but BEFORE popping the operand stack
+              if (createAndSetSharedObjectExposureCG(eiFieldValue, ti)) {
+                return this;
+              }
+            }
+          }
+        }
+
+      } else { // not a reference, nothing exposed
+        eiFieldOwner.set1SlotField(fi, val);
+        eiFieldOwner.setFieldAttr(fi, attr); // see above about overwrite vs. accumulation
+      }
+    }
+    
+    frame = ti.getModifiableTopFrame(); // now we have to modify it
+    popOperands1(frame); // .. val => ..
+    return getNext(ti);
+  }
+  
+  protected Instruction put2 (ThreadInfo ti, StackFrame frame, ElementInfo eiFieldOwner) {
+    Object attr = frame.getLongOperandAttr();
+    long val = frame.peekLong();
+    lastValue = val;
+
+    if ((eiFieldOwner.get2SlotField(fi) != val) || (eiFieldOwner.getFieldAttr(fi) != attr)) {
+      eiFieldOwner = eiFieldOwner.getModifiableInstance();
+      eiFieldOwner.set2SlotField(fi, val);
+      
+      // see put1() reg. overwrite vs. accumulation
+      eiFieldOwner.setFieldAttr(fi, attr);
+    }
+    
+    frame = ti.getModifiableTopFrame(); // now we have to modify it    
+    popOperands2(frame); // .. highVal,lowVal => ..
+    return getNext(ti);
+  }
+  
+  protected Instruction put (ThreadInfo ti, StackFrame frame, ElementInfo eiFieldOwner) {
+    if (size == 1) {
+      return put1( ti, frame, eiFieldOwner);
+    } else {
+      return put2( ti, frame, eiFieldOwner);
+    }
+  }
+  
   public int getFieldSize() {
     return size;
   }
@@ -196,10 +286,11 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
   }
 
   
-  protected boolean createAndSetFieldCG ( SystemState ss, ElementInfo ei, ThreadInfo ti) {
-    ChoiceGenerator<?> cg = ss.getSchedulerFactory().createSharedFieldAccessCG(ei, ti);
+  protected boolean createAndSetSharedFieldAccessCG ( ElementInfo eiFieldOwner, ThreadInfo ti) {
+    VM vm = ti.getVM();
+    ChoiceGenerator<?> cg = vm.getSchedulerFactory().createSharedFieldAccessCG(eiFieldOwner, ti);
     if (cg != null) {
-      if (ss.setNextChoiceGenerator(cg)){
+      if (vm.setNextChoiceGenerator(cg)){
         ti.skipInstructionLogging(); // <2do> Hmm, might be more confusing not to see it
         return true;
       }
@@ -208,6 +299,20 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
     return false;
   }
 
+  protected boolean createAndSetSharedObjectExposureCG ( ElementInfo eiFieldValue, ThreadInfo ti) {
+    VM vm = ti.getVM();
+    ChoiceGenerator<?> cg = vm.getSchedulerFactory().createSharedObjectExposureCG(eiFieldValue, ti);
+    if (cg != null) {
+      if (vm.setNextChoiceGenerator(cg)){
+        ti.skipInstructionLogging(); // <2do> Hmm, might be more confusing not to see it
+        return true;
+      }
+    }
+
+    return false;
+  }
+  
+  
   /**
    * for explicit construction
    */

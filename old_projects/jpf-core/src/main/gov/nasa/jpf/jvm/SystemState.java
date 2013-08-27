@@ -18,16 +18,13 @@
 //
 package gov.nasa.jpf.jvm;
 
+import java.io.PrintWriter;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPFException;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.util.HashData;
-
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
+import java.lang.reflect.Array;
 
 
 /**
@@ -52,16 +49,6 @@ public class SystemState {
    * we start to execute the step, but then we have to update the nextCg in the
    * snapshot, since it's only set at the transition end (required for
    * restore(), i.e.  HeuristicSearches)
-   * 
-   * NOTE: the plain Memento doesn't deep copy the CGs, which means it can
-   * only be used for depth first search, where the parent CG states are always
-   * current if we encounter an error. If general state restoration is
-   * required (where the parent CGs might have been changed at the time we
-   * restore), we have to use a RestorableMemento
-   * <2do> this separation is error prone and fragile. It depends on correct
-   * ChoiceGenerator deepCopy() implementations and a separate state acquisition
-   * for restorable states. Currently, the gate for this is JVM.getRestorableState(),
-   * but this could be bypassed.
    */
   static class Memento {
     ChoiceGenerator<?> curCg;  // the ChoiceGenerator for the current transition
@@ -70,29 +57,13 @@ public class SystemState {
     ChoicePoint trace;
     ThreadInfo execThread;
     int id;              // the state id
-    LinkedHashMap<Object,ClosedMemento> restorers;
-    
-    static protected ChoiceGenerator<?> cloneCG( ChoiceGenerator<?> cg){
-      if (cg != null){
-        try {
-          return cg.deepClone();
-        } catch (CloneNotSupportedException cnsx){
-          throw new JPFException("clone failed: " + cg);          
-        }
-      } else {
-        return null;
-      }
-    }
-    
+
     Memento (SystemState ss) {
-      nextCg = ss.nextCg;      
+      nextCg = ss.nextCg;
       curCg = ss.curCg;
-      
       atomicLevel = ss.entryAtomicLevel; // store the value we had when we started the transition
       id = ss.id;
       execThread = ss.execThread;
-      
-      restorers = ss.restorers;
     }
 
     /**
@@ -100,71 +71,24 @@ public class SystemState {
      * of the same CG, i.e. nextCG is reset
      */
     void backtrack (SystemState ss) {
-      ss.nextCg = null; // this is important - the nextCG will be set by the next Transition      
+      ss.nextCg = null; // this is important - the nextCG will be set by the next Transition
       ss.curCg = curCg;
-      
       ss.atomicLevel = atomicLevel;
       ss.id = id;
       ss.execThread = execThread;
-      
-      if (restorers != null){
-        for (ClosedMemento r : restorers.values()){
-          r.restore();
-        }
-      }
     }
 
-    void restore (SystemState ss) {
-      throw new JPFException("can't restore a SystemState.Memento that was created for backtracking");
-      
-      /**
-      ss.nextCg = nextCg;
-      ss.curCg = curCg;
-
-      ss.atomicLevel = atomicLevel;
-      ss.id = id;
-      ss.execThread = execThread;
-      **/
-    }
-  }
-  
-  /**
-   * a Memento that can be restored, not just backtracked to. Be aware this can
-   * be a lot more expensive since it has to deep copy CGs so that we have
-   * the state of the parent CGs restored properly
-   */
-  static class RestorableMemento extends Memento {
-    RestorableMemento (SystemState ss){
-      super(ss);
-      
-      nextCg = cloneCG(nextCg);
-      curCg = cloneCG( curCg);
-    }
-    
-    void backtrack (SystemState ss){
-      super.backtrack(ss);
-      ss.curCg = cloneCG(curCg);
-    }
-    
     /**
      * this one is used if we restore and then advance, i.e. it might change the CG on
      * the next advance (if nextCg was set)
      */
-    void restore (SystemState ss) {      
-      // if we don't clone them on restore, it means we can only restore this memento once
-      ss.nextCg = cloneCG(nextCg);
-      ss.curCg = cloneCG(curCg);
-
+    void restore (SystemState ss) {
+      ss.nextCg = nextCg;
+      ss.curCg = curCg;
       ss.atomicLevel = atomicLevel;
       ss.id = id;
       ss.execThread = execThread;
-      
-      if (restorers != null){
-        for (ClosedMemento r : restorers.values()){
-          r.restore();
-        }
-      }
-    }  
+    }
   }
 
   int id;                   /** the state id */
@@ -173,10 +97,7 @@ public class SystemState {
   ChoiceGenerator<?>  curCg;   // the ChoiceGenerator used in the current transition
   ThreadInfo execThread;    // currently executing thread, reset by ThreadChoiceGenerators
   
-  // on-demand list of optional restorers that run if we backtrack to this state
-  // this is reset before each transition
-  LinkedHashMap<Object,ClosedMemento> restorers;
-  
+  static enum RANDOMIZATION {random, path, def};
 
   /** current execution state of the VM (stored separately by VM) */
   public KernelState ks;
@@ -207,29 +128,16 @@ public class SystemState {
   // garbage, which in turn can slow down the system considerably (heap size)
   // by setting 'nAllocGCThreshold', we can do sync. on-the-fly gc when the
   // number of new allocs within a single transition exceeds this value
-  int maxAllocGC;
+  int maxAllocPerGC;
   int nAlloc;
   
-  /**
-   * choice randomization policies, which can be set from JPF configuration
-   */
-  static enum ChoiceRandomizationPolicy {
-    VAR_SEED,    // randomize choices using a different seed for every JPF run 
-    FIXED_SEED,  // randomize choices using a fixed seed for each JPF run (reproducible, seed can be specified as cg.seed)
-    NONE         // don't randomize choices
-  };
-  
-  ChoiceRandomizationPolicy randomization = ChoiceRandomizationPolicy.NONE;
+  RANDOMIZATION randomization = RANDOMIZATION.def;
 
   /** NOTE: this has changed its meaning again. Now it once more is an
    * optimization that can be used by applications calling Verify.begin/endAtomic(),
    * but be aware of that it now reports a deadlock property violation in
    * case of a blocking op inside an atomic section
    * Data CGs however are now allowed to be inside atomic sections
-   *
-   * BEWARE - It is in the nature of atomic sections that they might loose paths that
-   * are relevant. This is esp. true for Thread.start() within AS if the starter
-   * runs to completion without further scheduling points (DiningPhil problem).
    */
   int atomicLevel;
   int entryAtomicLevel;
@@ -259,18 +167,15 @@ public class SystemState {
     // we can't yet initialize the trail until we have the start thread
 
    
-    randomization = config.getEnum("cg.randomize_choices", ChoiceRandomizationPolicy.values(), 
-    						ChoiceRandomizationPolicy.NONE);
+    randomization = config.getEnum("cg.randomize_choices", RANDOMIZATION.values(), 
+    						RANDOMIZATION.def);
    
-    if(randomization != ChoiceRandomizationPolicy.NONE) {
+    if(randomization != RANDOMIZATION.def) {
     	randomizeChoices = true;
     }
     
     
-    maxAllocGC = config.getInt("vm.max_alloc_gc", Integer.MAX_VALUE);
-    if (maxAllocGC <= 0){
-      maxAllocGC = Integer.MAX_VALUE;
-    }
+    maxAllocPerGC = config.getInt("vm.max_alloc_gc", Integer.MAX_VALUE);
 
     // recordSteps is set later by VM, first we need a reporter (which requires the VM)
   }
@@ -329,14 +234,6 @@ public class SystemState {
     return schedulerFactory;
   }
 
-  public KernelState getKernelState() {
-    return ks;
-  }
-
-  public Heap getHeap() {
-    return ks.getHeap();
-  }
-
   //--- these are the various choice generator retrievers
 
   /**
@@ -355,24 +252,16 @@ public class SystemState {
 
     return null;
   }
-  
+
   /**
    * return the whole stack of CGs of the current path
    */
   public ChoiceGenerator<?>[] getChoiceGenerators () {
-    if (curCg != null){
-      return curCg.getAll();
-    } else {
-      return null;
-    }
+    return curCg.getAll();
   }
 
   public <T extends ChoiceGenerator<?>> T[] getChoiceGeneratorsOfType (Class<T> cgType) {
-    if (curCg != null){
-      return curCg.getAllOfType(cgType);
-    } else {
-      return null;
-    }
+    return curCg.getAllOfType(cgType);
   }
 
 
@@ -463,66 +352,33 @@ public class SystemState {
 
   /**
    * set the ChoiceGenerator to be used in the next transition
-   * @return true if there is a nextCg set after registration and listener notification
    */
-  public boolean setNextChoiceGenerator (ChoiceGenerator<?> cg) {
+  public void setNextChoiceGenerator (ChoiceGenerator<?> cg) {
     if (isIgnored){
       // if this transition is already marked as ignored, we are not allowed
       // to set nextCg because 'isIgnored' results in a shortcut backtrack that
       // is not handed back to the Search (its solely in JVM forward)
-      return false;
+      return;
     }
 
-    if (cg != null){
-      // first, check if we have to randomize it (might create a new one)
-      if (randomizeChoices) {
-        cg = cg.randomize();
-      }
-
-      // set its context (thread and insn)
-      cg.setContext(execThread);
-
-      // do we already have a nextCG, which means this one is a cascaded CG
-      if (nextCg != null) {
-        cg.setPreviousChoiceGenerator(nextCg);
-        nextCg.setCascaded(); // note the last registered CG is NOT set cascaded
-
-      } else {
-        cg.setPreviousChoiceGenerator(curCg);
-      }
-
-      nextCg = cg;
-
-      execThread.getVM().notifyChoiceGeneratorRegistered(cg, execThread); // <2do> we need a better way to get the vm
+    // first, check if we have to randomize it (might create a new one)
+    if (randomizeChoices){
+      cg = cg.randomize();
     }
 
-    // a choiceGeneratorRegistered listener might have removed this CG
-    return (nextCg != null);
-  }
+    // set its context (thread and insn)
+    cg.setContext(execThread);
 
-  public void setMandatoryNextChoiceGenerator (ChoiceGenerator<?> cg, String failMsg){
-    if (!setNextChoiceGenerator(cg)){
-      throw new JPFException(failMsg);
-    }
-  }
-
-  /**
-   * remove the current 'nextCg'
-   * Note this has to be called in a loop if all cascaded CGs have to be removed 
-   */
-  public void removeNextChoiceGenerator (){
+    // do we already have a nextCG, which means this one is a cascadet CG
     if (nextCg != null){
-      nextCg = nextCg.getPreviousChoiceGenerator();
-    }
-  }
+      cg.setPreviousChoiceGenerator( nextCg);
+      nextCg.setCascaded(); // note the last registered CG is NOT set cascaded
 
-  /**
-   * remove the whole chain of currently registered nextCGs
-   */
-  public void removeAllNextChoiceGenerators(){
-    while (nextCg != null){
-      nextCg = nextCg.getPreviousChoiceGenerator();
+    } else {
+      cg.setPreviousChoiceGenerator(curCg);
     }
+
+    nextCg = cg;
   }
 
   
@@ -534,10 +390,6 @@ public class SystemState {
     ((Memento) backtrackData).backtrack( this);
   }
 
-  public Object getRestoreData(){
-    return new RestorableMemento(this);
-  }
-  
   public void restoreTo (Object backtrackData) {
     ((Memento) backtrackData).restore( this);
   }
@@ -557,8 +409,20 @@ public class SystemState {
    *
    * calling setIgnored() also breaks the current transition, i.e. no further
    * instructions are executed within this step
+   *
+   * NOTE: this reverts any previous or future setNextChoiceGenerator() call
+   * during this transition
    */
   public void setIgnored (boolean b) {
+
+    if (nextCg != null) {
+      // Umm, that's kinky - can only happen if somebody first explicitly sets
+      // a CG from a listener, only to decide afterwards to dump this whole
+      // transition alltogether. Gives us problems because ignored transitions
+      // are not handed back to the search, i.e. are not normally backtracked
+      // causes a ClassCastException in nextSuccessor (D&C's bug)
+      nextCg = null;
+    }
     isIgnored = b;
 
     if (b){
@@ -612,23 +476,37 @@ public class SystemState {
 
 
   public int getNonDaemonThreadCount () {
-    return ks.threads.getNonDaemonThreadCount();
+    return ks.tl.getNonDaemonThreadCount();
   }
 
   public ElementInfo getObject (int reference) {
-    return ks.heap.get(reference);
+    return ks.da.get(reference);
+  }
+
+  @Deprecated
+  public ThreadInfo getThread (int index) {
+    return ks.tl.get(index);
+  }
+
+  @Deprecated
+  public ThreadInfo getThread (ElementInfo reference) {
+    return getThread(reference.getIndex());
   }
 
   public int getThreadCount () {
-    return ks.threads.length();
+    return ks.tl.length();
   }
 
   public int getRunnableThreadCount () {
-    return ks.threads.getRunnableThreadCount();
+    return ks.tl.getRunnableThreadCount();
   }
 
   public int getLiveThreadCount () {
-    return ks.threads.getLiveThreadCount();
+    return ks.tl.getLiveThreadCount();
+  }
+
+  public ThreadInfo getThreadInfo (int idx) {
+    return ks.tl.get(idx);
   }
 
   public boolean isDeadlocked () {
@@ -647,42 +525,6 @@ public class SystemState {
     GCNeeded = true;
   }
 
-  public boolean hasRestorer (Object key){
-    if (restorers != null){
-      return restorers.containsKey(key);
-    }
-    
-    return false;
-  }
-  
-  public ClosedMemento getRestorer( Object key){
-    if (restorers != null){
-      return restorers.get(key);
-    }
-    
-    return null;    
-  }
-  
-  /**
-   * call the provided restorer each time we get back to this state
-   * 
-   * @param key usually the object this restorer encapsulates
-   * @param restorer the ClosedMemento that restores the state of the object
-   * it encapsulates once we backtrack/restore this program state
-   * 
-   * Note that restorers are called in the order of registration, but in
-   * general it is not a good idea to depend on order since restorers can
-   * be set from different locations (listeners, peers, instructions)
-   */
-  public void putRestorer (Object key, ClosedMemento restorer){
-    if (restorers == null){
-      restorers = new LinkedHashMap<Object,ClosedMemento>();
-    }
-    
-    // we only support one restorer per target for now
-    restorers.put(key,restorer);
-  }
-  
   public void gcIfNeeded () {
     if (GCNeeded) {
       ks.gc();
@@ -693,13 +535,13 @@ public class SystemState {
   }
 
   /**
-   * check if number of allocations since last GC exceed the maxAllocGC
+   * check if number of allocations since last GC exceed the maxAllocPerGC
    * threshold, perform on-the-fly GC if yes. This is aimed at avoiding a lot
    * of short-living garbage in long transitions, which slows down the heap
    * exponentially
    */
   public void checkGC () {
-    if (nAlloc++ > maxAllocGC){
+    if (nAlloc++ > maxAllocPerGC){
       gcIfNeeded();
     }
   }
@@ -715,23 +557,19 @@ public class SystemState {
     pw.flush();
   }
 
-  /**
-   * reset the SystemState and initialize the next CG. This gets called
-   * *before* the restorer computes the KernelState snapshot, i.e. it is *not*
-   * allowed to change anything in the program state. The reason for splitting
-   * CG initialization from transition execution is to avoid KernelState storage
-   * in case the initialization does not produce a next choice and we have to
-   * backtrack.
-   *
-   * @see JVM.forward()
-   * 
-   * @return 'true' if there is a next choice, i.e. a next transition to execute.
-   * 'false' if there is no next choice and the system has to backtrack
-   */
-  public boolean initializeNextTransition(JVM vm) {
 
-    // set this before any choiceGeneratorSet or choiceGeneratorAdvanced
-    // notification (which can override it)
+  /**
+   * Compute next program state
+   *
+   * return 'true' if we actually executed instructions, 'false' if this
+   * state was already completely processed
+   *
+   * This is one of the key methods of the JPF execution
+   * engine (together with VM.forward() and ThreadInfo.executeStep(),executeInstruction()
+   *
+   */
+  public boolean nextSuccessor (JVM vm) throws JPFException {
+
     if (!retainAttributes){
       isIgnored = false;
       isForced = false;
@@ -739,8 +577,6 @@ public class SystemState {
       isBoring = false;
     }
 
-    restorers = null;
-    
     // 'nextCg' got set at the end of the previous transition (or a preceding
     // choiceGeneratorSet() notification).
     // Be aware of that 'nextCg' is only the *last* CG that was registered, i.e.
@@ -758,44 +594,23 @@ public class SystemState {
 
     assert (curCg != null) : "transition without choice generator";
 
-    return advanceCurCg(vm);
-  }
+    if (!advanceCurCg( vm)){
+      return false;
+    }
 
-  /**
-   * execute all instructions that constitute the next transition.
-   *
-   * Note this gets called *after* storing the KernelState, i.e. is allowed to
-   * modify thread states and fields
-   *
-   * @see JVM.forward()
-   */
-  public void executeNextTransition (JVM vm){
-     // do we have a thread context switch? (this sets execThread)
+    // do we have a thread context switch
     setExecThread( vm);
 
-    assert execThread.isRunnable() : "next transition thread not runnable: " + execThread.getStateDescription();
+    assert execThread.isRunnable() : "current thread not runnable: " + execThread.getStateDescription();
+
 
     trail = new Transition(curCg, execThread);
     entryAtomicLevel = atomicLevel; // store before we start to execute
 
-    execThread.executeTransition(this);    
+    execThread.executeStep(this);
+
+    return true;
   }
-
-  protected void setExecThread( JVM vm){
-    ThreadChoiceGenerator tcg = getCurrentSchedulingPoint();
-    if (tcg != null){
-      ThreadInfo tiNext = tcg.getNextChoice();
-      if (tiNext != execThread) {
-        vm.notifyThreadScheduled(tiNext);
-        execThread = tiNext;
-      }
-    }
-
-    if (execThread.isTimeoutWaiting()) {
-      execThread.setTimedOut();
-    }
-  }
-
 
   // the number of advanced choice generators in this step
   protected int nAdvancedCGs;
@@ -854,7 +669,7 @@ public class SystemState {
     ChoiceGenerator<?> parent = cg.getCascadedParent();
 
     if (cg.hasMoreChoices()){
-      // check if this is the first time, for which we also have to advance our parents
+      // check if this is the first time, when we also have to advance our parents
       if (parent != null && parent.getProcessedNumberOfChoices() == 0){
         advanceAllCascadedParents(vm,parent);
       }
@@ -882,6 +697,17 @@ public class SystemState {
       notifyChoiceGeneratorSet(vm, parent);
     }
     vm.notifyChoiceGeneratorSet(cg); // notify top down
+  }
+
+  protected void setExecThread( JVM vm){
+    ThreadChoiceGenerator tcg = getCurrentSchedulingPoint();
+    if (tcg != null){
+      ThreadInfo tiNext = tcg.getNextChoice();
+      if (tiNext != execThread) {
+        vm.notifyThreadScheduled(tiNext);
+        execThread = tiNext;
+      }
+    }
   }
 
 

@@ -49,7 +49,6 @@ public interface InstructionVisitor {
 	public void visit(DCMPL ins);
 	public void visit(DCONST ins);
 	public void visit(DDIV ins);
-  public void visit(DIRECTCALLRETURN ins);
 	public void visit(DLOAD ins);
 	public void visit(DMUL ins);
 	public void visit(DNEG ins);
@@ -63,7 +62,6 @@ public interface InstructionVisitor {
 	public void visit(DUP2_X1 ins);
 	public void visit(DUP2_X2 ins);
 	public void visit(DUP2 ins);
-  public void visit(EXECUTENATIVE ins);
 	public void visit(F2D ins);
 	public void visit(F2I ins);
 	public void visit(FADD ins);
@@ -171,7 +169,6 @@ public interface InstructionVisitor {
 	public void visit(MONITORENTER ins);
 	public void visit(MONITOREXIT ins);
 	public void visit(MULTIANEWARRAY ins);
-  public void visit(NATIVERETURN ins);
 	public void visit(NEW ins);
 	public void visit(NEWARRAY ins);
 	public void visit(NOP ins);
@@ -182,6 +179,7 @@ public interface InstructionVisitor {
 	public void visit(RET ins);
 	public void visit(RETURN ins);
 	public void visit(ReturnInstruction ins);
+	public void visit(RUNSTART ins);
 	public void visit(SALOAD ins);
 	public void visit(SASTORE ins);
 	public void visit(SIPUSH ins);

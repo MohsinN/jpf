@@ -18,25 +18,27 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.Types;
 
 
 /**
  * Convert int to double
  * ..., value => ..., result
  */
-public class I2D extends Instruction {
+public class I2D extends JVMInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    int ival = th.pop();
-    double dval = (double)ival;
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+
+    int ival = frame.pop();
     
-    th.longPush(Types.doubleToLong( dval));
+    frame.pushDouble((double) ival);
 
-    return getNext(th);
+    return getNext(ti);
   }
 
   public int getByteCode () {

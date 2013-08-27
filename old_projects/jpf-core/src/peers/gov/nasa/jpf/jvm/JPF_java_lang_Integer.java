@@ -22,8 +22,6 @@ package gov.nasa.jpf.jvm;
  * MJI NativePeer class for java.lang.Integer library abstraction
  */
 public class JPF_java_lang_Integer {
-  // <2do> at this point we deliberately do not override clinit
-
   public static int parseInt__Ljava_lang_String_2__I (MJIEnv env, int clsObjRef, 
                                                    int strRef) {
     try {
@@ -64,9 +62,5 @@ public class JPF_java_lang_Integer {
 
   public static int toString__II__Ljava_lang_String_2 (MJIEnv env, int objref, int val, int radix) {
     return env.newString(Integer.toString(val, radix));
-  }
-
-  public static int valueOf__I__Ljava_lang_Integer_2 (MJIEnv env, int clsRef, int val) {
-    return env.valueOfInteger(val);
   }
 }

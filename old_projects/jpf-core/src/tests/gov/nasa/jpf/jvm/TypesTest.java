@@ -19,14 +19,18 @@
 
 package gov.nasa.jpf.jvm;
 
+import gov.nasa.jpf.jvm.Types;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
  * unit tests for gov.nasa.jpf.jvm.Types
  */
 public class TypesTest extends TestJPF {
+
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
+  }
 
   @Test public void testGetSignatureName () {
     

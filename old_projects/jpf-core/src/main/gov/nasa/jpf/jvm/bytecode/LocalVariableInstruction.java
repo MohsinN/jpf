@@ -18,7 +18,7 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.LocalVarInfo;
+import org.apache.bcel.classfile.ConstantPool;
 
 /**
  * class abstracting instructions that access local variables, to keep
@@ -28,66 +28,49 @@ public abstract class LocalVariableInstruction extends Instruction
   implements VariableAccessor {
 
   protected int index;
-  protected LocalVarInfo lv;
-
-
-  protected LocalVariableInstruction(int index){
-    this.index = index;
+  protected String varId;
+  
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    index = ((org.apache.bcel.generic.LocalVariableInstruction) i).getIndex();
   }
-
+  
   public int getLocalVariableIndex() {
     return index;
   }
   
-  public LocalVarInfo getLocalVarInfo(){
-    if (lv == null){
-     lv = mi.getLocalVar(index, position+1);
-    }
-    return lv;
-  }
-  
   public String getLocalVariableName () {
-    LocalVarInfo lv = getLocalVarInfo();
-    return (lv == null) ? "?" : lv.getName();
+    String[] names = mi.getLocalVariableNames();
+    
+    if (names != null) {
+      return names[index];
+    } else {
+      return "?";
+    }
   }
   
   public String getLocalVariableType () {
-    LocalVarInfo lv = getLocalVarInfo();
-    return (lv == null) ? "?" : lv.getType();
+    String[] types = mi.getLocalVariableTypes();
+    
+    if (types != null) {
+      return types[index];
+    } else {
+      return "?";
+    }
   }
   
   /**
-   * return the fully qualified class/method/var name
-   * (don't use this for top-level filtering since it dynamically constructs the name)
+   * just an on-demand set fully qualified class/method/var name
    */
   public String getVariableId () {
-    return mi.getClassInfo().getName() + '.' + mi.getUniqueName() + '.' + getLocalVariableName();
+    if (varId == null) {
+      varId = mi.getClassInfo().getName() + '.' + mi.getUniqueName() + '.' + getLocalVariableName();
+    }
+    
+    return varId;
   }
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
-  }
-  
-  public abstract String getBaseMnemonic();
-  
-  public String getMnemonic(){
-    String baseMnemonic = getBaseMnemonic();
-    
-    if (index <= 3){
-      return baseMnemonic + '_' + index;
-    } else {
-      return baseMnemonic;
-    }
-  }
-  
-  public String toString(){
-    String baseMnemonic = getBaseMnemonic();
-    
-    if (index <= 3){
-      return baseMnemonic + '_' + index;
-    } else {
-      return baseMnemonic + " " + index;
-    }
   }
 }
 

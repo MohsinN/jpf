@@ -29,9 +29,11 @@ import gov.nasa.jpf.jvm.StackFrame;
  */
 public interface OperandPerturbator {
 
+  Class<?> getCGType();
+
   Class<? extends ChoiceGenerator<?>> getChoiceGeneratorType();
 
-  ChoiceGenerator<?> createChoiceGenerator (String id, StackFrame frame, Object refObject);
-    
-  boolean perturb (ChoiceGenerator<?> cg, StackFrame frame);
+  ChoiceGenerator<?> createChoiceGenerator (String id, StackFrame frame, int operandOffset);
+  
+  void perturb (ChoiceGenerator<?> cg, StackFrame frame, int operandOffset);
 }

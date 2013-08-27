@@ -19,7 +19,6 @@
 package gov.nasa.jpf.test.java.io;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -35,8 +34,8 @@ import org.junit.Test;
 public class BufferedInputStreamTest extends TestJPF {
 
   //-------------------- driver to execute single test methods
-  public static void main(String[] args) throws Throwable {
-    createTestFile();           // <2do> Fix TestJPF so that main() is not needed and @Before and @After are executed for each @Test
+  public static void main(String[] args) {
+    createTestFile();
     try {
       runTestsOfThisClass(args);
     } finally {

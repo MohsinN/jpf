@@ -18,24 +18,31 @@
 //
 package gov.nasa.jpf.report;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.Error;
-import gov.nasa.jpf.JPF;
-import gov.nasa.jpf.JPFListener;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.Path;
-import gov.nasa.jpf.search.Search;
-import gov.nasa.jpf.search.SearchListenerAdapter;
-
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.Properties;
 import java.util.logging.Logger;
+
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.Error;
+import gov.nasa.jpf.JPF;
+import gov.nasa.jpf.JPFListener;
+import gov.nasa.jpf.ListenerAdapter;
+import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.JVM;
+import gov.nasa.jpf.jvm.Path;
+import gov.nasa.jpf.search.Search;
+import gov.nasa.jpf.util.ObjArray;
+import java.io.InputStream;
+import java.util.Properties;
 
 /**
  * this is our default report generator, which is heavily configurable
@@ -44,7 +51,7 @@ import java.util.logging.Logger;
  * have to add it explicitly
  */
 
-public class Reporter extends SearchListenerAdapter {
+public class Reporter extends ListenerAdapter {
 
   public static Logger log = JPF.getLogger("gov.nasa.jpf.report");
 
@@ -55,18 +62,18 @@ public class Reporter extends SearchListenerAdapter {
 
   protected Date started, finished;
   protected Statistics stat; // the object that collects statistics
-  protected List<Publisher> publishers = new ArrayList<Publisher>();
+  protected Publisher[] publishers;
 
   public Reporter (Config conf, JPF jpf) {
     this.conf = conf;
     this.jpf = jpf;
     search = jpf.getSearch();
     vm = jpf.getVM();
-    boolean reportStats = conf.getBoolean("report.statistics", false);
+    boolean reportStats = false;
 
     started = new Date();
 
-    addConfiguredPublishers(conf);
+    publishers = createPublishers(conf);
 
     for (Publisher publisher : publishers) {
       if (reportStats || publisher.hasToReportStatistics()) {
@@ -79,37 +86,18 @@ public class Reporter extends SearchListenerAdapter {
     }
 
     if (reportStats){
-      getRegisteredStatistics();
+      stat = conf.getInstance("report.statistics.class", Statistics.class);
+      if (stat == null){
+        stat = new Statistics();
+      }
+
+      jpf.addListener(stat);
     }
   }
 
-  /**
-   * called after the JPF run is finished. Shouldn't be public, but is called by JPF
-   */
-  public void cleanUp(){
-    // nothing yet
-  }
-  
-  public Statistics getRegisteredStatistics(){
-    
-    if (stat == null){ // none yet, initialize
-      // first, check if somebody registered one explicitly
-      stat = vm.getNextListenerOfType(Statistics.class, null);
-      if (stat == null){
-        stat = conf.getInstance("report.statistics.class@stat", Statistics.class);
-        if (stat == null) {
-          stat = new Statistics();
-        }
-        jpf.addListener(stat);
-      }
-    }
-    
-    return stat;
-  }
-  
-  
-  void addConfiguredPublishers (Config conf) {
+  Publisher[] createPublishers (Config conf) {
     String[] def = { "console" };
+    ArrayList<Publisher> list = new ArrayList<Publisher>();
 
     Class<?>[] argTypes = { Config.class, Reporter.class };
     Object[] args = { conf, this };
@@ -118,18 +106,20 @@ public class Reporter extends SearchListenerAdapter {
       Publisher p = conf.getInstance("report." + id + ".class",
                                      Publisher.class, argTypes, args);
       if (p != null){
-        publishers.add(p);
+        list.add(p);
       } else {
         log.warning("could not instantiate publisher class: " + id);
       }
     }
+
+    return list.toArray(new Publisher[list.size()]);
   }
 
-  public void addPublisher( Publisher newPublisher){
-    publishers.add(newPublisher);
+  public void addListener (JPFListener listener) {
+    jpf.addListener(listener);
   }
-  
-  public List<Publisher> getPublishers() {
+
+  public Publisher[] getPublishers() {
     return publishers;
   }
 
@@ -276,7 +266,7 @@ public class Reporter extends SearchListenerAdapter {
   }
 
   public String getLastSearchConstraint () {
-    return search.getLastSearchConstraint();
+    return search.getLastSearchContraint();
   }
 
   public String getLastErrorId () {
@@ -314,53 +304,21 @@ public class Reporter extends SearchListenerAdapter {
   }
 
   public String getJPFBanner () {
-    StringBuilder sb = new StringBuilder();
-    
-    sb.append("JavaPathfinder v");
-    sb.append(JPF.VERSION);
-    
-    String rev = getRevision();
-    if (rev != null){
-      sb.append(" (rev ");
-      sb.append(rev);
-      sb.append(')');
-    }
-    
-    sb.append(" - (C) RIACS/NASA Ames Research Center");
+    String s = conf.getString("report.banner", "JavaPathfinder - (C) RIACS/NASA Ames Research Center");
     
     if (conf.getBoolean("report.show_repository", false)) {
       String repInfo =  getRepositoryInfo();
       if (repInfo != null) {
-        sb.append( repInfo);
+        s += repInfo;
       }
     }
     
-    return sb.toString();
+    return s;
   }
 
-
-  protected String getRevision() {
+  String getRepositoryInfo() {
     try {
-      InputStream is = JPF.class.getResourceAsStream(".version");
-      if (is != null){
-        int len = is.available();
-        byte[] data = new byte[len];
-        is.read(data);
-        is.close();
-        return new String(data).trim();
-        
-      } else {
-        return null;
-      }
-      
-    } catch (Throwable t){
-      return null;
-    }
-  }
-  
-  protected String getRepositoryInfo() {
-    try {
-      InputStream is = JPF.class.getResourceAsStream("build.properties");
+      InputStream is = JPF.class.getClassLoader().getResourceAsStream("build.properties");
       if (is != null){
         Properties revInfo = new Properties();
         revInfo.load(is);

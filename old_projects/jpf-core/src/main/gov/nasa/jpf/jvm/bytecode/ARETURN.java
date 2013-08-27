@@ -18,7 +18,11 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.classfile.ConstantPool;
 
 
 /**
@@ -28,6 +32,9 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public class ARETURN extends ReturnInstruction {
   int ret;
   
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+  }
+
   protected void storeReturnValue (ThreadInfo th) {
     ret = th.pop();
   }
@@ -48,7 +55,7 @@ public class ARETURN extends ReturnInstruction {
     if (ret == -1) {
       return null;
     } else {
-      return ti.getElementInfo(ret);
+      return DynamicArea.getHeap().get(ret);
     }
   }
   

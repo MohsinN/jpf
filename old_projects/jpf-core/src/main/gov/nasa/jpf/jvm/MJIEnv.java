@@ -18,14 +18,13 @@
 //
 package gov.nasa.jpf.jvm;
 
+import java.util.Date;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.JPFException;
 import gov.nasa.jpf.JPFListener;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
-
-import java.util.Date;
-import java.util.Locale;
 
 
 /**
@@ -44,10 +43,10 @@ import java.util.Locale;
  * Note that MJIEnv objects are now per-ThreadInfo (i.e. the variable
  * call envionment only includes MethodInfo and ClassInfo), which means
  * MJIEnv can be used in non-native methods (but only carefully, if you
- * don't need mi or ciMth).
+ * don't need mi or ci).
  *
  * Note also this only works because we are not getting recursive in
- * native method calls. In fact, the whole DirectCallStackFrame / repeatTopInstruction
+ * native method calls. In fact, the whole DirectCallStackFrame / repeatInvocation
  * mechanism is there to turn logial recursion (JPF calling native, calling
  * JPF, calling native,..) into iteration. Otherwise we couldn't backtrack
  */
@@ -55,10 +54,10 @@ public class MJIEnv {
   public static final int NULL = -1;
 
   JVM                     vm;
-  ClassInfo               ciMth;  // the ClassInfo of the method this is called from
+  ClassInfo               ci;
   MethodInfo              mi;
   ThreadInfo              ti;
-  Heap                    heap;
+  DynamicArea             da;
   StaticArea              sa;
 
   // those are various attributes set by the execution. note that
@@ -66,23 +65,18 @@ public class MJIEnv {
   // used correctly, so we don't have to be afraid to overwrite any of these
   boolean                 repeat;
   Object                  returnAttr;
-
-  // exception to be thrown upon return from native method
-  // NOTE: this is only transient - don't expect this to be preserved over
-  // transition boundaries
-  int                     exceptionRef;
+  String                  exception;
+  String                  exceptionDetails;
 
   MJIEnv (ThreadInfo ti) {
     this.ti = ti;
 
     // set those here so that we don't have an inconsistent state between
     // creation of an MJI object and the first native method call in
-    // this thread (where any access to the heap or sa would bomb)
+    // this thread (where any access to the da or sa would bomb)
     vm = ti.getVM();
-    heap = vm.getHeap();
+    da = vm.getDynamicArea();
     sa = vm.getStaticArea();
-
-    exceptionRef = NULL;
   }
 
   public JVM getVM () {
@@ -93,10 +87,6 @@ public class MJIEnv {
     return vm.getJPF();
   }
 
-  public boolean isBigEndianPlatform(){
-    return vm.isBigEndianPlatform();
-  }
-  
   public void addListener (JPFListener l){
     vm.getJPF().addListener(l);
   }
@@ -110,7 +100,7 @@ public class MJIEnv {
   }
 
   public void gc() {
-    heap.gc();
+    da.gc();
   }
 
   public void ignoreTransition () {
@@ -118,12 +108,12 @@ public class MJIEnv {
   }
 
   public boolean isArray (int objref) {
-    return heap.get(objref).isArray();
+    return da.get(objref).isArray();
   }
 
   public int getArrayLength (int objref) {
     if (isArray(objref)) {
-      return heap.get(objref).arrayLength();
+      return da.get(objref).arrayLength();
     } else {
       throwException("java.lang.IllegalArgumentException");
 
@@ -132,360 +122,224 @@ public class MJIEnv {
   }
 
   public String getArrayType (int objref) {
-    return heap.get(objref).getArrayType();
+    return da.get(objref).getArrayType();
   }
 
   public int getArrayTypeSize (int objref) {
     return Types.getTypeSize(getArrayType(objref));
   }
 
-  //=== various attribute accessors ============================================
-  // we only support some attribute APIs here, since MJIEnv adds little value
-  // other than hiding the ElementInfo access. If the client already has
-  // an ElementInfo reference, it should use that one to retrieve/enumerate/set
-  // attributes since this avoids repeated Heap.get() calls
-  
-  //--- object attributes
-
-  public boolean hasObjectAttr (int objref){
+  public boolean hasFieldAttrs (int objref){
     if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      return ei.hasObjectAttr();
+      ElementInfo ei = da.get(objref);
+      return ei.hasFieldAttrs();
     }
 
     return false;
   }
 
-  public boolean hasObjectAttr (int objref, Class<?> type){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      return ei.hasObjectAttr(type);
-    }
 
-    return false;    
-  }
-  
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */  
-  public Object getObjectAttr (int objref){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      return ei.getObjectAttr();
+  // this returns all attrs, i.e. can be composite
+  // (use to copy all)
+  public Object getFieldAttr (int objref, String fname){
+    ElementInfo ei = da.get(objref);
+    if (ei != null){
+      FieldInfo fi = ei.getFieldInfo(fname);
+      if (fi != null){
+        return ei.getFieldAttr(fi);
+      } else {
+        throw new JPFException("no such field: " + fname);
+      }
     }
     return null;
   }
-  
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
+  public <T> T getFieldAttr (int objref, String fname, Class<T> attrType){
+    ElementInfo ei = da.get(objref);
+    if (ei != null){
+      FieldInfo fi = ei.getFieldInfo(fname);
+      if (fi != null){
+        return ei.getFieldAttr(attrType, fi);
+      } else {
+        throw new JPFException("no such field: " + fname);
+      }
+    }
+    return null;
+  }
+
+  // this returns all attrs, i.e. can be composite
+  // (use to copy all)
+  public Object getElementAttr (int objref, int idx){
+    ElementInfo ei = da.get(objref);
+    if (ei != null){
+      return ei.getElementAttr(idx);
+    }
+    return null;
+  }
+  public <T> T getElementAttr (int objref, int idx, Class<T> attrType){
+    ElementInfo ei = da.get(objref);
+    if (ei != null){
+      return ei.getElementAttr(attrType, idx);
+    }
+
+    return null;
+  }
+
+
+  public void setElementAttr (int objref, int idx, Object a){
+    ElementInfo ei = da.get(objref);
+    if (ei != null){
+      ei.setElementAttr(idx, a);
+    }
+  }
+
   public void setObjectAttr (int objref, Object a){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
+    if (ei != null){
       ei.setObjectAttr(a);
     }
   }
 
-  public void addObjectAttr (int objref, Object a){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      ei.addObjectAttr(a);
-    }
-  }
-
-  
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
   public <T> T getObjectAttr (int objref, Class<T> attrType){
-    ElementInfo ei = heap.get(objref);
-    return ei.getObjectAttr(attrType);
-  }
-  
-  //--- field attributes
-
-  public boolean hasFieldAttr (int objref){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      return ei.hasFieldAttr();
-    }
-
-    return false;
-  }
-  
-  public boolean hasFieldAttr (int objref, Class<?> type){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      return ei.hasFieldAttr(type);
-    }
-
-    return false;    
-  }
-  
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */  
-  public Object getFieldAttr (int objref, String fname){
-    ElementInfo ei = heap.get(objref);
-    FieldInfo fi = ei.getFieldInfo(fname);
-    if (fi != null){
-      return ei.getFieldAttr(fi);
-    } else {
-      throw new JPFException("no such field: " + fname);
-    }
-  }
-  
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setFieldAttr (int objref, String fname, Object a){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      FieldInfo fi = ei.getFieldInfo(fname);
-      ei.setFieldAttr(fi, a);
-    }
-  }
-
-  public void addFieldAttr (int objref, String fname, Object a){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      FieldInfo fi = ei.getFieldInfo(fname);
-      ei.addFieldAttr(fi, a);
-    }
-  }
-
-  
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getFieldAttr (int objref, String fname, Class<T> attrType){
-    ElementInfo ei = heap.get(objref);
-    FieldInfo fi = ei.getFieldInfo(fname);
-    if (fi != null){
-      return ei.getFieldAttr(fi, attrType);
-    } else {
-      throw new JPFException("no such field: " + fname);
-    }
-  }
-
-  
-  //--- element attrs
-
-  public boolean hasElementdAttr (int objref){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      return ei.hasElementAttr();
-    }
-
-    return false;
-  }
-  
-  public boolean hasElementAttr (int objref, Class<?> type){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      return ei.hasElementAttr(type);
-    }
-
-    return false;    
-  }
-
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */  
-  public Object getElementAttr (int objref, int idx){
-    ElementInfo ei = heap.get(objref);
-    return ei.getElementAttr(idx);
-  }
-  
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setElementAttr (int objref, int idx, Object a){
-    ElementInfo ei = heap.get(objref);
-    ei.setElementAttr(idx, a);
-  }
-
-  public void addElementAttr (int objref, int idx, Object a){
-    ElementInfo ei = heap.get(objref);
-    ei.addElementAttr(idx, a);
-  }
-
-  
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getElementAttr (int objref, int idx, Class<T> attrType){
-    if (objref != NULL){
-      ElementInfo ei = heap.get(objref);
-      return ei.getElementAttr(idx, attrType);
+    ElementInfo ei = da.get(objref);
+    if (ei != null){
+      return ei.getObjectAttr(attrType);
     }
     return null;
   }
 
-  
-
-  // == end attrs ==  
-
-
-  
   // the instance field setters
   public void setBooleanField (int objref, String fname, boolean val) {
-    heap.get(objref).setBooleanField(fname, val);
+    setIntField(objref, fname, Types.booleanToInt(val));
   }
 
   public boolean getBooleanField (int objref, String fname) {
-    return heap.get(objref).getBooleanField(fname);
+    return Types.intToBoolean(getIntField(objref, fname));
   }
 
   public boolean getBooleanArrayElement (int objref, int index) {
-    return heap.get(objref).getBooleanElement(index);
+    return Types.intToBoolean( da.get(objref).getElement(index));
   }
 
   public void setBooleanArrayElement (int objref, int index, boolean value) {
-    heap.get(objref).setBooleanElement(index, value);
+    da.get(objref).setElement(index, Types.booleanToInt(value));
   }
 
-
   public void setByteField (int objref, String fname, byte val) {
-    heap.get(objref).setByteField(fname, val);
+    setIntField(objref, fname, /*(int)*/ val);
   }
 
   public byte getByteField (int objref, String fname) {
-    return heap.get(objref).getByteField(fname);
+    return (byte) getIntField(objref, fname);
   }
 
   public void setCharField (int objref, String fname, char val) {
-    heap.get(objref).setCharField(fname, val);
+    setIntField(objref, fname, /*(int)*/ val);
   }
 
   public char getCharField (int objref, String fname) {
-    return heap.get(objref).getCharField(fname);
+    return (char) getIntField(objref, fname);
   }
 
   public void setDoubleField (int objref, String fname, double val) {
-    heap.get(objref).setDoubleField(fname, val);
+    setLongField(objref, fname, Types.doubleToLong(val));
   }
 
   public double getDoubleField (int objref, String fname) {
-    return heap.get(objref).getDoubleField(fname);
+    return Types.longToDouble(getLongField(objref, fname));
   }
 
   public void setFloatField (int objref, String fname, float val) {
-    heap.get(objref).setFloatField(fname, val);
+    setIntField(objref, fname, Types.floatToInt(val));
   }
 
   public float getFloatField (int objref, String fname) {
-    return heap.get(objref).getFloatField(fname);
+    return Types.intToFloat(getIntField(objref, fname));
   }
 
-
   public void setByteArrayElement (int objref, int index, byte value) {
-    heap.get(objref).setByteElement(index, value);
+    da.get(objref).setElement(index, value);
   }
 
   public byte getByteArrayElement (int objref, int index) {
-    return heap.get(objref).getByteElement(index);
+    return (byte) da.get(objref).getElement(index);
   }
 
   public void setCharArrayElement (int objref, int index, char value) {
-    heap.get(objref).setCharElement(index, value);
+    da.get(objref).setElement(index, value);
   }
 
   public void setIntArrayElement (int objref, int index, int value) {
-    heap.get(objref).setIntElement(index, value);
+    da.get(objref).setElement(index, value);
   }
 
   public void setShortArrayElement (int objref, int index, short value) {
-    heap.get(objref).setShortElement(index, value);
+    da.get(objref).setElement(index, value);
   }
 
   public void setFloatArrayElement (int objref, int index, float value) {
-    heap.get(objref).setFloatElement(index, Types.floatToInt(value));
+    da.get(objref).setElement(index, Types.floatToInt(value));
   }
 
   public float getFloatArrayElement (int objref, int index) {
-    return heap.get(objref).getFloatElement(index);
-  }
-
-  public double getDoubleArrayElement (int objref, int index) {
-    return heap.get(objref).getDoubleElement(index);
-  }
-  public void setDoubleArrayElement (int objref, int index, double value) {
-    heap.get(objref).setDoubleElement(index, value);
+    return Types.intToFloat(da.get(objref).getElement(index));
   }
 
   public short getShortArrayElement (int objref, int index) {
-    return heap.get(objref).getShortElement(index);
+    return (short) da.get(objref).getElement(index);
   }
 
   public int getIntArrayElement (int objref, int index) {
-    return heap.get(objref).getIntElement(index);
+    return da.get(objref).getElement(index);
   }
 
   public char getCharArrayElement (int objref, int index) {
-    return heap.get(objref).getCharElement(index);
+    return (char) da.get(objref).getElement(index);
   }
 
   public void setIntField (int objref, String fname, int val) {
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
     ei.setIntField(fname, val);
   }
 
   // these two are the workhorses
   public void setDeclaredIntField (int objref, String refType, String fname, int val) {
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
     ei.setDeclaredIntField(fname, refType, val);
   }
 
   public int getIntField (int objref, String fname) {
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
     return ei.getIntField(fname);
   }
 
   public int getDeclaredIntField (int objref, String refType, String fname) {
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
     return ei.getDeclaredIntField(fname, refType);
   }
 
   // these two are the workhorses
   public void setDeclaredReferenceField (int objref, String refType, String fname, int val) {
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
     ei.setDeclaredReferenceField(fname, refType, val);
   }
 
   public void setReferenceField (int objref, String fname, int ref) {
-     ElementInfo ei = heap.get(objref);
+     ElementInfo ei = da.get(objref);
      ei.setReferenceField(fname, ref);
   }
 
   public int getReferenceField (int objref, String fname) {
-    ElementInfo ei = heap.get(objref);
-    return ei.getReferenceField(fname);
+    return getIntField(objref, fname);
   }
 
   // we need this in case of a masked field
   public int getReferenceField (int objref, FieldInfo fi) {
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
     return ei.getReferenceField(fi);
   }
 
   public String getStringField (int objref, String fname){
-    int ref = getReferenceField(objref, fname);
+    int ref = getIntField(objref, fname);
     return getStringObject(ref);
   }
 
@@ -524,39 +378,39 @@ public class MJIEnv {
 
 
   public void setLongArrayElement (int objref, int index, long value) {
-    heap.get(objref).setLongElement(index, value);
+    da.get(objref).setLongElement(index, value);
   }
 
   public long getLongArrayElement (int objref, int index) {
-    return heap.get(objref).getLongElement(index);
+    return da.get(objref).getLongElement(index);
   }
 
   public void setLongField (int objref, String fname, long val) {
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
     ei.setLongField(fname, val);
   }
 
 //  public void setLongField (int objref, String refType, String fname, long val) {
-//    ElementInfo ei = heap.get(objref);
+//    ElementInfo ei = da.get(objref);
 //    ei.setLongField(fname, refType, val);
 //  }
 
   public long getLongField (int objref, String fname) {
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
     return ei.getLongField(fname);
   }
 
 //  public long getLongField (int objref, String refType, String fname) {
-//    ElementInfo ei = heap.get(objref);
+//    ElementInfo ei = da.get(objref);
 //    return ei.getLongField(fname, refType);
 //  }
 
   public void setReferenceArrayElement (int objref, int index, int eRef) {
-    heap.get(objref).setReferenceElement(index, eRef);
+    da.get(objref).setElement(index, eRef);
   }
 
   public int getReferenceArrayElement (int objref, int index) {
-    return heap.get(objref).getReferenceElement(index);
+    return da.get(objref).getElement(index);
   }
 
   public void setShortField (int objref, String fname, short val) {
@@ -568,7 +422,7 @@ public class MJIEnv {
   }
 
   public String getTypeName (int objref) {
-    return heap.get(objref).getType();
+    return da.get(objref).getType();
   }
 
   public boolean isInstanceOf (int objref, String clsName) {
@@ -583,100 +437,69 @@ public class MJIEnv {
   
   public void setStaticBooleanField (String clsName, String fname,
                                      boolean value) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    ci.getStaticElementInfo().setBooleanField(fname, value);
+    setStaticIntField(clsName, fname, Types.booleanToInt(value));
   }
-  public void setStaticBooleanField (int clsObjRef, String fname, boolean val) {
-    ElementInfo cei = getClassElementInfo(clsObjRef);
-    cei.setBooleanField(fname, val);
-  }
-  
+
   public boolean getStaticBooleanField (String clsName, String fname) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    return ci.getStaticElementInfo().getBooleanField(fname);
+    return Types.intToBoolean(getStaticIntField(clsName, fname));
   }
 
   public void setStaticByteField (String clsName, String fname, byte value) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    ci.getStaticElementInfo().setByteField(fname, value);  }
+    setStaticIntField(clsName, fname, /*(int)*/ value);
+  }
 
   public byte getStaticByteField (String clsName, String fname) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    return ci.getStaticElementInfo().getByteField(fname);
+    return (byte) getStaticIntField(clsName, fname);
   }
 
   public void setStaticCharField (String clsName, String fname, char value) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    ci.getStaticElementInfo().setCharField(fname, value);  }
+    setStaticIntField(clsName, fname, /*(int)*/ value);
+  }
 
   public char getStaticCharField (String clsName, String fname) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    return ci.getStaticElementInfo().getCharField(fname);
+    return (char) getStaticIntField(clsName, fname);
   }
 
   public void setStaticDoubleField (String clsName, String fname, double val) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    ci.getStaticElementInfo().setDoubleField(fname, val);
+    setStaticLongField(clsName, fname, Types.doubleToLong(val));
   }
 
   public double getStaticDoubleField (String clsName, String fname) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    return ci.getStaticElementInfo().getDoubleField(fname);
-  }
-  
-  public double getStaticDoubleField (int clsObjRef, String fname) {
-    ElementInfo cei = getClassElementInfo(clsObjRef);
-    return cei.getDoubleField(fname);
+    return Types.longToDouble(getStaticLongField(clsName, fname));
   }
 
-  public double getStaticDoubleField (ClassInfo ci, String fname) {
-    ElementInfo ei = ci.getStaticElementInfo();
-    return ei.getDoubleField(fname);
-  }
-  
-  public void setStaticFloatField (String clsName, String fname, float val) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    ci.getStaticElementInfo().setFloatField(fname, val);
+  public void setStaticFloatField (String clsName, String fname, float value) {
+    setStaticIntField(clsName, fname, Types.floatToInt(value));
   }
 
   public float getStaticFloatField (String clsName, String fname) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    return ci.getStaticElementInfo().getFloatField(fname);
+    return Types.intToFloat(getStaticIntField(clsName, fname));
   }
 
-  public void setStaticIntField (String clsName, String fname, int val) {
+  public void setStaticIntField (String clsName, String fname, int value) {
     ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    ci.getStaticElementInfo().setIntField(fname, val);
+    sa.get(ci.getName()).setIntField(fname, value);
   }
 
   public void setStaticIntField (int clsObjRef, String fname, int val) {
-    ElementInfo cei = getClassElementInfo(clsObjRef);
-    cei.setIntField(fname, val);
+    try {
+      ElementInfo cei = getClassElementInfo(clsObjRef);
+      cei.setIntField(fname, val);
+    } catch (Throwable x) {
+      throw new JPFException("set static field failed: " + x.getMessage());
+    }
   }
 
   public int getStaticIntField (String clsName, String fname) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    return ci.getStaticElementInfo().getIntField(fname);
-  }
-  
-  public int getStaticIntField (int clsObjRef, String fname) {
-    ElementInfo cei = getClassElementInfo(clsObjRef);
-    return cei.getIntField(fname);
-  }
+    ClassInfo         ci = ClassInfo.getResolvedClassInfo(clsName);
+    StaticElementInfo ei = sa.get(ci.getName());
 
-  public int getStaticIntField (ClassInfo ci, String fname) {
-    ElementInfo ei = ci.getStaticElementInfo();
     return ei.getIntField(fname);
   }
 
   public void setStaticLongField (String clsName, String fname, long value) {
     ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    ci.getStaticElementInfo().setLongField(fname, value);
-  }
-
-  public void setStaticLongField (int clsObjRef, String fname, long val) {
-    ElementInfo cei = getClassElementInfo(clsObjRef);
-    cei.setLongField(fname, val);
+    sa.get(ci.getName()).setLongField(fname, value);
   }
 
   public long getStaticLongField (int clsRef, String fname) {
@@ -690,7 +513,7 @@ public class MJIEnv {
   }
 
   public long getStaticLongField (ClassInfo ci, String fname){
-    ElementInfo ei = ci.getStaticElementInfo();
+    StaticElementInfo ei = sa.get(ci.getName());
     return ei.getLongField(fname);
   }
 
@@ -698,33 +521,15 @@ public class MJIEnv {
     ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
 
     // <2do> - we should REALLY check for type compatibility here
-    ci.getStaticElementInfo().setReferenceField(fname, objref);
-  }
-
-  public void setStaticReferenceField (int clsObjRef, String fname, int objref) {
-    ElementInfo cei = getClassElementInfo(clsObjRef);
-
-    // <2do> - we should REALLY check for type compatibility here
-    cei.setReferenceField(fname, objref);
+    sa.get(ci.getName()).setReferenceField(fname, objref);
   }
 
   public int getStaticReferenceField (String clsName, String fname) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    return ci.getStaticElementInfo().getReferenceField(fname);
-  }
-
-  public int getStaticReferenceField (int clsObjRef, String fname) {
-    ElementInfo cei = getClassElementInfo(clsObjRef);
-    return cei.getReferenceField(fname);
-  }
-
-  public int getStaticReferenceField (ClassInfo ci, String fname){
-    return ci.getStaticElementInfo().getReferenceField(fname);
+    return getStaticIntField(clsName, fname);
   }
 
   public short getStaticShortField (String clsName, String fname) {
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(clsName);
-    return ci.getStaticElementInfo().getShortField(fname);
+    return (short) getStaticIntField(clsName, fname);
   }
 
   /**
@@ -741,16 +546,14 @@ public class MJIEnv {
   }
 
   public String[] getStringArrayObject (int aRef){
-    String[] sa = null;
-     
-    if (aRef == NULL) return sa;
+    if (aRef == NULL) return null;
 
     ClassInfo aci = getClassInfo(aRef);
     if (aci.isArray()){
       ClassInfo eci = aci.getComponentClassInfo();
       if (eci.getName().equals("java.lang.String")){
         int len = getArrayLength(aRef);
-        sa = new String[len];
+        String[] sa = new String[len];
 
         for (int i=0; i<len; i++){
           int sRef = getReferenceArrayElement(aRef,i);
@@ -785,22 +588,21 @@ public class MJIEnv {
   }
 
   public Object[] getArgumentArray (int argRef) {
-    Object[] args = null;
-    if (argRef == NULL) return args;
+    if (argRef == NULL) return null;
 
     int nArgs = getArrayLength(argRef);
-    args = new Object[nArgs];
+    Object[] args = new Object[nArgs];
 
     for (int i=0; i<nArgs; i++){
       int aref = getReferenceArrayElement(argRef,i);
       ClassInfo ci = getClassInfo(aref);
       String clsName = ci.getName();
       if (clsName.equals("java.lang.Boolean")){
-        args[i] = Boolean.valueOf(getBooleanField(aref,"value"));
+        args[i] = new Boolean(getBooleanField(aref,"value"));
       } else if (clsName.equals("java.lang.Integer")){
-        args[i] = Integer.valueOf(getIntField(aref,"value"));
+        args[i] = new Integer(getIntField(aref,"value"));
       } else if (clsName.equals("java.lang.Double")){
-        args[i] = Double.valueOf(getDoubleField(aref,"value"));
+        args[i] = new Double(getDoubleField(aref,"value"));
       } else if (clsName.equals("java.lang.String")){
         args[i] = getStringObject(aref);
       }
@@ -810,7 +612,7 @@ public class MJIEnv {
   }
 
   public Boolean getBooleanObject (int objref){
-    return Boolean.valueOf(getBooleanField(objref, "value"));
+    return new Boolean(getBooleanField(objref, "value"));
   }
 
   public Byte getByteObject (int objref){
@@ -819,10 +621,6 @@ public class MJIEnv {
 
   public Character getCharObject (int objref){
     return new Character(getCharField(objref, "value"));
-  }
-
-  public Short getShortObject (int objref){
-    return new Short(getShortField(objref, "value"));
   }
 
   public Integer getIntegerObject (int objref){
@@ -891,26 +689,24 @@ public class MJIEnv {
     return a;
   }
 
+  public double getDoubleArrayElement (int objref, int index) {
+    return Types.longToDouble( da.get(objref).getLongElement(index));
+  }
+
+  public void setDoubleArrayElement (int objref, int index, double value) {
+    da.get(objref).setLongElement(index, Types.doubleToLong(value));
+  }
+
+
   public boolean[] getBooleanArrayObject (int objref) {
     ElementInfo ei = getElementInfo(objref);
     boolean[] a = ei.asBooleanArray();
 
     return a;
   }
-  
-  public int[] getReferenceArrayObject (int objref){
-    ElementInfo ei = getElementInfo(objref);
-    int[] a = ei.asReferenceArray();
 
-    return a;    
-  }
-  
   public boolean isSchedulingRelevantObject(int objref){
-    if (objref != NULL){
-      return heap.get(objref).checkUpdatedSharedness(ti);
-    }
-
-    return false;
+    return da.isSchedulingRelevantObject(objref);
   }
 
   public boolean canLock (int objref) {
@@ -920,15 +716,15 @@ public class MJIEnv {
   }
 
   public int newBooleanArray (int size) {
-    return heap.newArray("Z", size, ti);
+    return da.newArray("Z", size, ti);
   }
 
   public int newByteArray (int size) {
-    return heap.newArray("B", size, ti);
+    return da.newArray("B", size, ti);
   }
 
   public int newByteArray (byte[] buf){
-    int ref = heap.newArray("B", buf.length, ti);
+    int ref = da.newArray("B", buf.length, ti);
     for (int i=0; i<buf.length; i++){
       setByteArrayElement(ref, i, buf[i]);
     }
@@ -936,11 +732,11 @@ public class MJIEnv {
   }
 
   public int newCharArray (int size) {
-    return heap.newArray("C", size, ti);
+    return da.newArray("C", size, ti);
   }
 
   public int newCharArray (char[] buf){
-    int ref = heap.newArray("C", buf.length, ti);
+    int ref = da.newArray("C", buf.length, ti);
     for (int i=0; i<buf.length; i++){
       setCharArrayElement(ref, i, buf[i]);
     }
@@ -949,11 +745,11 @@ public class MJIEnv {
 
 
   public int newDoubleArray (int size) {
-    return heap.newArray("D", size, ti);
+    return da.newArray("D", size, ti);
   }
 
   public int newDoubleArray (double[] buf){
-    int ref = heap.newArray("D", buf.length, ti);
+    int ref = da.newArray("D", buf.length, ti);
     for (int i=0; i<buf.length; i++){
       setDoubleArrayElement(ref, i, buf[i]);
     }
@@ -961,15 +757,15 @@ public class MJIEnv {
   }
 
   public int newFloatArray (int size) {
-    return heap.newArray("F", size, ti);
+    return da.newArray("F", size, ti);
   }
 
   public int newIntArray (int size) {
-    return heap.newArray("I", size, ti);
+    return da.newArray("I", size, ti);
   }
 
   public int newIntArray (int[] buf){
-    int ref = heap.newArray("I", buf.length, ti);
+    int ref = da.newArray("I", buf.length, ti);
     for (int i=0; i<buf.length; i++){
       setIntArrayElement(ref, i, buf[i]);
     }
@@ -977,11 +773,11 @@ public class MJIEnv {
   }
 
   public int newLongArray (int size) {
-    return heap.newArray("J", size, ti);
+    return da.newArray("J", size, ti);
   }
 
   public int newLongArray (int[] buf){
-    int ref = heap.newArray("J", buf.length, ti);
+    int ref = da.newArray("J", buf.length, ti);
     for (int i=0; i<buf.length; i++){
       setLongArrayElement(ref, i, buf[i]);
     }
@@ -989,15 +785,11 @@ public class MJIEnv {
   }
 
   /**
-   * WATCH OUT - we don't check if the class is initialized, since the
+   * watch out - we don't check if the class is initialized, since the
    * caller would have to take appropriate action anyways
    */
   public int newObject (ClassInfo ci) {
-    if (ci.requiresClinitExecution(ti)){
-      throw new ClinitRequired(ci);
-    }
-    
-    return heap.newObject(ci, ti);
+    return da.newObject(ci, ti);
   }
 
   public int newObject (String clsName) {
@@ -1011,21 +803,21 @@ public class MJIEnv {
 
   public int newObjectArray (String elementClsName, int size) {
     if (!elementClsName.endsWith(";")) {
-      elementClsName = Types.getTypeSignature(elementClsName, false);
+      elementClsName = Types.getTypeCode(elementClsName, false);
     }
 
-    return heap.newArray(elementClsName, size, ti);
+    return da.newArray(elementClsName, size, ti);
   }
 
   public int newShortArray (int size) {
-    return heap.newArray("S", size, ti);
+    return da.newArray("S", size, ti);
   }
 
   public int newString (String s) {
     if (s == null){
       return NULL;
     } else {
-      return heap.newString(s, ti);
+      return da.newString(s, ti);
     }
   }
 
@@ -1065,68 +857,27 @@ public class MJIEnv {
 
     for (int i=0; i<len; i++){
       int ref = getReferenceArrayElement(argRef,i);
-      if (ref != NULL) {
-        String clsName = getClassName(ref);
-        if (clsName.equals("java.lang.String")) {
-          arg[i] = getStringObject(ref);
-        } else if (clsName.equals("java.lang.Byte")) {
-          arg[i] = getByteObject(ref);
-        } else if (clsName.equals("java.lang.Char")) {
-          arg[i] = getCharObject(ref);
-        } else if (clsName.equals("java.lang.Short")) {
-          arg[i] = getShortObject(ref);
-        } else if (clsName.equals("java.lang.Integer")) {
-          arg[i] = getIntegerObject(ref);
-        } else if (clsName.equals("java.lang.Long")) {
-          arg[i] = getLongObject(ref);
-        } else if (clsName.equals("java.lang.Float")) {
-          arg[i] = getFloatObject(ref);
-        } else if (clsName.equals("java.lang.Double")) {
-          arg[i] = getDoubleObject(ref);
-        } else {
-          // need a toString() here
-          arg[i] = "??";
-        }
+      String clsName = getClassName(ref);
+      if (clsName.equals("java.lang.String")){
+        arg[i] = getStringObject(ref);
+      } else if (clsName.equals("java.lang.Char")){
+        arg[i] = getCharObject(ref);
+      } else if (clsName.equals("java.lang.Integer")){
+        arg[i] = getIntegerObject(ref);
+      } else if (clsName.equals("java.lang.Long")){
+        arg[i] = getLongObject(ref);
+      } else if (clsName.equals("java.lang.Float")){
+        arg[i] = getFloatObject(ref);
+      } else if (clsName.equals("java.lang.Double")){
+        arg[i] = getDoubleObject(ref);
+      } else {
+        // need a toString() here
+        arg[i] = "??";
       }
     }
 
     return String.format(format,arg);
   }
-
-  public String format (Locale l,int fmtRef, int argRef){
-	    String format = getStringObject(fmtRef);
-	    int len = getArrayLength(argRef);
-	    Object[] arg = new Object[len];
-
-	    for (int i=0; i<len; i++){
-	      int ref = getReferenceArrayElement(argRef,i);
-	      if (ref != NULL) {
-	        String clsName = getClassName(ref);
-	        if (clsName.equals("java.lang.String")) {
-	          arg[i] = getStringObject(ref);
-	        } else if (clsName.equals("java.lang.Byte")) {
-	          arg[i] = getByteObject(ref);
-	        } else if (clsName.equals("java.lang.Char")) {
-	          arg[i] = getCharObject(ref);
-	        } else if (clsName.equals("java.lang.Short")) {
-	          arg[i] = getShortObject(ref);
-	        } else if (clsName.equals("java.lang.Integer")) {
-	          arg[i] = getIntegerObject(ref);
-	        } else if (clsName.equals("java.lang.Long")) {
-	          arg[i] = getLongObject(ref);
-	        } else if (clsName.equals("java.lang.Float")) {
-	          arg[i] = getFloatObject(ref);
-	        } else if (clsName.equals("java.lang.Double")) {
-	          arg[i] = getDoubleObject(ref);
-	        } else {
-	          // need a toString() here
-	          arg[i] = "??";
-	        }
-	      }
-	    }
-
-	    return String.format(l,format,arg);
-	  }
 
 
   public int newBoolean (boolean b){
@@ -1134,43 +885,43 @@ public class MJIEnv {
   }
 
   public int newInteger (int n){
-    int r = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.Integer"), ti);
+    int r = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Integer"), ti);
     setIntField(r,"value",n);
     return r;
   }
 
   public int newLong (long l){
-    int r = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.Long"), ti);
+    int r = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Long"), ti);
     setLongField(r,"value",l);
     return r;
   }
 
   public int newDouble (double d){
-    int r = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.Double"), ti);
+    int r = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Double"), ti);
     setDoubleField(r,"value",d);
     return r;
   }
 
   public int newFloat (float f){
-    int r = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.Float"), ti);
+    int r = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Float"), ti);
     setIntField(r,"value",Types.floatToInt(f));
     return r;
   }
 
   public int newByte (byte b){
-    int r = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.Byte"), ti);
+    int r = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Byte"), ti);
     setIntField(r,"value",b);
     return r;
   }
 
   public int newShort (short s){
-    int r = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.Short"), ti);
+    int r = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Short"), ti);
     setIntField(r,"value",s);
     return r;
   }
 
   public int newCharacter (char c){
-    int r = heap.newObject(ClassInfo.getResolvedClassInfo("java.lang.Character"), ti);
+    int r = da.newObject(ClassInfo.getResolvedClassInfo("java.lang.Character"), ti);
     setIntField(r,"value",c);
     return r;
   }
@@ -1202,46 +953,22 @@ public class MJIEnv {
     ei.notifiesAll();
   }
 
-  public void registerPinDown(int objref){
-    vm.getHeap().registerPinDown(objref);
-  }
-
-  public void releasePinDown(int objref){
-    vm.getHeap().releasePinDown(objref);
+  public void pinDown (int objref, boolean keepAlive) {
+    ElementInfo ei = getElementInfo(objref);
+    ei.pinDown(keepAlive);
   }
   
   /**
-   *  use this whenever a peer performs an operation on a class that might not be initialized yet
-   *  Do a repeatInvocation() in this case 
-   */
-  public boolean requiresClinitExecution(ClassInfo ci) {
-    return ci.requiresClinitExecution(ti);
-  }
-  
-  /**
-   * repeat execution of the instruction that caused a native method call
+   * repeat execution of the InvokeInstruction that caused a native method call
    * NOTE - this does NOT mean it's the NEXT executed insn, since the native method
-   * might have pushed direct call frames on the stack before asking us to repeat it.
+   * might have pushed direct call frames on the stack before asking us to repeat it
    */
   public void repeatInvocation () {
     repeat = true;
   }
 
-  public boolean isInvocationRepeated() {
-    return repeat;
-  }
-
-
-  public boolean setNextChoiceGenerator (ChoiceGenerator<?> cg){
-    return vm.getSystemState().setNextChoiceGenerator(cg);
-  }
-
-  public void setMandatoryNextChoiceGenerator(ChoiceGenerator<?> cg, String failMsg){
-    vm.getSystemState().setMandatoryNextChoiceGenerator(cg, failMsg);
-  }
-
-  public SchedulerFactory getSchedulerFactory(){
-    return vm.getSchedulerFactory();
+  public void setNextChoiceGenerator (ChoiceGenerator<?> cg){
+    vm.getSystemState().setNextChoiceGenerator(cg);
   }
 
   public ChoiceGenerator<?> getChoiceGenerator () {
@@ -1253,15 +980,10 @@ public class MJIEnv {
     returnAttr = attr;
   }
 
-  /**
-   * return attr list of all arguments. Use ObjectList to retrieve values
-   * from this list
-   * 
-   * NOTE - this can only be called from a native method context, since
-   * otherwise the top frame is the callee
-   */
+  // NOTE - this can only be called from a native method context, since
+  // otherwise the top frame is the callee
   public Object[] getArgAttributes () {
-    StackFrame caller = getCallerStackFrame();
+    StackFrame caller = ti.getTopFrame();
     return caller.getArgumentAttrs(mi);
   }
 
@@ -1269,62 +991,54 @@ public class MJIEnv {
     return returnAttr;
   }
 
-  // if any of the next methods is called from the bottom
-  // half of a CG method, you might want to check if another thread
-  // or a listener has already set an exception you don't want to override
-  // (this is for instance used in Thread.stop())
-
-  public void throwException (int xRef){
-    assert isInstanceOf(xRef, "java.lang.Throwable");
-    exceptionRef = xRef;
+  public void throwException (String classname) {
+    exception = Types.asTypeName(classname);
   }
 
-  public void throwException (String clsName) {
-    ClassInfo ciX = ClassInfo.getInitializedClassInfo(clsName, ti);
-    assert ciX.isInstanceOf("java.lang.Throwable");
-    exceptionRef = ti.createException(ciX, null, NULL);
-  }
-
-  public void throwException (String clsName, String details) {
-    ClassInfo ciX = ClassInfo.getInitializedClassInfo(clsName, ti);
-    assert ciX.isInstanceOf("java.lang.Throwable");
-    exceptionRef = ti.createException(ciX, details, NULL);
+  public void throwException (String classname, String details) {
+    exception = Types.asTypeName(classname);
+    exceptionDetails = details;
   }
 
   public void throwAssertion (String details) {
     throwException("java.lang.AssertionError", details);
   }
 
+
+  public String getPendingException(){
+    return exception;
+  }
+
+  public String getPendingExceptionDetails(){
+    return exceptionDetails;
+  }
+
+  public boolean hasPendingException(){
+    return (exception != null);
+  }
+
+  public boolean hasPendingInterrupt(){
+    return (exception != null && "java.lang.InterruptedException".equals(exception));
+  }
+
   public void throwInterrupt(){
     throwException("java.lang.InterruptedException");
-  }
-
-  public void stopThread(){
-    stopThreadWithException(MJIEnv.NULL);
-  }
-
-  public void stopThreadWithException (int xRef){
-    // this will call throwException(xRef) with the proper Throwable
-    ti.setStopped(xRef);
   }
 
   void setCallEnvironment (MethodInfo mi) {
     this.mi = mi;
 
     if (mi != null){
-      ciMth = mi.getClassInfo();
+      ci = mi.getClassInfo();
     } else {
-      //ciMth = null;
+      //ci = null;
       //mi = null;
     }
 
     repeat = false;
+    exception = null;
+    exceptionDetails = null;
     returnAttr = null;
-
-    // we should NOT reset exceptionRef here because it might have been set
-    // at the beginning of the transition. It gets reset upon return from the
-    // native method
-    //exceptionRef = NULL;
   }
 
   void clearCallEnvironment () {
@@ -1332,7 +1046,7 @@ public class MJIEnv {
   }
 
   ElementInfo getClassElementInfo (int clsObjRef) {
-    ElementInfo ei = heap.get(clsObjRef);
+    ElementInfo ei = da.get(clsObjRef);
     int         cref = ei.getIntField("cref");
 
     ElementInfo cei = sa.get(cref);
@@ -1341,7 +1055,7 @@ public class MJIEnv {
   }
 
   ClassInfo getClassInfo () {
-    return ciMth;
+    return ci;
   }
 
   public ClassInfo getReferredClassInfo (int clsObjRef) {
@@ -1365,62 +1079,43 @@ public class MJIEnv {
     return getClassInfo(objref).getName();
   }
 
-  public Heap getHeap () {
-    return vm.getHeap();
+  DynamicArea getDynamicArea () {
+    return JVM.getVM().getDynamicArea();
   }
 
   public ElementInfo getElementInfo (int objref) {
-    return heap.get(objref);
+    return da.get(objref);
   }
 
   public int getStateId () {
     return JVM.getVM().getStateId();
   }
 
-  void clearException(){
-    exceptionRef = MJIEnv.NULL;
+  String getException () {
+    return exception;
   }
 
-  public int peekException () {
-    return exceptionRef;
+  String getExceptionDetails () {
+    return exceptionDetails;
   }
 
-  public int popException () {
-    int ret = exceptionRef;
-    exceptionRef = NULL;
-    return ret;
-  }
-
-  public boolean hasException(){
-    return (exceptionRef != NULL);
-  }
-
-  public boolean hasPendingInterrupt(){
-    return (exceptionRef != NULL && isInstanceOf(exceptionRef, "java.lang.InterruptedException"));
-  }
-
-  //-- time is managed by the VM
-  public long currentTimeMillis(){
-    return vm.currentTimeMillis();
-  }
-  
-  public long nanoTime(){
-    return vm.nanoTime();
-  }
-  
   //--- those are not public since they refer to JPF internals
   public KernelState getKernelState () {
     return JVM.getVM().getKernelState();
   }
 
-  public MethodInfo getMethodInfo () {
+  MethodInfo getMethodInfo () {
     return mi;
   }
 
-  public Instruction getInstruction () {
+  Instruction getInstruction () {
     return ti.getPC();
   }
-  
+
+  boolean getRepeat () {
+    return repeat;
+  }
+
   StaticArea getStaticArea () {
     return ti.getVM().getStaticArea();
   }
@@ -1433,46 +1128,10 @@ public class MJIEnv {
     return ti;
   }
 
-  /**
-   * NOTE - callers have to be prepared this might return null in case
-   * the thread got already terminated
-   */
-  public ThreadInfo getThreadInfoForId (int id){
-    return vm.getThreadList().getThreadInfoForId(id);
+  public ThreadInfo getThreadInfo (int threadObjRef){
+    return ThreadInfo.getThreadInfo(ti.getVM(), threadObjRef);
   }
 
-  public ThreadInfo getLiveThreadInfoForId (int id){
-    ThreadInfo ti = vm.getThreadList().getThreadInfoForId(id);
-    if (ti != null && ti.isAlive()){
-      return ti;
-    }
-    
-    return null;
-  }
-  
-  /**
-   * NOTE - callers have to be prepared this might return null in case
-   * the thread got already terminated
-   */
-  public ThreadInfo getThreadInfoForObjRef (int id){
-    return vm.getThreadList().getThreadInfoForObjRef(id);
-  }
-  
-  public ThreadInfo getLiveThreadInfoForObjRef (int id){
-    ThreadInfo ti = vm.getThreadList().getThreadInfoForObjRef(id);
-    if (ti != null && ti.isAlive()){
-      return ti;
-    }
-    
-    return null;
-  }
-
-  
-  
-  public ThreadInfo[] getLiveThreads(){
-    return getVM().getLiveThreads();
-  }
-  
   // <2do> - naming? not very intuitive
   void lockNotified (int objref) {
     ElementInfo ei = getElementInfo(objref);
@@ -1502,24 +1161,20 @@ public class MJIEnv {
     } else if (v instanceof Double){
       setDoubleField(proxyRef, fname, ((Double)v).doubleValue());
 
-    } else if (v instanceof AnnotationInfo.EnumValue){ // an enum constant
-      AnnotationInfo.EnumValue ev = (AnnotationInfo.EnumValue)v;
-      String eCls = ev.getEnumClassName();
-      String eConst = ev.getEnumConstName();
+    } else if (v instanceof FieldInfo){ // an enum constant
+      FieldInfo efi = (FieldInfo)v;
+      ClassInfo  eci = efi.getClassInfo();
 
-      ClassInfo eci = ClassInfo.tryGetResolvedClassInfo(eCls);
       if (!eci.isInitialized()){
         throw new ClinitRequired(eci);
       }
 
-      StaticElementInfo sei = eci.getStaticElementInfo();
-      int eref = sei.getReferenceField(eConst);
+      StaticElementInfo sei = sa.get(eci.getName());
+      int eref = sei.getIntField(efi.getName());
       setReferenceField(proxyRef, fname, eref);
 
-    } else if (v instanceof AnnotationInfo.ClassValue){ // a class
-      String clsName = v.toString();
-      ClassInfo cci = ClassInfo.tryGetResolvedClassInfo(clsName);
-      // <2do> should throw ClassNotFoundError here if cci is null
+    } else if (v instanceof ClassInfo){ // a class
+      ClassInfo cci = (ClassInfo)v;
 
       if (!cci.isInitialized()){
         throw new ClinitRequired(cci);
@@ -1627,37 +1282,7 @@ public class MJIEnv {
     // NOTE: we have to repeat no matter what, since this is called from
     // a handler context (if we only had to create a class object w/o
     // calling clinit, we can't just go on)
-    insn.requiresClinitExecution(ti,ci);
+    insn.requiresClinitCalls(ti,ci);
     repeatInvocation();
-  }
-
-  public StackFrame getCallerStackFrame() {
-    // since native methods are now executed within their own stack frames
-    // we provide a little helper to get the caller
-    return ti.getLastNonSyntheticStackFrame();
-  }
-  
-  public int valueOfBoolean(boolean b) {
-    return BoxObjectCacheManager.valueOfBoolean(ti, b);
-  }
-
-  public int valueOfByte(byte b) {
-    return BoxObjectCacheManager.valueOfByte(ti, b);
-  }
-
-  public int valueOfCharacter(char c) {
-    return BoxObjectCacheManager.valueOfCharacter(ti, c);
-  }
-
-  public int valueOfShort(short s) {
-    return BoxObjectCacheManager.valueOfShort(ti, s);
-  }
-
-  public int valueOfInteger(int i) {
-    return BoxObjectCacheManager.valueOfInteger(ti, i);
-  }
-
-  public int valueOfLong(long l) {
-    return BoxObjectCacheManager.valueOfLong(ti, l);
   }
 }

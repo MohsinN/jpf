@@ -19,9 +19,7 @@
 package gov.nasa.jpf.test.java.concurrent;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-
 import org.junit.Test;
 
 /**
@@ -30,6 +28,11 @@ import org.junit.Test;
 public class AtomicReferenceFieldUpdaterTest extends TestJPF {
 
   static final String[] JPF_ARGS = {"+cg.enumreate_cas=true"};
+
+  //-------------------- driver to execute single test methods
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   //--- the test methods
   String str;

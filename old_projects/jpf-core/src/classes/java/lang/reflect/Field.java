@@ -71,15 +71,4 @@ public final class Field extends AccessibleObject implements Member {
   
   public native boolean isSynthetic ();
 
-  public native boolean equals (Object obj);
-
-  public native String toString ();
-
-  public boolean isEnumConstant (){
-    return (getModifiers() & Modifier.ENUM) != 0;
-  }
-
-  public native int hashCode ();
-
-  public native Annotation[] getDeclaredAnnotations ();
 }

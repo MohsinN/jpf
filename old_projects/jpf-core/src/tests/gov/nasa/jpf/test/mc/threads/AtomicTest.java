@@ -20,7 +20,6 @@ package gov.nasa.jpf.test.mc.threads;
 
 import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 
@@ -28,38 +27,38 @@ public class AtomicTest extends TestJPF {
   
   static int data = 42;
   
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
+  }
+  
   @Test public void testNoRace () {
-    if (verifyNoPropertyViolation("+cg.enable_atomic")) {
+    if (verifyNoPropertyViolation()) {
       Runnable r = new Runnable() {
 
         public void run() {
-          System.out.println("  enter run in Thread-0");
           assert data == 42;
           data += 1;
           assert data == 43;
           data -= 1;
           assert data == 42;
-          System.out.println("  exit run in Thread-0");
         }
       };
 
       Thread t = new Thread(r);
 
       Verify.beginAtomic();
-      System.out.println("enter atomic section in main");
       t.start();
       assert data == 42;
       data += 2;
       assert data == 44;
       data -= 2;
       assert data == 42;
-      System.out.println("exit atomic section in main");
       Verify.endAtomic();
     }
   }
   
   @Test public void testDataCG () {
-    if (verifyNoPropertyViolation("+cg.enable_atomic")) {
+    if (verifyNoPropertyViolation()) {
       Runnable r = new Runnable() {
 
         public void run() {
@@ -81,7 +80,7 @@ public class AtomicTest extends TestJPF {
   }
 
   @Test public void testBlockedInAtomic () {
-    if (verifyDeadlock("+cg.enable_atomic")){
+    if (verifyDeadlock()){
       Runnable r = new Runnable() {
 
         public synchronized void run() {

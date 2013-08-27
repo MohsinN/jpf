@@ -18,24 +18,28 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Return from subroutine
  *   No change
  */
-public class RET extends Instruction {
+public class RET extends JVMInstruction {
   private int index;
 
   public RET( int index){
     this.index = index;
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    return mi.getInstructionAt(th.getLocalVariable(index));
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getTopFrame();
+    int jumpTgt = frame.getLocalVariable(index);
+    return mi.getInstructionAt(jumpTgt);
   }
 
   public int getLength() {

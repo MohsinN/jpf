@@ -22,6 +22,8 @@ import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
+import org.apache.bcel.classfile.ConstantPool;
+
 
 /**
  * Push short
@@ -30,8 +32,8 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public class SIPUSH extends Instruction {
   private int value;
 
-  public SIPUSH(int value){
-    this.value = value;
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    value = ((org.apache.bcel.generic.SIPUSH) i).getValue().shortValue();
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
@@ -50,9 +52,5 @@ public class SIPUSH extends Instruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
-  }
-
-  public int getValue() {
-	return value;
   }
 }

@@ -18,12 +18,14 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.ClassLoaderInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.LoadOnJPFRequired;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -38,66 +40,56 @@ public class PUTSTATIC extends StaticFieldInstruction implements StoreInstructio
     super(fieldName, clsDescriptor, fieldDescriptor);
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-
-    ClassInfo clsInfo = getClassInfo();
-    if (clsInfo == null){
-      return ti.createAndThrowException("java.lang.NoClassDefFoundError", className);
-    }
-
-    FieldInfo fieldInfo = getFieldInfo();
-    if (fieldInfo == null) {
-      return ti.createAndThrowException("java.lang.NoSuchFieldError",
-          (className + '.' + fname));
-    }
-    
-    // this can be actually different (can be a base)
-    clsInfo = fi.getClassInfo();
-
-    // this tries to avoid endless recursion, but is too restrictive, and
-    // causes NPE's with the infamous, synthetic  'class$0' fields
-    if (!mi.isClinit(clsInfo) && requiresClinitExecution(ti, clsInfo)) {
-      return ti.getPC();
-    }
-
-    ElementInfo ei = ks.statics.get(clsInfo.getName());
-
-    if (isNewPorFieldBoundary(ti)) {
-      if (createAndSetFieldCG(ss, ei, ti)) {
-        return this;
-      }
-    }
-
-    Object attr = null; // attr handling has to be consistent with PUTFIELD
-
-    if (fi.getStorageSize() == 1) {
-      attr = ti.getOperandAttr();
-
-      int ival = ti.pop();
-      lastValue = ival;
-
-      if (fi.isReference()) {
-        ei.setReferenceField(fi, ival);
-      } else {
-        ei.set1SlotField(fi, ival);
-      }
-
-    } else {
-      attr = ti.getLongOperandAttr();
-
-      long lval = ti.longPop();
-      lastValue = lval;
-
-      ei.set2SlotField(fi, lval);
-    }
-
-    // this is kind of policy, but it seems more natural to overwrite
-    // (if we want to accumulate, this has to happen in ElementInfo/Fields
-    ei.setFieldAttrNoClone(fi, attr);
-
-    return getNext(ti);
+  @Override
+  protected void popOperands1 (StackFrame frame) {
+    frame.pop(); // .. val => ..
   }
-
+  
+  @Override
+  protected void popOperands2 (StackFrame frame) {
+    frame.pop(2);  // .. highVal, lowVal => ..
+  }
+  
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    
+    if (!ti.isFirstStepInsn()) { // top half
+      FieldInfo fieldInfo;
+    
+      try {
+        fieldInfo = getFieldInfo();
+      } catch(LoadOnJPFRequired lre) {
+        return ti.getPC();
+      }
+      
+      if (fieldInfo == null) {
+        return ti.createAndThrowException("java.lang.NoSuchFieldError", (className + '.' + fname));
+      }
+      
+      ClassInfo ciField = fi.getClassInfo();
+      if (!mi.isClinit(ciField) && ciField.pushRequiredClinits(ti)) {
+        // note - this returns the next insn in the topmost clinit that just got pushed
+        return ti.getPC();
+      }
+      
+      ElementInfo ei = ciField.getStaticElementInfo();
+      if (isNewPorFieldBoundary(ti)) {
+        if (createAndSetSharedFieldAccessCG( ei, ti)) {
+          return this;
+        }
+      }
+      
+      return put( ti, ti.getTopFrame(), ei);
+      
+    } else { // re-execution
+      // no need to redo the exception checks, we already had them in the top half
+      ClassInfo ciField = fi.getClassInfo();
+      ElementInfo ei = ciField.getStaticElementInfo();
+      
+      return put( ti, ti.getTopFrame(), ei);      
+    }
+  }
+  
   public int getLength() {
     return 3; // opcode, index1, index2
   }

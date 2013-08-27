@@ -1,9 +1,0 @@
-@using jpf-symbc
-target=Simple
-target_args = 3,4
-
-finite=true 
-
-classpath=${jpf-ltl}/build/examples
-
-sourcepath=${jpf-ltl}/src/examples

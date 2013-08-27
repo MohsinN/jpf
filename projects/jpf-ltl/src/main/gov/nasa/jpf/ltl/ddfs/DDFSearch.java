@@ -1,329 +1,466 @@
 package gov.nasa.jpf.ltl.ddfs;
 
-import java.util.BitSet;
-import java.util.HashMap;
-import java.util.LinkedList;
 import gov.nasa.jpf.Config;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.JVM;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.SystemState;
 import gov.nasa.jpf.search.Search;
+import gov.nasa.ltl.graph.Edge;
 import gov.nasa.ltl.graph.Graph;
+import gov.nasa.ltl.graph.Literal;
 import gov.nasa.ltl.graph.Node;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
- * @author Ewgenij Starostin
+ * Class of Double Depth First Search strategy
  * 
+ * Classe di ricerca di tipo Double Depth First Search
+ * 
+ * @author Michele Lombardi
  */
 public class DDFSearch extends Search {
-  // TODO: HashMap on [0, n] ints??
-  protected HashMap<Integer, BitSet> seenByDfs1 = new HashMap<Integer, BitSet>(),
-      seenByDfs2 = new HashMap<Integer, BitSet>();
-  protected LinkedList<Pair> dfs1Stack = new LinkedList<Pair>();
-  // TODO: Temporarily...
+
+  protected LinkedList<Pair> dfs1Stack = new LinkedList<Pair>(),
+          seenStates = new LinkedList<Pair>(),
+          stateVisited1 = new LinkedList<Pair>(),
+          statesFlagged = new LinkedList<Pair>();
+  protected Node currentNode, previousNode;
   protected Graph<String> spec = null, setSpec = null;
   protected String specText = null, specSource = null;
-  protected LinkedList<BuchiCG<String>> buchiStates = new LinkedList<BuchiCG<String>>();
-  protected Listener l;
-  protected Property prop = null;
+  protected InfiniteListener l;
+  protected LTLProperty prop = null;
+  protected SystemState ss;
+  protected boolean createdBcg, alreadySet, forceBacktrack, DEBUG=false;
 
-  public DDFSearch(Config config, JVM vm) {
+  public DDFSearch(Config config, VM vm) {
     super(config, vm);
-    l = new Listener();
-    vm.addListener(l);
-    addListener(l);
-    if (config.getBoolean("search.multiple_errors")) {
-      // TODO: Warn.
-      config.setProperty("search.multiple_errors", "false");
-    }
+    // l = new InfiniteListener(config);
+    // addListener(l);
   }
 
   @Override
-  public void search() { // try {
+  public void search() {
+    
+    depth = 0;
+    
+    // At this point InfiniteListener will set up a few things here, in 
+    // particular the formula, the automaton and DEBUG.
     notifySearchStarted();
+
+    if (DEBUG) {
+        System.out.println("(DEBUG) DDFSearch: search started.");
+        System.out.println("(DEBUG) DDFSearch: the formula is "+specText); 
+        System.out.println("(DEBUG) DDFSearch: specSource is "+specSource);       
+    }
+    
+
+    if (setSpec != null) {
+      spec = setSpec;
+      setSpec = null;
+      setPreviousNode(spec.getInit());
+      setCurrentNode(spec.getInit(), false);
+      
+      // Standard stuff: we create a new (JPF) property for the search, see
+      // LTLProperty for more info.
+      
+      prop = new LTLProperty(specText, specSource);
+      addProperty(prop);
+      if(DEBUG) {
+        System.out.println("(DEBUG) DDFSearch, search started: jpf state id = " + vm.getStateId() + ", automaton state id = " + getCurrentNode().getId() + ")");
+      }
+    }
+    
+    if (DEBUG) {
+        System.out.println("(DEBUG) DDFSearch: pushing to dfs1Stack");
+    }
     recordVisit(dfs1Stack);
-    recordVisit(seenByDfs1);
-    while (true) {
-      if (setSpec != null) {
-        assert spec == null;
-        spec = setSpec;
-        setSpec = null;
-        BuchiCG<String> initCg = new AtomBuchiCG(spec.getInit());
-        initCg.advance();
-        buchiStates.push(initCg);
-        prop = new Property(specText, specSource);
-        addProperty(prop);
-      }
-      if (forward()) {
-        if (seenBefore(seenByDfs1)) {
-          // System.err.println ("DFS1: Seen before.");
-          backtrack();
-        } else {
-          // System.err.println ("DFS1: New state.");
-          recordVisit(dfs1Stack);
-          recordVisit(seenByDfs1);
-          if (isPropertyViolated())
-            break;
-        }
-      } else {
-        // System.err.println ("DFS1: forward() failed.");
-        if (spec != null && inAcceptingState() && dfs2()) {
-          prop.setViolated();
-          isPropertyViolated();
-          break;
-        }
-        if (depth == 0) {
-          terminate();
-          break;
-        }
-        dfs1Stack.pop();
-        boolean r = backtrack();
-        assert r;
-      }
+    
+    try {
+      dfs1();
+      terminate();
+      //System.out.println("The property is true");
+    } catch (EndException ex) {
+      System.out.println(ex.getMessage());
     }
     notifySearchFinished();
-    // int space = 0;
-    // for (int key: seenByDfs1.keySet ())
-    // space += seenByDfs1.get (key).cardinality ();
-    // System.err.println ("State space: " + space);
-    // } catch (Throwable t) {t.printStackTrace (); throw new RuntimeException
-    // ();}
   }
 
-  protected class Pair {
-    private int state;
-    private int node;
-
-    Pair(int state, Node<String> node) {
-      this.state = state;
-      this.node = node != null ? node.getId() : Integer.MIN_VALUE;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      if (obj == null || !(obj instanceof Pair))
-        return false;
-      Pair p = (Pair) obj;
-      return state == p.state && node == p.node;
-    }
-
-    @Override
-    public String toString() {
-      return "(" + state + ", " + node + ")";
-    }
-  }
-
-  protected boolean seenBefore(HashMap<Integer, BitSet> set) {
-    Node<String> n = currentNode();
-    if (!set.containsKey(vm.getStateId()))
-      return false;
-    if (n != null)
-      return set.get(vm.getStateId()).get(currentNode().getId() + 1);
-    else
-      return set.get(vm.getStateId()).get(0);
-  }
-
-  protected boolean seenBefore(LinkedList<Pair> stack) {
-    return stack.contains(new Pair(vm.getStateId(), currentNode()));
-  }
-
-  protected void recordVisit(HashMap<Integer, BitSet> set) {
-    BitSet s;
-    Node<String> n = currentNode();
-    if (!set.containsKey(vm.getStateId())) {
-      if (spec != null)
-        s = new BitSet(spec.getNodeCount() + 1);
-      else {
-        assert n == null;
-        s = new BitSet(1);
+  /**
+   * ---Depth First Search 1---
+   * Depth First Search. In the backtrack checks for possible accepting states.
+   * When a state accepts, the dfs2() starts.
+   * 
+   * Visita in profondità. Nel risalire controlla eventuali stati accettanti.
+   * Se accettanti, inizia la dfs2().
+   * 
+   * @throws EndException 
+   */
+  private void dfs1() throws EndException {
+    if (forward()) {
+      
+      /*The createBcg variable notifies if InfiniteListener has created a CG or
+       * not .
+       * 
+       * La variabile createBcg notifica se InfiniteListener ha creato o meno
+       * un CG
+       */
+      EdgeCG cg = vm.getCurrentChoiceGenerator("EdgeCG", EdgeCG.class);
+      if (cg != null){
+        Edge e = (Edge) cg.getNextChoice();
+        setPreviousNode(e.getSource());
+        setCurrentNode(e.getNext(), false);
       }
-      set.put(vm.getStateId(), s);
-    } else
-      s = set.get(vm.getStateId());
-    if (n != null) {
-      assert spec != null;
-      if (s.size() == 1)
-        // expand to spec nodes + 1 size
-        s.set(spec.getNodeCount(), false);
-      s.set(n.getId() + 1);
-    } else
-      s.set(0);
-  }
-
-  protected void recordVisit(LinkedList<Pair> stack) {
-    stack.push(new Pair(vm.getStateId(), currentNode()));
-  }
-
-  protected Node<String> currentNode() {
-    return buchiStates.size() > 0 ? buchiStates.peek().node : null;
-  }
-
-  protected BuchiCG<String> currentBuchiCG() {
-    return buchiStates.size() > 0 ? buchiStates.peek() : null;
-  }
-
-  protected boolean inAcceptingState() {
-    Node<String> n = currentNode();
-    if (n == null)
-      return false;
-    return n.getBooleanAttribute("accepting");
-  }
-
-  protected boolean dfs2() {
-    final int startDepth = depth;
-    if (vm.getChoiceGenerator() != null)
-      vm.getChoiceGenerator().reset();
-    // System.err.println ("DFS2: " + vm.getStateId ());
-    // System.err.print ("DFS1 stack is: ");
-    // for (int i = 0; i < 10; i++)
-    // if (i < dfs1Stack.size ())
-    // System.err.print (dfs1Stack.get (i) + ", ");
-    // System.err.println ("...");
-    while (true) {
-      assert seenBefore(seenByDfs1);
-      if (seenBefore(seenByDfs2)) {
-        // System.err.println ("DFS2: " + vm.getStateId () +
-        // " seen before by DFS2");
-        assert depth > startDepth;
+      
+      if (isEndState()) {
         backtrack();
-      } else {
-        // System.err.println ("DFS2: " + vm.getStateId () + " new for DFS2");
-        recordVisit(seenByDfs2);
+        depth--;
+        setPreviousNode(currentNode);
+        setCurrentNode(spec.getNode(dfs1Stack.getLast().getNode()), false);  // breaktrack dell'automa;
+        notifyStateBacktracked();
+        return;
       }
-      if (seenBefore(dfs1Stack) && depth > startDepth)
-        return true;
-      while (!forward()) {
-        if (depth == startDepth)
-          return false;
-        // System.err.println ("DFS2: " + vm.getStateId () +
-        // " explored, backtrack");
-        backtrack();
-      }
-    }
-  }
-
-  protected boolean haveProgress = true;
-
-  void noProgress() {
-    haveProgress = false;
-  }
-
-  @Override
-  protected boolean forward() {
-    int runsWithoutProgress = 0;
-    int id;
-    if (vm.isEndState())
-      return false;
-    boolean r;
-    do {
-      if (!vm.getCurrentThread().isRunnable()) {
-        // TODO: Should this happen?
-        r = false;
-        break;
-      }
-      assert runsWithoutProgress < 2;
-      haveProgress = true;
-      l.setFirstStep();
-      id = vm.getStateId();
-      r = super.forward();
-      if (!haveProgress) {
-        // System.err.println ("No progress, state = " + vm.getStateId () +
-        // ", PC = " + vm.getCurrentThread ().getPC () +
-        // ", CGs: " + firstFewCGs ());
-        assert vm.getSystemState().getNextChoiceGenerator() != null;
-      }
-      runsWithoutProgress++;
-    } while (r && !haveProgress && vm.getStateId() == id);
-    if (r) {
-      if (!createNextCg()) {
-        super.backtrack();
-        return false;
-      }
-      // (currentNode() != null ? currentNode ().getId () : -1) +
-      // " #### " + firstFewCGs ());
-      // System.err.println ("PC = " + vm.getCurrentThread ().getPC ());
+      createdBcg = false;
       depth++;
       notifyStateAdvanced();
-      return true;
+      Pair pair = new Pair(vm.getStateId(), getCurrentNode().getId());
+      if (DEBUG)
+        System.out.println("depth = " + depth + ", choice = " + vm.getSystemState().getChoiceGenerator().getTotalNumberOfChoices());
+      if (!seenBefore(pair, dfs1Stack) && !forceBacktrack) {
+        recordVisit(dfs1Stack);
+        if(DEBUG)
+          System.out.println("(" + vm.getStateId() + ", " + getCurrentNode().getId() + ")");
+        dfs1();
+        //continue until there are other choices
+        //continua finchè hai altre scelte
+        while (vm.getSystemState().getChoiceGenerator().hasMoreChoices()) {
+          if(DEBUG)
+            System.out.println("state = " + vm.getStateId() + ", depth = " + depth
+                  + ", choice = " + vm.getSystemState().getChoiceGenerator().getTotalNumberOfChoices());
+          dfs1();
+        }
+        //if accepting state then dfs2();
+        //se accettante allora dfs2();
+        if (spec.getNode(pair.getNode()).getAttributes().getBoolean("accepting")) {
+          //System.out.println("run dfs2()");
+          DFS2();
+        }
+        backtrack();
+        depth--;
+        dfs1Stack.pollLast();
+        setPreviousNode(currentNode);
+        setCurrentNode(spec.getNode(dfs1Stack.getLast().getNode()), false);  // breaktrack dell'automa;
+        notifyStateBacktracked();
+        return;
+      } else {
+        forceBacktrack = false;
+        backtrack();
+        depth--;
+        notifyStateBacktracked();
+      }
     } else {
-      if (buchiStates.isEmpty()) {
-        assert spec == null;
-        return false;
-      }
-      assert !buchiStates.isEmpty();
-      BuchiCG<String> bcg = buchiStates.peek();
-      if (!bcg.hasMoreChoices())
-        return false;
-      bcg.advance();
-      ChoiceGenerator<?> cg = vm.getChoiceGenerator();
-      cg.reset();
-      return forward();
+      if (DEBUG)
+        System.out.println("No forward");
+      notifyStateProcessed();
     }
   }
-
-  // TODO: Remove eventually.
-  protected String firstFewCGs() {
-    ChoiceGenerator<?> cg;
-    cg = vm.getSystemState().getNextChoiceGenerator();
-    String r = "NEXT: ";
-    if (cg != null)
-      r += vm.getSystemState().getNextChoiceGenerator().toString().trim() + "["
-          + cg.getProcessedNumberOfChoices() + "/"
-          + cg.getTotalNumberOfChoices() + "]";
-    else
-      r += "null";
-    r += ", CUR: ";
-    cg = vm.getChoiceGenerator();
-    for (int i = 0; i < 3 && cg != null; i++, cg = cg
-        .getPreviousChoiceGenerator())
-      r += cg.toString().trim() + "[" + cg.getProcessedNumberOfChoices() + "/"
-          + cg.getTotalNumberOfChoices() + "], ";
-    return r;
-  }
-
-  @Override
-  protected boolean backtrack() {
-    if (super.backtrack() || // TODO: SNAFU in jpf-core
-        (vm.getStateId() == -1 && vm.getStateSet() != null)) {
   
-      // (currentNode () != null ? currentNode ().getId () : -1) +
-      // "; PC = " + vm.getCurrentThread ().getPC () + "; " + firstFewCGs ());
-      if (spec != null) {
-        assert buchiStates.size() > 0;
-        buchiStates.pop();
-      }
-      depth--;
-      notifyStateBacktracked();
-      return true;
-    } else
-      return false;
-  }
-
-  protected boolean createNextCg() {
-    BuchiCG<String> cg = currentBuchiCG(), cgNew;
-    Node<String> nextNode;
-    if (cg == null) {
-      assert spec == null;
-      return true;
+  private void DFS2() throws EndException {
+     /**
+     * DFS2() runs when a state, after has been completely explored, is also an
+     * accepting state.
+     * PROBLEM: The forward() will always be false precisely because it 
+     * considers that the state has already been fully explored
+     * SOLUTION: reset Choice Generators for this tree level.
+     * 
+     * La DFS2() viene lanciata quando uno stato, dopo esser stato completamente
+     * esplorato, risulta anche essere uno stato accettante.
+     * PROBLEMA: la forward() sarà sempre falsa appunto perchè considera che lo 
+     * stato è già stato completamente esplorato
+     * SOLUZIONE:resettiamo i Choice Generators per questo livello dell'albero.
+     */
+    vm.getSystemState().getChoiceGenerator().reset();
+    dfs2();
+    while (vm.getSystemState().getChoiceGenerator().hasMoreChoices()) {
+      if (DEBUG)
+        System.out.println("dfs2: state = " + vm.getStateId() + ", depth = " + depth
+              + ", choice = " + vm.getSystemState().getChoiceGenerator().getTotalNumberOfChoices());
+      dfs2();
     }
-    assert cg != null;
-    nextNode = cg.getNextChoice();
-    cgNew = new AtomBuchiCG(nextNode);
-    if (cgNew.hasMoreChoices())
-      cgNew.advance();
-    else
-      return false;
-    buchiStates.push(cgNew);
-    return true;
+    statesFlagged.clear();
   }
 
-  void setSpec(Graph<String> g, String ltl, String location) {
+  /**
+   * ---Depth First Search 2---
+   * Depth First Search. If encounter an already visited state from the dfs1()
+   * then the property is false. End.
+   * 
+   * Visita in profondità. Se incontra uno stato già visitato dalla dfs1() la 
+   * proprietà è falsa. Fine.
+   * 
+   * @throws EndException 
+   */
+  private void dfs2() throws EndException {
+    if (forward()) {
+      if (!createdBcg) {
+        checkTrueOrNegatedEdges();
+      }
+      if (isEndState()) {
+        backtrack();
+        depth--;
+        return;
+      }
+      createdBcg = false;
+      depth++;
+      notifyStateAdvanced();
+      System.out.println(getDepth());
+      Pair pair = new Pair(vm.getStateId(), getCurrentNode().getId());
+      if (!seenBefore(pair, dfs1Stack)){
+        if (!seenBefore(pair, statesFlagged) && !forceBacktrack) {
+          recordVisit(statesFlagged);
+          if(DEBUG)
+            System.out.println("dfs2: (" + vm.getStateId() + ", " + getCurrentNode().getId() + ")");
+          dfs2();
+          //continue until there are other choices
+          //continua finchè hai altre scelte
+          while (vm.getSystemState().getChoiceGenerator().hasMoreChoices()) {
+            if(DEBUG)
+              System.out.println("dfs2: state = " + vm.getStateId() + ", depth = " + depth
+                    + ", choice = " + vm.getSystemState().getChoiceGenerator().getTotalNumberOfChoices());
+            dfs2();
+          }
+        } else {
+          forceBacktrack = false;
+          backtrack();
+          depth--;
+          notifyStateBacktracked();
+        }
+      } else {
+        prop.setViolated();
+        checkPropertyViolation();
+        throw new EndException("The property is false");
+      }
+    } else {
+      if(DEBUG)
+        System.out.println("No Forward");
+      notifyStateProcessed();
+    }
+  }
+
+  /**
+   * Returning from the forward() this boolean variable is checked to see if the
+   * Buchi Automaton has progressed. 
+   * Otherwise the method checkTrueOrNegateEdges() will be called 
+   * 
+   * Al ritorno dalla forward() viene controllata questa variabile booleana
+   * per sapere se il Buchi Automaton ha progredito. In caso contrario verrà
+   * chiamato il metodo checkTrueOrNegateEdges()
+   * 
+   * @param createdBcg 
+   */
+  public void setCreatedBcg(boolean createdBcg) {
+    this.createdBcg = createdBcg;
+  }
+  
+  /**
+   * Refered to the Buchi Automaton.
+   * The currentNode parameter is set as current Node and createBcg will be set
+   * true if the current transition is stopped from the InfiniteListener.
+   * Practically this boolean var is checked after the forward() instruction to
+   * know if the Buchi Automaton has pregressed. 
+   * Otherwise the method checkTrueOrNegateEdges() will be called
+   * 
+   * Riferito al Buchi Automaton
+   * Setta il Node passato per parametro come Nodo corrente e mette a true la 
+   * var createBcg se è stata interrotta una transizione all'interno di 
+   * InfiniteListener.
+   * Praticamente al ritorno dalla forward() viene controllata questa variabile
+   * booleana per sapere se il Buchi Automaton ha progredito. In caso contrario
+   * verrà chiamato il metodo checkTrueOrNegateEdges()
+   * 
+   * @param currentNode
+   * @param createdBcg
+   * @return 
+   */
+  protected Node<String> setCurrentNode(Node currentNode, boolean createdBcg) {
+    this.createdBcg = createdBcg;
+    return this.currentNode = currentNode;
+  }
+
+  /**
+   * The current Node of the Buchi Automaton is returned.
+   * 
+   * Ritorna il Node corrente del Buchi Automaton.
+   * 
+   * @return 
+   */
+  protected Node<String> getCurrentNode() {
+    return currentNode;
+  }
+  
+  /**
+   * The previousNode parameter is set as previous Node of the Buchi Automaton
+   * 
+   * 
+   * Setta Node previousNode come Node precedente del Buchi Automaton.
+   * 
+   * @param previousNode
+   * @return 
+   */
+  protected Node<String> setPreviousNode(Node previousNode) {
+    return this.previousNode = previousNode;
+  }
+  
+  /**
+   * The previous Node of the Buchi Automaton is returned.
+   * 
+   * Ritorna il Node precedente del Buchi Automaton.
+   * 
+   * @return 
+   */
+  protected Node<String> getPreviousNode() {
+    return previousNode;
+  }
+
+  /**
+   * Record the pair Pair (JPF state, Buchi Automaton state) passed as a 
+   * parameter in the LinkedList.
+   * 
+   * Registra la coppia Pair(Stato di JPF, Stato Buchi Automaton) nella 
+   * LinkedList passata come parametro.
+   * 
+   * @param set 
+   */
+  protected void recordVisit(LinkedList<Pair> set) {
+    Node<String> n = getCurrentNode();
+    if (n != null) {
+      Pair p = new Pair(vm.getStateId(), n.getId());
+      set.add(p);
+      if (DEBUG) {
+        System.out.println("(DEBUG) DDFSearch: recording ("+vm.getStateId()+","+n.getId()+")");
+      }
+    } else {
+      Pair p = new Pair(vm.getStateId(), 0);
+      System.out.println("(DEBUG) DDFSearch: recording ("+vm.getStateId()+",ZERO)");
+      set.add(p);
+    }
+  }
+
+  /**
+   * This method gets several information from the Listener
+   * 
+   * Questo metodo prende alcune informazioni da the Listener
+   * 
+   * @param deb //If "true" shows comments -- se "true" mostra commenti
+   * @param g //Graph structure -- struttura grafo Graph
+   * @param ltl //LTL formula from @LTLSpec --
+   *              formula catturata dall'annotazione @LTLSpec
+   * @param location //It contains the subpath of the executed file
+   *                   contine il subpath del file in esecuzione.
+   */
+  void setSpec(Graph<String> g, String ltl, String location, boolean deb) {
     assert spec == null : "attempted to set Buchi spec but it was already set";
     setSpec = g;
     specText = ltl;
     specSource = location;
+    DEBUG=deb;
   }
 
+  /**
+   * The Graph structure is returned.
+   * 
+   * Ritorna la struttura grafo Graph spec.
+   * 
+   * @return 
+   */
   Graph<String> getSpec() {
     return spec;
+  }
+
+  /**
+   * If after the forward the automaton state isn't modified, it means:
+   * -it visited an edge that back in itself
+   * -there were not match between code and guard.
+   * In the second case it should change state if there is a negate or true 
+   * guard. 
+   * 
+   * Se dopo la forward() non ho modificato lo stato dell'automa vuol dire che:
+   * - ho incontrato un arco che mi ritorna nello stesso stato
+   * - non ho trovato nessun match tra codice e guardia.
+   * Nel secondo caso potrei comunque cambiare stato se ho una guardia negata
+   * o un guardia a True.
+   */
+  public void checkTrueOrNegatedEdges() {
+    List<Edge<String>> outgoingEdges = getCurrentNode().getOutgoingEdges();
+    if (!outgoingEdges.isEmpty()) {
+
+      /*
+       * The alreadySet condition is an optimization of the number of cycles.
+       * If it skip and there are more outgoing edges with denied guards then 
+       * it will take last rather than first.
+       * 
+       * la condizione alreadySet è un'ottimizzazione al numero di cicli.
+       * Se si omette e ci sono più archi uscenti con guardie negate allora
+       * verrà presa l'ultima piuttosto che la prima.
+       * 
+       */
+      for (int k = 0; k < outgoingEdges.size() && !alreadySet; k++) {
+        if (!outgoingEdges.get(k).getGuard().isEmpty()) {
+          Iterator<Literal<String>> itr = outgoingEdges.get(k).getGuard().iterator();
+
+          while (itr.hasNext()) {
+            Literal<String> a = itr.next();
+            if (a.isNegated()) {
+              if(DEBUG)
+                System.out.println("match found with negation_2 "+a.getAtom().toString());
+              setPreviousNode(currentNode);
+              setCurrentNode(outgoingEdges.get(k).getNext(), false);
+              alreadySet = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!alreadySet) {
+        for (int k = 0; k < outgoingEdges.size(); k++) {
+          if (outgoingEdges.get(k).getGuard().isEmpty()) {
+            if(DEBUG)
+              System.out.println("match found with edge TRUE_2");
+            setPreviousNode(currentNode);
+            setCurrentNode(outgoingEdges.get(k).getNext(), false);
+          }
+        }
+      } else {
+        alreadySet = false;
+      }
+    }
+  }
+
+  /**
+   * 
+   * @param pair
+   * @param lkl
+   * @return 
+   */
+  private boolean seenBefore(Pair pair, LinkedList<Pair> lkl) {
+    Iterator<Pair> itr = lkl.iterator();
+    Pair p;
+    while (itr.hasNext()) {
+      p = itr.next();
+      if(DEBUG)
+        System.out.println("###" + p.toString() +"###");
+      if (pair.equals(p)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  /**
+   * 
+   * @param b 
+   */
+  void forceBacktrack(boolean b) {
+    this.forceBacktrack = b;
   }
 }

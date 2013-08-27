@@ -1,4 +1,4 @@
-// 
+//
 // Copyright (C) 2006 United States Government as represented by the
 // Administrator of the National Aeronautics and Space Administration
 // (NASA).  All Rights Reserved.
@@ -18,38 +18,50 @@
 //
 package gov.nasa.jpf.jvm;
 
+import gov.nasa.jpf.jvm.bytecode.Instruction;
+
 /**
- * DirectCallStackFrames are only used for overlay calls (from native code), i.e.
- * there is no corresponding INVOKE instruction. The associated MethodInfos are
- * synthetic, their only code is (usually) a INVOKEx and a DIRECTCALLRETURN.
- * NOTE: such MethodInfos do not belong to any class
+ * this is a StackFrame that can dynamically grow its operand stack size (and associated
+ * operand attributes). To be used for floating calls, where we don't want to mis-use the
+ * stack of the currently executing bytecode method, since it might not have enough
+ * operand stack space. This class is basically an inheritance-decorator for StackFrame
  * 
- * Arguments have to be explicitly pushed by the caller
- * 
- * They do not return any values themselves, but they do get the return values of the
- * called methods pushed onto their own operand stack. If the DirectCallStackFrame user
- * needs such return values, it has to do so via ThreadInfo.getReturnedDirectCall()
- *
+ * Note that these frames do not appear in a Thread's call stack!
  */
 public class DirectCallStackFrame extends StackFrame {
+
+  // in what (linear) increments do we grow the operand and local size
+  static final int OPERAND_INC = 5;
+  static final int LOCAL_INC = 5;
   
+  Instruction nextPc;
+    
   public DirectCallStackFrame (MethodInfo stub) {
     super(stub, null);
   }
+  
+  public DirectCallStackFrame (MethodInfo stub, Instruction nextInsn) {
+    super(stub, null);
+    
+    nextPc = nextInsn;
+  }
 
-  public DirectCallStackFrame (MethodInfo stub, int nOperandSlots, int nLocalSlots) {
-    super(stub, nLocalSlots, nOperandSlots);
+  private DirectCallStackFrame () {
+    // just here for cloning purposes
+  }
+  
+  public void reset() {
+    pc = mi.getInstruction(0);
+  }
+  
+  public Instruction getNextPC() {
+    return nextPc;
   }
   
   public boolean isDirectCallFrame() {
     return true;
   }
-
-  @Override
-  public boolean isSynthetic() {
-    return true;
-  }
-
+      
   public String getClassName() {
     return "<direct call>";
   }
@@ -58,6 +70,78 @@ public class DirectCallStackFrame extends StackFrame {
     return "<direct call>"; // we don't have any
   }
   
+  private void growOperands () {
+    int newLen = operands.length + OPERAND_INC; // should grow linearly
+
+    int[] newOperands = new int[newLen];
+    System.arraycopy(operands, 0, newOperands, 0, operands.length);
+    operands = newOperands;
+        
+    boolean[] newIsOperandRef = new boolean[newLen];
+    System.arraycopy(isOperandRef, 0, newIsOperandRef, 0, isOperandRef.length);
+    isOperandRef = newIsOperandRef;
+    
+    if (operandAttr != null){
+      Object[] newOperandAttr = new Object[newLen];
+      System.arraycopy(operandAttr, 0, newOperandAttr, 0, operandAttr.length);
+      operandAttr = newOperandAttr;
+    }
+  }
+    
+  public void push (int v, boolean ref) {
+    if (top >= (operands.length-1)) {
+      growOperands();
+    }
+    super.push(v,ref);
+  }
+
+  // those are of less interest, unless somebody creates a method on the fly
+  
+  private void growLocals (int idx) {
+    int newLen = idx + LOCAL_INC;
+    int[] newLocals = new int[newLen];
+    System.arraycopy(locals, 0, newLocals, 0, locals.length);
+    locals = newLocals;
+    
+    boolean[] newIsLocalRef = new boolean[newLen];
+    System.arraycopy(isLocalRef, 0, newIsLocalRef, 0, isLocalRef.length);
+    isLocalRef = newIsLocalRef;
+    
+    if (localAttr != null){
+      Object[] newLocalAttr = new Object[newLen];
+      System.arraycopy(localAttr, 0, newLocalAttr, 0, localAttr.length);
+      localAttr = newLocalAttr;
+    }
+
+  }
+
+  public void setLocalVariable (int index, int v, boolean ref) {
+    if (index >= locals.length) {
+      growLocals(index);
+    }
+    super.setLocalVariable( index, v, ref);
+  }
+  
+  public void setLongLocalVariable (int index, long v) {
+    if (index+1 >= locals.length) {
+      growLocals(index+1);
+    }
+    super.setLongLocalVariable(index, v);
+  }  
+  
+  public void dup () {
+    if (top >= (operands.length-1)) {
+      growOperands();
+    }
+    super.dup();
+  }
+  
+  public void dup2 () {
+    if (top >= (operands.length-2)) {
+      growOperands();
+    }
+    super.dup2();    
+  }
   
   // <2do> and a couple more we still have to do
 }

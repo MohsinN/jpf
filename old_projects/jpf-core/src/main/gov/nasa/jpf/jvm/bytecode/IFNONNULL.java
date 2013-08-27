@@ -26,12 +26,7 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * ..., value => ..., result
  */
 public class IFNONNULL extends IfInstruction {
-
-  public IFNONNULL(int targetPc) {
-    super(targetPc);
-  }
-
-
+  
   public boolean popConditionValue (ThreadInfo ti) {
     return (ti.pop() != -1);
   }

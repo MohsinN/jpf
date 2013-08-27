@@ -1,5 +1,0 @@
-@using jpf-symbc
-
-target=finite.eventually.MultiInstance
-
-finite=true

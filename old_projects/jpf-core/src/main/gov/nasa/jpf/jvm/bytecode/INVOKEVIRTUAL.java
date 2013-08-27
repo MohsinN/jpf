@@ -18,6 +18,7 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.jvm.MethodInfo;
 
 
 /**
@@ -26,12 +27,7 @@ package gov.nasa.jpf.jvm.bytecode;
  */
 public class INVOKEVIRTUAL extends VirtualInvocation {
   public INVOKEVIRTUAL () {}
-
-  protected INVOKEVIRTUAL (String clsDescriptor, String methodName, String signature){
-    super(clsDescriptor, methodName, signature);
-  }
-
-
+  
   public int getByteCode () {
     return 0xB6;
   }

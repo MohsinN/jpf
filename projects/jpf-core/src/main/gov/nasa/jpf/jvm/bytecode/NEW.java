@@ -18,21 +18,15 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.AllocInstruction;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.Heap;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.NoClassInfoException;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.*;
 
 
 /**
  * Create new object
  * ... => ..., objectref
  */
-public class NEW extends Instruction implements AllocInstruction {
+public class NEW extends JVMInstruction implements AllocInstruction {
   protected String cname;
   protected int newObjRef = -1;
 
@@ -40,21 +34,20 @@ public class NEW extends Instruction implements AllocInstruction {
     cname = Types.getClassNameFromTypeName(clsDescriptor);
   }
   
-  public String getClassName()    // Needed for Java Race Finder
-  {
-     return(cname);
+  public String getClassName(){    // Needed for Java Race Finder
+    return(cname);
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
+  @Override
+  public Instruction execute (ThreadInfo ti) {
     Heap heap = ti.getHeap();
     ClassInfo ci;
 
+    // resolve the referenced class
     try {
-      ci = ClassInfo.getResolvedClassInfo(cname);
-
-    } catch (NoClassInfoException cx){
-      // can be any inherited class or required interface
-      return ti.createAndThrowException("java.lang.NoClassDefFoundError", cx.getMessage());
+      ci = ti.resolveReferencedClass(cname);
+    } catch(LoadOnJPFRequired lre) {
+      return ti.getPC();
     }
 
     if (!ci.isRegistered()){
@@ -73,14 +66,14 @@ public class NEW extends Instruction implements AllocInstruction {
                                         "trying to allocate new " + cname);
     }
 
-    int objRef = heap.newObject(ci, ti);
+    ElementInfo ei = heap.newObject(ci, ti);
+    int objRef = ei.getObjectRef();
     newObjRef = objRef;
 
     // pushes the return value onto the stack
-    ti.push(objRef, true);
+    StackFrame frame = ti.getModifiableTopFrame();
+    frame.pushRef( objRef);
 
-    ss.checkGC(); // has to happen after we push the new object ref
-    
     return getNext(ti);
   }
 

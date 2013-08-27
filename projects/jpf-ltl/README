@@ -1,0 +1,33 @@
+This is a JPF extensions (see http://babelfish.arc.nasa.gov/trac/jpf) that 
+allows the verification of LTL properties of Java code. 
+
+LTL properties can include method names and signatures, and are specified using 
+the @LTLSpec annotation in Java source files. For instance:
+@LTLSpec("[](<> \"done(int,String)\")")
+encodes the fact that method "done" is called infinitely often in the future
+(notice that the method name is included in double quotes, which need to be
+escaped).
+
+To use the tool, simply add the @LTLSpec annotation to the top of the class you
+want to verify and create a .jpf file similar to the following:
+
+--- cut here ---
+@using jpf-ltl
+target=YOURCLASSHERE
+finite=false
+
+# You need this one to specify the appropriate listener
+listener=gov.nasa.jpf.ltl.ddfs.InfiniteListener
+
+# You need this one to specify the search strategy
+search.class=gov.nasa.jpf.ltl.ddfs.DDFSearch
+
+# And you need these jpf-core options, too
+vm.storage.class=gov.nasa.jpf.jvm.FullStateSet
+cg.enumerate_random=true
+--- cut here ---
+
+
+TODO
+- Fix finite executions
+- Fix tests

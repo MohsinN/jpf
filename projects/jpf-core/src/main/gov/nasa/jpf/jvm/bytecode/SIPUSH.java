@@ -18,36 +18,42 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Push short
  * ... => ..., value
  */
-public class SIPUSH extends Instruction {
-  private int value;
+public class SIPUSH extends JVMInstruction {
+  protected int value;
 
   public SIPUSH(int value){
     this.value = value;
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    th.push(value, false);
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+    
+    frame.push(value);
 
-    return getNext(th);
+    return getNext(ti);
   }
 
   public int getLength() {
     return 3; // opcode, b1, b2
   }
   
+  @Override
   public int getByteCode () {
     return 0x11;
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

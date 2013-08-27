@@ -35,8 +35,6 @@ import gov.nasa.jpf.jvm.bytecode.GETSTATIC;
 import gov.nasa.jpf.jvm.bytecode.InstanceFieldInstruction;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
-import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
-import gov.nasa.jpf.jvm.bytecode.INVOKESTATIC;
 import gov.nasa.jpf.perturb.OperandPerturbator;
 import gov.nasa.jpf.util.FieldSpec;
 import gov.nasa.jpf.util.JPFLogger;
@@ -44,7 +42,6 @@ import gov.nasa.jpf.util.MethodSpec;
 import gov.nasa.jpf.util.SourceRef;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -73,20 +70,14 @@ import java.util.List;
  *   perturb.velocity.method = x.y.MyClass.computeVelocity()
  *   perturb.velocity.class = .perturb.IntOverUnder
  *   perturb.velocity.delta = 50
- *   
- *   # method parameter perturbation example
- *   perturb.params = foo, ...
- *   perturb.foo.method = x.y.MyClass.send(int, float, boolean)
- *   perturb.foo.location = MyClass.java:42
- *   perturb.class = .perturb.dataAbstractor
- *   
+ *
  */
 
 public class Perturbator extends ListenerAdapter {
 
   static JPFLogger log = JPF.getLogger("gov.nasa.jpf.Perturbator");
 
-  public static class Perturbation {
+  static class Perturbation {
     SourceRef sref;    // location where field access should be perturbed
     Class<? extends ChoiceGenerator<?>> cgType; // needs to be compatible with field type
     OperandPerturbator perturbator;
@@ -100,7 +91,7 @@ public class Perturbator extends ListenerAdapter {
     }
   }
 
-  public static class FieldPerturbation extends Perturbation {
+  static class FieldPerturbation extends Perturbation {
     FieldSpec fieldSpec;
 
     FieldPerturbation (FieldSpec fieldSpec, OperandPerturbator perturbator, String loc){
@@ -110,7 +101,7 @@ public class Perturbator extends ListenerAdapter {
     }
   }
 
-  public static class ReturnPerturbation extends Perturbation {
+  static class ReturnPerturbation extends Perturbation {
     MethodSpec mthSpec;
 
     ReturnPerturbation (MethodSpec mthSpec, OperandPerturbator perturbator, String loc){
@@ -119,30 +110,18 @@ public class Perturbator extends ListenerAdapter {
       this.mthSpec = mthSpec;
     }
   }
-  
-  public static class ParamsPerturbation extends Perturbation {
-  	public MethodSpec mthSpec;
-  	
-  	ParamsPerturbation (MethodSpec mthSpec, OperandPerturbator perturbator, String loc) {
-  		super(perturbator, loc);
-  		
-  		this.mthSpec = mthSpec;
-  	}
-  }
-  
-  protected static Class<?>[] argTypes = { Config.class, String.class };
 
-  protected List<FieldPerturbation> fieldWatchList = new ArrayList<FieldPerturbation>();
-  protected HashMap<FieldInfo,FieldPerturbation> perturbedFields = new HashMap<FieldInfo,FieldPerturbation>();
+  static Class<?>[] argTypes = { Config.class, String.class };
 
-  protected List<ReturnPerturbation> returnWatchList = new ArrayList<ReturnPerturbation>();
-  protected HashMap<MethodInfo,ReturnPerturbation> perturbedReturns = new HashMap<MethodInfo,ReturnPerturbation>();
-  
-  protected List<ParamsPerturbation> paramsWatchList = new ArrayList<ParamsPerturbation>();
-  protected HashMap<MethodInfo, ParamsPerturbation> perturbedParams = new HashMap<MethodInfo, ParamsPerturbation>();
 
-  protected StackFrame savedFrame;
-  
+  List<FieldPerturbation> fieldWatchList = new ArrayList<FieldPerturbation>();
+  HashMap<FieldInfo,FieldPerturbation> perturbedFields = new HashMap<FieldInfo,FieldPerturbation>();
+
+  List<ReturnPerturbation> returnWatchList = new ArrayList<ReturnPerturbation>();
+  HashMap<MethodInfo,ReturnPerturbation> perturbedReturns = new HashMap<MethodInfo,ReturnPerturbation>();
+
+  StackFrame savedFrame;
+
   public Perturbator (Config conf){
 
     // in the ctor we only find out which classname patterns we have to watch
@@ -159,21 +138,8 @@ public class Perturbator extends ListenerAdapter {
     for (String id : returnIds){
       addToReturnWatchList(conf, id);
     }
-    
-    String[] paramsIds = conf.getCompactTrimmedStringArray("perturb.params");
-    for (String id: paramsIds) {
-    	addToParamsWatchList(conf, id);
-    }
   }
-  
-  public boolean isMethodWatched(Instruction insn, MethodInfo mi) {
-    ParamsPerturbation e = perturbedParams.get(mi);
-    if (e != null && isRelevantCallLocation(insn, e)){
-      return true;
-    }
-    return false;
-  }
-  
+
   protected void addToFieldWatchList (Config conf, String id){
     String keyPrefix = "perturb." + id;
 
@@ -225,33 +191,6 @@ public class Perturbator extends ListenerAdapter {
     }
   }
 
-  protected void addToParamsWatchList (Config conf, String id){
-    String keyPrefix = "perturb." + id;
-
-    String ms = conf.getString(keyPrefix + ".method");
-    if (ms != null) {
-      MethodSpec mthSpec = MethodSpec.createMethodSpec(ms);
-      if (mthSpec != null) {
-        Object[] args = {conf, keyPrefix};
-        // <2do> pcm - this is not consistent with field and return value perturbation, which can have
-        // location specific heuristics. Per-location specs will probably be re-instated once the problem
-        // with jpf-jdart is sorted out
-        OperandPerturbator perturbator = conf.getInstance("perturb.class", OperandPerturbator.class, argTypes, args);
-        if (perturbator != null) {
-          String loc = conf.getString(keyPrefix + ".location");
-          ParamsPerturbation p = new ParamsPerturbation(mthSpec, perturbator, loc);
-          paramsWatchList.add(p);
-        } else {
-          log.warning("invalid perturbator spec for ", keyPrefix);
-        }
-
-      } else {
-        log.warning("malformed method specification for ", keyPrefix);
-      }
-    } else {
-      log.warning("missing method specification for ", keyPrefix);
-    }
-  }
 
   public void classLoaded (JVM jvm){
     // this one takes the watchlists, finds out if the loaded class matches
@@ -288,20 +227,6 @@ public class Perturbator extends ListenerAdapter {
         }
       }
     }
-
-    for (ParamsPerturbation p : paramsWatchList){
-      MethodSpec ms = p.mthSpec;
-      if (ms.isMatchingType(ci)){
-        for (MethodInfo mi : ci.getDeclaredMethodInfos()){
-          if (ms.matches(mi)){
-          	// We simply associate the method with the parameters perturbator
-            Class<? extends ChoiceGenerator<?>> perturbatorCGType = p.perturbator.getChoiceGeneratorType();
-            p.cgType = perturbatorCGType;
-          	perturbedParams.put(mi, p);
-          }
-        }
-      }
-    }
   }
 
   protected void addFieldPerturbations (FieldPerturbation p, ClassInfo ci, FieldInfo[] fieldInfos){
@@ -333,21 +258,11 @@ public class Perturbator extends ListenerAdapter {
       }
     }
   }
-  
-  protected boolean isRelevantCallLocation (Instruction invokeInsn, Perturbation p) {
-  	// For parameter perturbation, we are about to execute a method
-  	// and hence can directly use the invoke instruction to get the file
-  	// location of the call
-  	if (p.sref == null)
-  		return true;
-  	else
-  		return p.sref.equals(invokeInsn.getFilePos());
-  }
 
   public void executeInstruction (JVM vm){
     Instruction insn = vm.getLastInstruction();
     ThreadInfo ti = vm.getLastThreadInfo();
-    
+
     if (insn instanceof GETFIELD){
       FieldInfo fi = ((InstanceFieldInstruction)insn).getFieldInfo();
       FieldPerturbation e = perturbedFields.get(fi);
@@ -374,57 +289,29 @@ public class Perturbator extends ListenerAdapter {
           // pop the callee stackframe and modify the caller stackframe
           // note that we don't need to execute in order to get the perturbation base
           // value because its already on the operand stack
-          ChoiceGenerator<?> cg = e.perturbator.createChoiceGenerator("perturbReturn", ti.getTopFrame(), new Integer(0));
-          if (ss.setNextChoiceGenerator(cg)){
-            ti.skipInstruction(insn);
+          ChoiceGenerator<?> cg = e.perturbator.createChoiceGenerator("perturbReturn", ti.getTopFrame(), 0);
+          if (cg != null) {
+            ss.setNextChoiceGenerator(cg);
+            ti.setNextPC(insn); // reexecute
+            ti.skipInstruction();
           }
+
         } else {
           // re-executing, modify the operand stack top and execute
           ChoiceGenerator<?> cg = ss.getCurrentChoiceGenerator("perturbReturn", e.cgType);
           if (cg != null) {
-            e.perturbator.perturb(cg, ti.getTopFrame());
+            e.perturbator.perturb(cg, ti.getTopFrame(), 0);
           }
         }
       }
-    } else if (insn instanceof InvokeInstruction) {
-    	// first get the method info object corresponding to the invoked method
-    	// We can't use getMethodInfo as the method returned may not be the actual
-    	// method invoked, but rather its caller
-    	MethodInfo mi = ((InvokeInstruction) insn).getInvokedMethod();
-    	ParamsPerturbation e = perturbedParams.get(mi);
-    	
-      if (e != null && isRelevantCallLocation(insn, e)){
-        SystemState ss = vm.getSystemState();
 
-        if (!ti.isFirstStepInsn()) {
-        	// first time, create and set CG and skip instruction as we want the instruction
-        	// to be executed with the parameter choices we like instead of the ones that
-        	// were passed in
-          ChoiceGenerator<?> cg = e.perturbator.createChoiceGenerator(mi.getFullName(), ti.getTopFrame(), mi);
-          // check if the cg returned is null. If it is then we don't want to execute this
-          // method as we are done exploring it
-          if (cg != null) {
-            log.info("--- Creating choice generator: " + mi.getFullName() + " for thread: " + ti);
-            if (ss.setNextChoiceGenerator(cg)) {
-              ti.skipInstruction(insn);
-            }
-          }
-        } else {
-          // re-executing, modify the operands on stack and execute
-          ChoiceGenerator<?> cg = ss.getChoiceGenerator(mi.getFullName());
-          if (cg != null) {
-            log.info("--- Using choice generator: " + mi.getFullName() + " in thread: " + ti);
-            e.perturbator.perturb(cg, ti.getTopFrame());
-          }
-        }
-      }
     }
   }
 
   public void instructionExecuted(JVM vm) {
     Instruction insn = vm.getLastInstruction();
     ThreadInfo ti = vm.getLastThreadInfo();
-    
+
     if (insn instanceof GETFIELD){
       FieldInfo fi = ((InstanceFieldInstruction)insn).getFieldInfo();
       FieldPerturbation p = perturbedFields.get(fi);
@@ -436,19 +323,21 @@ public class Perturbator extends ListenerAdapter {
           if (ti.isFirstStepInsn()) { // retrieve value from CG and replace it on operand stack
             ChoiceGenerator<?> cg = ss.getCurrentChoiceGenerator( "perturbGetField", p.cgType);
             if (cg != null) {
-              p.perturbator.perturb(cg, frame);
+              p.perturbator.perturb(cg, frame, 0);
             } else {
               log.warning("wrong choice generator type ", cg);
             }
 
           } else { // first time around, create&set the CG and reexecute
-            ChoiceGenerator<?> cg = p.perturbator.createChoiceGenerator( "perturbGetField", frame, new Integer(0));
-            if (ss.setNextChoiceGenerator(cg)){
+            ChoiceGenerator<?> cg = p.perturbator.createChoiceGenerator( "perturbGetField", frame, 0);
+            if (cg != null) {
               assert savedFrame != null;
+
+              ss.setNextChoiceGenerator(cg);
               // we could more efficiently restore the stackframe
               // to pre-exec state from last 'this' or classobject ref, but then
               // we have to deal with different field value sizes
-              ti.setTopFrame(savedFrame);
+              ti.swapTopFrame(savedFrame);
               ti.setNextPC(insn); // reexecute
 
               savedFrame = null;
@@ -456,10 +345,12 @@ public class Perturbator extends ListenerAdapter {
           }
         }
       }
-    } 
+    }
   }
-  
+
+
   protected boolean isMatchingInstructionLocation (Perturbation p, Instruction insn){
     return p.sref == null || p.sref.equals(insn.getFilePos());
   }
+
 }

@@ -20,20 +20,15 @@
 package gov.nasa.jpf.jvm.choice;
 
 import gov.nasa.jpf.Config;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ChoiceGeneratorBase;
 import gov.nasa.jpf.jvm.IntChoiceGenerator;
-
 import java.util.Random;
 
 /**
- * a IntChoiceGenerator that randomly chooses a configured number
+ * an IntChoiceGenerator that randomly chooses a configured number
  * of values from a specified range
  * this is usually configured through app properties
- * 
- * <2do> this is too redundant to RandomOrderIntCG - replace
  */
-public class RandomIntIntervalGenerator extends ChoiceGeneratorBase<Integer> implements IntChoiceGenerator {
+public class RandomIntIntervalGenerator extends IntChoiceGenerator {
 
   protected int min, max; // both inclusive
   protected int nChoices;
@@ -77,8 +72,6 @@ public class RandomIntIntervalGenerator extends ChoiceGeneratorBase<Integer> imp
   public void reset () {
     random = new Random(seed);
     count = 0;
-
-    isDone = false;
   }
 
 	public boolean hasMoreChoices() {
@@ -124,16 +117,6 @@ public class RandomIntIntervalGenerator extends ChoiceGeneratorBase<Integer> imp
     sb.append(count);
     sb.append(']');
     return sb.toString();
-  }
-
-  @Override
-  public Class<Integer> getChoiceType() {
-    return Integer.class;
-  }
-
-  @Override
-  public ChoiceGenerator<Integer> randomize() {
-    return this;
   }
 
 }

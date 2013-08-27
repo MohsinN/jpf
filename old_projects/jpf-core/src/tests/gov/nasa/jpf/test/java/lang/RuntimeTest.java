@@ -2,10 +2,13 @@ package gov.nasa.jpf.test.java.lang;
 
 import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 public class RuntimeTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test
   public void testAvailableProcessors() {

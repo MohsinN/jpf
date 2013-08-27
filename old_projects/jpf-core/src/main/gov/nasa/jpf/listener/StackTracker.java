@@ -18,6 +18,8 @@
 //
 package gov.nasa.jpf.listener;
 
+import java.io.PrintWriter;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.ListenerAdapter;
@@ -29,8 +31,6 @@ import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.VirtualInvocation;
 import gov.nasa.jpf.search.Search;
-
-import java.io.PrintWriter;
 
 /**
  * simple tool to log stack invocations
@@ -63,7 +63,7 @@ public class StackTracker extends ListenerAdapter {
 
     out.println();
     out.print("Thread: ");
-    out.print(ti.getId());
+    out.print(ti.getIndex());
     out.println(":");
 
     out.println(ti.getStackTrace());

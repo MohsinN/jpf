@@ -18,9 +18,9 @@
 //
 package gov.nasa.jpf;
 
-import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.Printable;
+import gov.nasa.jpf.vm.VM;
 
 
 /**
@@ -32,7 +32,7 @@ public interface Property extends Printable {
   /**
    * return true if property is NOT violated
    */
-  boolean check (Search search, JVM vm);
+  boolean check (Search search, VM vm);
 
   String getErrorMessage ();
   

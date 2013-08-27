@@ -6,8 +6,8 @@ import gov.nasa.jpf.ltl.LTLSpec;
  * 
  * @author Anh Cuong
  */
-@LTLSpec("[](f2(int,int) -> X(<> f1(String)))")
-// @LTLSpec("[]!Simple.f2(int,int)")//
+//@LTLSpec("[](f2(int,int) -> X(<> f1(String)))")
+@LTLSpec("[]!Simple.f2(int,int)")//
 public class Simple {
 
   public static void main(String[] args) {

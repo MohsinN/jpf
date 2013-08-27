@@ -31,7 +31,7 @@ import java.io.PrintWriter;
  */
 public class Throwable {
 
-  int[] snapshot; // this is an internal array of { globalMethodId, pcOffset } pairs
+  int[] snapshot; // this is an array of { globalMethodId, pcOffset } pairs
   
   protected Throwable cause; // in case this is a wrapper exception (like InvocationTargetException)
   
@@ -39,13 +39,8 @@ public class Throwable {
     
   protected StackTraceElement[] stackTrace; // only set on demand, if getStackTrace() is called
   
+  
   public Throwable() {
-    try {                                            // Use Class.forName() instead of new StackTraceElement() since the latter creates garbage.
-      Class.forName("java.lang.StackTraceElement");  // Force this class to load here instead of in createStackTrace().
-    } catch (ClassNotFoundException e) {
-      throw new NoClassDefFoundError("java.lang.StackTraceElement");
-    }
-     
     fillInStackTrace();
   }
 
@@ -134,9 +129,5 @@ public class Throwable {
   public void printStackTrace (PrintWriter pw){
     String s = getStackTraceAsString();
     pw.print(s);    
-  }
-  
-  int getStackTraceDepth(){
-    return (snapshot.length / 2); // snapshot stores the methodId and pc for each StackFrame 
   }
 }

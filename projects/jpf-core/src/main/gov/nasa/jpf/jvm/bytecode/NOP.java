@@ -18,22 +18,22 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Do nothing
  *    No change
  */
-public class NOP extends Instruction {
+public class NOP extends JVMInstruction {
   
   public NOP () {
     // nothing to do
   }
   
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
+  public Instruction execute (ThreadInfo th) {
     return getNext(th);
   }
 

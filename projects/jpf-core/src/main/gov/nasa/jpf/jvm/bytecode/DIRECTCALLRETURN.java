@@ -19,17 +19,17 @@
 
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.StackFrame;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 /**
  * this is used to return from a DirectCallStackFrame
  *
  * Note that it is NOT a ReturnInstruction, in case listeners monitor these
  * and expect corresponding InvokeInstructions. Although this would seem intuitive, it
- * would be pointless to derive because the ReturnInstruction.execute() does
+ * would be pointless to derive because the ReturnInstruction.enter() does
  * a lot of things we would have to cut off, i.e. it would require more effort
  * to undo this (no sync, no return value, no pc advance on the returned-to
  * stackframe etc.)
@@ -38,7 +38,7 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * that the ReturnInstruction of the called method does not have to handle
  * direct calls specifically
  */
-public class DIRECTCALLRETURN extends Instruction implements gov.nasa.jpf.jvm.ReturnInstruction {
+public class DIRECTCALLRETURN extends JVMInstruction implements gov.nasa.jpf.vm.ReturnInstruction {
 
   @Override
   public boolean isExtendedInstruction() {
@@ -58,7 +58,7 @@ public class DIRECTCALLRETURN extends Instruction implements gov.nasa.jpf.jvm.Re
   }
 
   @Override
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
+  public Instruction execute (ThreadInfo ti) {
     // pop the current frame but do not advance the new top frame, and do
     // not touch its operand stack
     

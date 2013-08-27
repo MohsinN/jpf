@@ -23,16 +23,11 @@ import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
 /**
- * base class for INVOKEVIRTUAL, INVOKESPECIAL and INVOLEINTERFACE
+ * base class for INVOKEVIRTUAL, INVOKESTATIC and INVOLEINTERFACE
  */
 public abstract class InstanceInvocation extends InvokeInstruction {
 
   protected InstanceInvocation() {}
-
-  protected InstanceInvocation (String clsDescriptor, String methodName, String signature){
-    super(clsDescriptor, methodName, signature);
-  }
-
 
   public int getCalleeThis (ThreadInfo ti) {
     if (!ti.isPostExec()){

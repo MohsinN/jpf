@@ -19,7 +19,10 @@
 package gov.nasa.jpf.jvm;
 
 import gov.nasa.jpf.Config;
-import gov.nasa.jpf.jvm.choice.ThreadChoiceFromSet;
+import gov.nasa.jpf.jvm.bytecode.ArrayInstruction;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
+import gov.nasa.jpf.jvm.choice.*;
+import gov.nasa.jpf.util.StringSetMatcher;
 
 
 /**
@@ -33,12 +36,15 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
   protected JVM vm;
   protected SystemState ss;
 
-  //--- those are configured
   boolean breakStart;
   boolean breakYield;
   boolean breakSleep;
   boolean breakArrayAccess;
   boolean breakSingleChoice;
+
+  StringSetMatcher monitorBoundariesNever;
+  StringSetMatcher monitorBoundariesBreak;
+  boolean breakMonitorBoundariesPublicMethod;
 
   public DefaultSchedulerFactory (Config config, JVM vm, SystemState ss) {
     this.vm = vm;
@@ -50,6 +56,18 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
 
     breakArrayAccess = config.getBoolean("cg.threads.break_arrays", false);
     breakSingleChoice = config.getBoolean("cg.break_single_choice");
+
+    // filter monitor_enters and non-public sync method invokes for selected classes
+    // (be careful with this!)
+    String[] set = config.getStringArray("vm.por.monitor_boundaries.never");
+    if (set != null){
+      monitorBoundariesNever = new StringSetMatcher(set);
+    }
+    set = config.getStringArray("vm.por.monitor_boundaries.break");
+    if (set != null){
+      monitorBoundariesBreak = new StringSetMatcher(set);
+    }
+    breakMonitorBoundariesPublicMethod = config.getBoolean("vm.por.monitor_boundaries.break.public_method", true);
   }
 
   /*************************************** internal helpers *****************/
@@ -78,6 +96,32 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
     return getRunnableCG(id);
   }
 
+  protected boolean matchesMethodAndElement(StringSetMatcher matcher,
+                                            String packageOfMethod,
+                                            String packageOfElement) {
+    return (matcher == null) ? false
+        : (matcher.matchesAny(packageOfMethod) && matcher.matchesAny(packageOfElement));
+  }
+  
+  protected boolean isNeverBreakMonitorBoundaries(ElementInfo ei, ThreadInfo ti, boolean isMethodCall) {
+    MethodInfo mi = ti.getMethod();
+    // <clinit>
+    if (mi.getClassInfo() == null)
+      return false;
+
+    String packageOfMethod = mi.getClassInfo().getPackageName();
+    String packageOfElement = ei.getClassInfo().getPackageName();
+
+    if (matchesMethodAndElement(monitorBoundariesBreak, packageOfMethod, packageOfElement)){
+      return false;
+    }
+
+    if (matchesMethodAndElement(monitorBoundariesNever, packageOfMethod, packageOfElement)){
+      return isMethodCall ? !(breakMonitorBoundariesPublicMethod && mi.isPublic()) : true;
+    }
+
+    return false;
+  }
 
   /**************************************** our choice acquisition methods ***/
 
@@ -140,7 +184,7 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
       return new ThreadChoiceFromSet("monitorEnter", getRunnables(), true);
 
     } else {
-      if (ss.isAtomic()) {
+      if (ss.isAtomic() || isNeverBreakMonitorBoundaries(ei, ti, isMethodCall)) {
         return null;
       }
 
@@ -149,13 +193,6 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
   }
 
   public ChoiceGenerator<ThreadInfo> createMonitorExitCG (ElementInfo ei, ThreadInfo ti) {
-
-    /**
-    if (!ss.isAtomic()){
-      return getSyncCG( "monitorExit", ei, ti);
-    }
-    **/
-
     return null; // nothing, left mover
   }
 
@@ -183,7 +220,7 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
   }
 
   public ChoiceGenerator<ThreadInfo> createNotifyAllCG (ElementInfo ei, ThreadInfo ti) {
-    return null; // no choice here
+    return null; // no nondeterminism here, left mover
   }
 
   public ChoiceGenerator<ThreadInfo> createSharedFieldAccessCG (ElementInfo ei, ThreadInfo ti) {
@@ -194,21 +231,6 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
     return getSyncCG( "sharedField", ei, ti);
   }
 
-  public ChoiceGenerator<ThreadInfo> createParkCG (ElementInfo ei, ThreadInfo tiPark, boolean isAbsoluteTime, long timeOut){
-    // we treat this like a wait, but don't differentiate between absolute and relative timeout. Note it has to be a right mover
-    // note that tiPark is already blocked at this point
-    if (ss.isAtomic()) {
-      ss.setBlockedInAtomicSection();
-    }
-
-    return new ThreadChoiceFromSet( "park", getRunnables(), true);
-  }
-  
-  public ChoiceGenerator<ThreadInfo> createUnparkCG (ThreadInfo tiUnparked) {
-    // note that tiUnparked is already runnable at this point
-    return getRunnableCG("unpark");
-  }
-  
   public ChoiceGenerator<ThreadInfo> createSharedArrayAccessCG (ElementInfo ei, ThreadInfo ti) {
     // the array object (ei) is shared, otherwise we won't get here
 
@@ -221,10 +243,10 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
       // <2do> CG sequence based POR should be optional
       ArrayInstruction ainsn = (ArrayInstruction)ti.getPC();
       boolean isRead = ainsn.isRead();
-      int aref = ei.getThreadInfoForId();
+      int aref = ei.getIndex();
 
       for (ChoiceGenerator<?> cg = ss.getChoiceGenerator(); cg != null; cg = cg.getPreviousChoiceGenerator()){
-      if (cg.getThreadInfoForId() != ti || cg.getChoiceType() != ThreadInfo.class){
+      if (cg.getThreadInfo() != ti || cg.getChoiceType() != ThreadInfo.class){
       break; // different thread or different choice type -> we need a CG
       }
 
@@ -274,9 +296,6 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
 
     if (breakStart) {
       if (ss.isAtomic()) {
-        // this is dangerous - POR now depends on Thread.start() being a right mover
-        // If the current thread doesn't have a scheduling point before termination,
-        // we might loose paths (Thread.start() will warn about it)
         return null;
       }
       return getRunnableCG("start");
@@ -284,16 +303,8 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
     } else {
       return null;
     }
-  }
 
-  public ChoiceGenerator<ThreadInfo> createBeginAtomicCG (ThreadInfo atomicThread) {
-    return null;
   }
-
-  public ChoiceGenerator<ThreadInfo> createEndAtomicCG (ThreadInfo atomicThread) {
-    return getRunnableCG("end atomic");
-  }
-
 
   public ChoiceGenerator<ThreadInfo> createThreadYieldCG (ThreadInfo yieldThread) {
     if (breakYield) {
@@ -320,7 +331,6 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
       if (ss.isAtomic()) {
         return null;
       }
-
       // we treat this as a simple reschedule
       return getRunnableCG("sleep");
 
@@ -349,10 +359,5 @@ public class DefaultSchedulerFactory implements SchedulerFactory {
 
   public ChoiceGenerator<ThreadInfo> createThreadResumeCG () {
     return getRunnableCG("resume");
-  }
-
-  public ChoiceGenerator<ThreadInfo> createThreadStopCG () {
-    return null; // left mover, there will be still a terminateCG
-    //return getRunnableCG("stop");
   }
 }

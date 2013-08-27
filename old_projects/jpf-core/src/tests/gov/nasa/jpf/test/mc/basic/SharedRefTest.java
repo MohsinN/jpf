@@ -19,7 +19,6 @@
 package gov.nasa.jpf.test.mc.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
@@ -37,6 +36,10 @@ public class SharedRefTest extends TestJPF implements Runnable {
   }
   
   SharedOrNot o;
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   public SharedRefTest () {
     // only for JUnit

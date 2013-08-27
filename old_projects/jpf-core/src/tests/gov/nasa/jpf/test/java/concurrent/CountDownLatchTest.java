@@ -1,20 +1,20 @@
 package gov.nasa.jpf.test.java.concurrent;
 
-import gov.nasa.jpf.jvm.Verify;
-import gov.nasa.jpf.util.test.TestJPF;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Exchanger;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-import org.junit.Test;
+import gov.nasa.jpf.jvm.*;
+import gov.nasa.jpf.util.test.*;
+import java.util.concurrent.*;
+import org.junit.*;
 
 public class CountDownLatchTest extends TestJPF {
 
   private static final int N = 2;                    // Too many states to test if set higher than 2.  jpf-concurrent's gov.nasa.jpf.test.java.concurrent.CountDownLatchTest can handle more threads.
   private static final int COUNTER_SUCCESS   = 0;
   private static final int COUNTER_EXCHANGED = 1;
+
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test
   public void testCountDown() throws InterruptedException {

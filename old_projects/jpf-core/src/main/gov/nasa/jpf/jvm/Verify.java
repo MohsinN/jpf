@@ -18,11 +18,6 @@
 //
 package gov.nasa.jpf.jvm;
 
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.util.BitSet;
 import java.util.Random;
 
 
@@ -93,17 +88,6 @@ public class Verify {
     }
   }
 
-  public static void setCounter (int id, int val) {
-    if (peer != null){
-      JPF_gov_nasa_jpf_jvm_Verify.setCounter__II__V(null, 0, id, val);
-    } else {
-      if ((counter != null) && (id >= 0) && (id < counter.length)) {
-        counter[id] = val;
-      }
-    }
-  }
-
-  
   public static int incrementCounter (int id) {
     if (peer != null){
       return JPF_gov_nasa_jpf_jvm_Verify.incrementCounter__I__I(null, 0, id);
@@ -124,48 +108,8 @@ public class Verify {
     }
   }
 
-  // same mechanism and purpose as the counters, but with BitSets, which is
-  // more convenient if we have a lot of different events to check
 
-  static BitSet[] bitSets;
-
-  private static void checkBitSetId(int id) {
-    if (bitSets == null) {
-      bitSets = new BitSet[id + 1];
-    } else if (id >= bitSets.length) {
-      BitSet[] newBitSets = new BitSet[id + 1];
-      System.arraycopy(bitSets, 0, newBitSets, 0, bitSets.length);
-      bitSets = newBitSets;
-    }
-
-    if (bitSets[id] == null) {
-      bitSets[id] = new BitSet();
-    }
-  }
-
-
-  public static void setBitInBitSet(int id, int bit, boolean value) {
-    if (peer != null){
-      // this is executed if we did run JPF
-      JPF_gov_nasa_jpf_jvm_Verify.setBitInBitSet__IIZ__V(null, 0, id, bit, value);
-    } else {
-      // this is executed if we run this without previously executing JPF
-      checkBitSetId(id);
-      bitSets[id].set(bit, value);
-    }
-  }
-
-  public static boolean getBitInBitSet(int id, int bit) {
-    if (peer != null){
-      // this is executed if we did run JPF
-      return JPF_gov_nasa_jpf_jvm_Verify.getBitInBitSet__II__Z(null, 0, id, bit);
-
-    } else {
-      // this is executed if we run this without previously executing JPF
-      checkBitSetId(id);
-      return bitSets[id].get(bit);
-    }
-  }
+  //  Backwards compatibility END
 
   /**
    * Adds a comment to the error trace, which will be printed and saved.
@@ -291,32 +235,17 @@ public class Verify {
    * supposed to be created at the native side, and hence can't be accessed from
    * the application
    */
-  
-  //--- use these if you know there are single attributes
   public static void setFieldAttribute (Object o, String fieldName, int val) {}
   public static int getFieldAttribute (Object o, String fieldName) { return 0; }
-  
-  //--- use these for multiple attributes
-  public static void addFieldAttribute (Object o, String fieldName, int val) {}
-  public static int[] getFieldAttributes (Object o, String fieldName) { return new int[0]; }
 
   public static void setLocalAttribute (String varName, int val) {}
   public static int getLocalAttribute (String varName) { return 0; }
 
-  public static void addLocalAttribute (String varName, int val) {}
-  public static int[] getLocalAttributes (String varName) { return new int[0]; }
-
   public static void setElementAttribute (Object arr, int idx, int val){}
   public static int getElementAttribute (Object arr, int idx) { return 0; }
-  
-  public static void addElementAttribute (Object arr, int idx, int val){}
-  public static int[] getElementAttributes (Object arr, int idx) { return new int[0]; }
 
   public static void setObjectAttribute (Object o, int val) {}
   public static int getObjectAttribute (Object o) { return 0; }
-  
-  public static void addObjectAttribute (Object o, int val) {}
-  public static int[] getObjectAttributes (Object o) { return new int[0]; }
 
   /**
    * this is the new boolean choice generator. Since there's no real
@@ -346,7 +275,7 @@ public class Verify {
     return getRandom().nextInt((max-min+1)) + min;
   }
 
-  public static int getIntFromList (int... values){
+  public static int getIntFromSet (int... values){
     if (values != null && values.length > 0) {
       int i = getRandom().nextInt(values.length);
       return values[i];
@@ -379,7 +308,7 @@ public class Verify {
     return getRandom().nextDouble();
   }
 
-  public static double getDoubleFromList (double... values){
+  public static double getDoubleFromSet (double... values){
     if (values != null && values.length > 0) {
       int i = getRandom().nextInt(values.length);
       return values[i];
@@ -387,26 +316,7 @@ public class Verify {
       return getRandom().nextDouble();
     }
   }
-  
-  public static long getLongFromList (long...values){
-    if (values != null && values.length > 0) {
-      int i = getRandom().nextInt(values.length);
-      return values[i];
-    } else {
-      return getRandom().nextLong();
-    }    
-  }
 
-  public static float getFloatFromList (float...values){
-    if (values != null && values.length > 0) {
-      int i = getRandom().nextInt(values.length);
-      return values[i];
-    } else {
-      return getRandom().nextFloat();
-    }    
-  }
-
-  
   /**
    * Returns a random number between 0 and max inclusive.
    */
@@ -502,68 +412,4 @@ public class Verify {
     // native
     return null;
   }
-
-  public static <T> T createFromJSON(Class<T> clazz, String json){
-    return null;
-  }
-
-  public static void writeObjectToFile(Object object, String fileName) {
-    try {
-      FileOutputStream fso = new FileOutputStream(fileName);
-      ObjectOutputStream oos = new ObjectOutputStream(fso);
-      oos.writeObject(object);
-      oos.flush();
-      oos.close();
-
-    } catch (Exception ex) {
-      throw new RuntimeException(ex);
-    }
-
-  }
-
-  public static <T> T readObjectFromFile(Class<T> clazz, String fileName) {
-    try
-    {
-      FileInputStream fis = new FileInputStream(fileName);
-      ObjectInputStream ois = new ObjectInputStream(fis);
-
-      Object read = ois.readObject();
-      
-      return (T) read;
-      
-    }
-    catch (Exception ex) {
-      throw new RuntimeException(ex);
-    }
-
-  }
-  
-  
-  //--- model logging support
-  
-  /*
-   * we add these here so that we don't need to pull in any java.util.logging classes
-   * Note - these need to be kept in sync with our native peer
-   */
-  public static final int SEVERE = 1;
-  public static final int WARNING = 2;
-  public static final int INFO = 3;
-  public static final int FINE = 4;
-  public static final int FINER = 5;
-  public static final int FINEST = 6;
-  
-  public static void log( String loggerId, int logLevel, String msg){
-    System.err.println(msg);
-  }
-
-  // to avoid construction of strings on the model side
-  public static void log( String loggerId, int logLevel, String msg, String arg){
-    System.err.println(msg);
-  }
-
-  public static void log( String loggerId, int logLevel, String format, Object... args){
-    System.err.printf(format, args);
-  }
-
-  
 }

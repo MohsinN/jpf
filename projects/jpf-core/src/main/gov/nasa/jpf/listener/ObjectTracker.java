@@ -22,19 +22,19 @@ package gov.nasa.jpf.listener;
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.PropertyListenerAdapter;
-import gov.nasa.jpf.jvm.AnnotationInfo;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.InfoObject;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.PUTFIELD;
 import gov.nasa.jpf.jvm.bytecode.VirtualInvocation;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.StringSetMatcher;
+import gov.nasa.jpf.vm.AnnotationInfo;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.InfoObject;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.MethodInfo;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 import java.io.PrintWriter;
 import java.util.HashMap;
@@ -185,7 +185,8 @@ public class ObjectTracker extends PropertyListenerAdapter {
   }
   
   //--- Property interface
-  public boolean check (Search search, JVM vm) {
+  @Override
+  public boolean check (Search search, VM vm) {
     if (violation != null){
       return false;
     }
@@ -193,6 +194,7 @@ public class ObjectTracker extends PropertyListenerAdapter {
     return true;
   }
 
+  @Override
   public void reset () {
     violation = null;
   }
@@ -206,13 +208,11 @@ public class ObjectTracker extends PropertyListenerAdapter {
   }
   
   //--- VMListener interface
-  
-  public void objectCreated (JVM vm) {
-    ElementInfo ei = vm.getLastElementInfo();
+  @Override
+  public void objectCreated (VM vm, ThreadInfo ti, ElementInfo ei) {
     ClassInfo ci = ei.getClassInfo();
     
     if (isTrackedClass(ci.getName())){
-      ThreadInfo ti = vm.getLastThreadInfo();
       trackedObjects.put(ei.getObjectRef(), new Record(ei, ti));
     
       if (logLife){
@@ -221,28 +221,26 @@ public class ObjectTracker extends PropertyListenerAdapter {
     }
   }
   
-  public void objectReleased (JVM vm) {
-    ElementInfo ei = vm.getLastElementInfo();
+  @Override
+  public void objectReleased (VM vm, ThreadInfo ti, ElementInfo ei) {
     int ref = ei.getObjectRef();
     
     if (isTrackedObject(ref)){
       trackedObjects.remove(ref);
       
       if (logLife){
-        log(vm.getLastThreadInfo(), "released %1$s", ei);
+        log(ti, "released %1$s", ei);
       }
     }
   }
 
-  
-  public void instructionExecuted (JVM vm){
-    ThreadInfo ti = vm.getLastThreadInfo();
-    Instruction insn = vm.getLastInstruction();
-    
-    if (insn instanceof VirtualInvocation){
+  @Override
+  public void instructionExecuted (VM vm, ThreadInfo ti, Instruction nextInsn, Instruction executedInsn){
+
+    if (executedInsn instanceof VirtualInvocation){
       
-      if (vm.getNextInstruction() != insn){ // otherwise we didn't execute
-        VirtualInvocation call = (VirtualInvocation)insn;
+      if (nextInsn != executedInsn){ // otherwise we didn't enter
+        VirtualInvocation call = (VirtualInvocation)executedInsn;
         int ref = call.getCalleeThis(ti);
         Record rec = getRecord(ref);
         
@@ -253,14 +251,14 @@ public class ObjectTracker extends PropertyListenerAdapter {
             log(ti, "invoke %1$s.%2$s", rec.ei, mi.getUniqueName());
           }
           
-          if (!checkShared(rec, ti, mi, insn)){
+          if (!checkShared(rec, ti, mi, executedInsn)){
             return;
           }
         }
       }
       
-    } else if (insn instanceof PUTFIELD){
-      PUTFIELD storeInsn = (PUTFIELD) insn;
+    } else if (executedInsn instanceof PUTFIELD){
+      PUTFIELD storeInsn = (PUTFIELD) executedInsn;
       int ref = storeInsn.getLastThis();
       Record rec = getRecord(ref);
       
@@ -271,11 +269,11 @@ public class ObjectTracker extends PropertyListenerAdapter {
           log(ti, "put %1$s.%2$s = <%3$d>", rec.ei, fi.getName(), storeInsn.getLastValue());
         }
         
-        if (!checkShared(rec, ti, fi, insn)){
+        if (!checkShared(rec, ti, fi, executedInsn)){
           return;
         }
         
-        if (!checkConst(rec,ti,fi,insn)){
+        if (!checkConst(rec,ti,fi,executedInsn)){
           return;
         }
       }

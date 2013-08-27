@@ -1,7 +1,6 @@
 package sun.reflect;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Member;
+import java.lang.reflect.*;
 
 /**
  * this is a placeholder for a Java 6 class, which we only have here to

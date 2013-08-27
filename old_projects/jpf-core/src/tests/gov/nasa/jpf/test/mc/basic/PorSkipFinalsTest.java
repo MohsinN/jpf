@@ -20,7 +20,6 @@ package gov.nasa.jpf.test.mc.basic;
 
 import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
@@ -201,5 +200,9 @@ public class PorSkipFinalsTest extends TestJPF {
 
       assert Verify.getCounter(0) == 16;
     }
+  }
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
   }
 }

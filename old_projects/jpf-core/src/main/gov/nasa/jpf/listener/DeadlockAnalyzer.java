@@ -18,19 +18,6 @@
 //
 package gov.nasa.jpf.listener;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.JPF;
-import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.StackFrame;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.bytecode.EXECUTENATIVE;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.report.ConsolePublisher;
-import gov.nasa.jpf.report.Publisher;
-import gov.nasa.jpf.search.Search;
-
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,15 +27,23 @@ import java.util.LinkedHashSet;
 import java.util.ListIterator;
 import java.util.Stack;
 
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.JPF;
+import gov.nasa.jpf.ListenerAdapter;
+import gov.nasa.jpf.jvm.ElementInfo;
+import gov.nasa.jpf.jvm.JVM;
+import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
+import gov.nasa.jpf.report.ConsolePublisher;
+import gov.nasa.jpf.report.Publisher;
+import gov.nasa.jpf.search.Search;
+
 /**
  * example of a listener that creates property specific traces. The interesting
  * thing is that it does so without the need to store steps, i.e. it maintains
  * it's own transition stack.
  * this is still work in progress, analyzing the trace can be much more
  * elaborate (we just dump up to a max history size for now)
- * 
- * <2do> DeadlockAnalyzer output can be confusing if a reorganizing
- * ThreadList is used (which reassigns thread ids) 
  */
 public class DeadlockAnalyzer extends ListenerAdapter {
 
@@ -73,34 +68,17 @@ public class DeadlockAnalyzer extends ListenerAdapter {
     ThreadOp (JVM vm, OpType type) {
       ti = vm.getLastThreadInfo();
       ei = vm.getLastElementInfo();
-      insn = getReportInsn(ti); // we haven't had the executeInsn notification yet
+      insn = ti.getPC(); // we haven't had the executeInsn notification yet
       opType = type;
       
       prevOp = null;
     }
-
-    Instruction getReportInsn(ThreadInfo ti){
-      StackFrame frame = ti.getTopFrame();
-      if (frame != null) {
-        Instruction insn = frame.getPC();
-        if (insn instanceof EXECUTENATIVE) {
-          frame = frame.getPrevious();
-          if (frame != null) {
-            insn = frame.getPC();
-          }
-        }
-
-        return insn;
-      } else {
-        return null;
-      }
-    }
-
+    
     void printLocOn (PrintWriter pw) {
       pw.print(String.format("%6d", new Integer(stateId)));
       
       if (insn != null) {
-        pw.print(String.format(" %18.18s ", insn.getMnemonic()));
+        pw.print(String.format(" %10.10s ", insn.getMnemonic()));        
         pw.print(insn.getFileLocation());
         String line = insn.getSourceLine();
         if (line != null){
@@ -139,7 +117,7 @@ public class DeadlockAnalyzer extends ListenerAdapter {
           if (opType == OpType.started || opType == OpType.terminated) {
             pw.print(String.format("   %1$s    ", opTypeMnemonic[opType.ordinal()]));
           } else {
-            pw.print(String.format("%1$s:%2$-5d ", opTypeMnemonic[opType.ordinal()], ei.getObjectRef()));
+            pw.print(String.format("%1$s:%2$-5d ", opTypeMnemonic[opType.ordinal()], ei.getIndex()));
           }
           //break;
         } else {
@@ -293,15 +271,15 @@ public class DeadlockAnalyzer extends ListenerAdapter {
   
   void printHeader (PrintWriter pw, Collection<ThreadInfo> tlist){
     for (ThreadInfo ti : tlist){
-      pw.print(String.format("  %1$2d    ", ti.getId()));
+      pw.print(String.format("  %1$2d    ", ti.getIndex()));
     }
-    pw.print(" trans      insn          loc                : stmt");
+    pw.print(" trans    insn     loc");
     pw.println();
         
     for (int i=0; i<tlist.size(); i++){
       pw.print("------- ");
     }
-    pw.print("---------------------------------------------------");
+    pw.print("-----------------------");
     pw.println();
   }
 
@@ -407,25 +385,7 @@ public class DeadlockAnalyzer extends ListenerAdapter {
     
     return false;
   }
-
-  void storeLastTransition(){
-    if (lastOp != null) {
-      int stateId = search.getStateId();
-      ThreadInfo ti = lastOp.ti;
-
-      for (ThreadOp op = lastOp; op != null; op = op.prevOp) {
-        assert op.stateId == 0;
-
-        op.stateId = stateId;
-      }
-
-      lastOp.prevTransition = lastTransition;
-      lastTransition = lastOp;
-
-      lastOp = null;
-    }
-  }
-
+    
   //--- VM listener interface
   
   public void objectLocked (JVM vm) {
@@ -461,13 +421,26 @@ public class DeadlockAnalyzer extends ListenerAdapter {
   }
   
   //--- SearchListener interface
-
+  
   public void stateAdvanced (Search search){
-    if (search.isNewState()) {
-      storeLastTransition();
+    
+    if (search.isNewState() && (lastOp != null)) {
+      int stateId = search.getStateId();
+      ThreadInfo ti = lastOp.ti;
+      
+      for (ThreadOp op=lastOp; op != null; op=op.prevOp) {
+        assert op.stateId == 0;
+        
+        op.stateId = stateId;
+      }
+      
+      lastOp.prevTransition = lastTransition;
+      lastTransition = lastOp;
     }
+    
+    lastOp = null;
   }
-
+  
   public void stateBacktracked (Search search){
     int stateId = search.getStateId();
     while ((lastTransition != null) && (lastTransition.stateId > stateId)){

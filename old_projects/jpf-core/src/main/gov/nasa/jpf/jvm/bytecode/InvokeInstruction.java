@@ -19,13 +19,19 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.jvm.ChoiceGenerator;
+import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.LocalVarInfo;
+import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.MethodInfo;
+import gov.nasa.jpf.jvm.NativePeer;
 import gov.nasa.jpf.jvm.StackFrame;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.generic.ConstantPoolGen;
 
 
 /**
@@ -54,22 +60,22 @@ public abstract class InvokeInstruction extends Instruction {
 
   protected Object[] arguments; // temporary cache for arg values (for listeners)
 
-  protected InvokeInstruction (String clsName, String methodName, String signature){
-    this.cname = Types.getClassNameFromTypeName(clsName);
-    this.signature = signature;
-    this.mname = MethodInfo.getUniqueName(methodName, signature);
-  }
-
   protected InvokeInstruction () {}
 
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    org.apache.bcel.generic.InvokeInstruction ii;
+    ConstantPoolGen cpg;
+
+    cpg = ClassInfo.getConstantPoolGen(cp);
+    ii = (org.apache.bcel.generic.InvokeInstruction) i;
+
+    cname = ii.getReferenceType(cpg).toString();
+    signature = ii.getSignature(cpg);
+    mname = MethodInfo.getUniqueName(ii.getMethodName(cpg), signature);
+  }
 
   public int getLength() {
     return 3; // opcode, index1, index2
-  }
-
-  // only useful from post-exec notifications
-  public int getLastObjRef() {
-    return lastObj;
   }
 
   /**
@@ -133,7 +139,21 @@ public abstract class InvokeInstruction extends Instruction {
   }
 
   StackFrame getCallerFrame (ThreadInfo ti, MethodInfo callee) {
-    return ti.getStackFrameExecuting(this, 0);
+    StackFrame frame = null;
+
+    if (isCompleted(ti) && callee.isMJI()){
+      // note that args are already from the caller stack (native methods
+      // are executed synchronously, and push the return value BEFORE returning
+      // from the invoke insn)
+      frame = NativePeer.getLastCaller();
+    } else {
+      // locate the caller stack and get it from there. Note this might be
+      // further down the stack, since we might already have pushed the
+      // callee frame (or a direct call overlay like clinit)
+      frame = ti.getStackFrameExecuting(this, 0);
+    }
+
+    return frame;
   }
 
   /**
@@ -143,15 +163,13 @@ public abstract class InvokeInstruction extends Instruction {
    * a 'Double' object).
    * It goes without saying that this method can only be called during an executeInstruction()
    * or instructionExecuted() notification for the corresponding InvokeInstruction
-   * We use the caller frame to retrieve the arguments (instead of the locals of
-   * the callee) since that works for both pre- and post-exec notification
    */
   public Object[] getArgumentValues (ThreadInfo ti) {
     MethodInfo callee = getInvokedMethod(ti);
     StackFrame frame = getCallerFrame(ti, callee);
 
     assert frame != null : "can't find caller stackframe for: " + this;
-    return getArgsFromCaller(ti, frame, callee);
+    return getArgsFromCaller(frame, callee);
   }
 
   public Object[] getArgumentAttrs (ThreadInfo ti) {
@@ -161,8 +179,7 @@ public abstract class InvokeInstruction extends Instruction {
     assert frame != null : "can't find caller stackframe for: " + this;
     return frame.getArgumentAttrs(callee);
   }
-  
-  
+
   /**
    * check if there is any argument attr of the specified type
    * (use this before using any of the more expensive retrievers)
@@ -188,7 +205,8 @@ public abstract class InvokeInstruction extends Instruction {
       if (frame.isOperandRef(i)){
         ElementInfo ei = ti.getElementInfo(frame.peek(i));
         if (ei != null){
-          if (ei.getObjectAttr(type) != null){
+          Object a = ei.getObjectAttr();
+          if (a != null && type.isAssignableFrom(a.getClass())){
             return true;
           }
         }
@@ -199,10 +217,7 @@ public abstract class InvokeInstruction extends Instruction {
   }
 
 
-  // we get this from the caller because this works both for pre- and post-exec
-  // notifications, whereas retrieval from the callee frame of course only works
-  // post-exec
-  Object[] getArgsFromCaller (ThreadInfo ti, StackFrame frame, MethodInfo callee){
+  Object[] getArgsFromCaller (StackFrame frame, MethodInfo callee){
     int n = callee.getNumberOfArguments();
     Object[] args = new Object[n];
     byte[] at = callee.getArgumentTypes();
@@ -214,7 +229,7 @@ public abstract class InvokeInstruction extends Instruction {
       case Types.T_REFERENCE:
         int ref = frame.peek(off);
         if (ref >=0) {
-          args[i] = ti.getElementInfo(ref);
+          args[i] = DynamicArea.getHeap().get(ref);
         } else {
           args[i] = null;
         }
@@ -271,11 +286,11 @@ public abstract class InvokeInstruction extends Instruction {
   }
 
   public int getReturnType() {
-    return Types.getReturnBuiltinType(signature);
+    return Types.getReturnType(signature);
   }
 
   public boolean isReferenceReturnType() {
-    int r = Types.getReturnBuiltinType(signature);
+    int r = Types.getReturnType(signature);
     return ((r == Types.T_REFERENCE) || (r == Types.T_ARRAY));
   }
 
@@ -295,24 +310,22 @@ public abstract class InvokeInstruction extends Instruction {
 
   public abstract Object getFieldValue (String id, ThreadInfo ti);
 
-
-  /**
-   * <2do> - this relies on same order of arguments and LocalVariableTable entries, which
-   * seems to hold for javac, but is not required by the JVM spec, which only
-   * says that arguments are stored in consecutive slots starting at 0
-   */
   public Object getArgumentValue (String id, ThreadInfo ti){
     MethodInfo mi = getInvokedMethod();
-    LocalVarInfo localVars[] = mi.getLocalVars();
+    String[] localNames = mi.getLocalVariableNames();
     Object[] args = getArgumentValues(ti);
 
-    if (localVars != null){
+    if (localNames != null){
       int j = mi.isStatic() ? 0 : 1;
 
       for (int i=0; i<args.length; i++, j++){
         Object a = args[i];
-        if (id.equals(localVars[j].getName())){
+        if (localNames[j].equals(id)){
           return a;
+        } else {
+          if (a instanceof Long || a instanceof Double){
+            j++;
+          }
         }
       }
     }
@@ -320,38 +333,41 @@ public abstract class InvokeInstruction extends Instruction {
     return null;
   }
 
+  /**
+   * NOTE this makes only sense for synchronized methods, don't call it otherwise
+   */
+  protected ChoiceGenerator<?> getSyncCG (int objRef, MethodInfo mi,
+                                          SystemState ss, KernelState ks, ThreadInfo ti) {
+    ElementInfo ei = ks.da.get(objRef);
 
-  protected boolean checkSyncCG (ElementInfo ei, SystemState ss, ThreadInfo ti){
-    if (!ti.isFirstStepInsn()) {
-      if (ei.getLockingThread() != ti) {  // maybe its a recursive lock
-
-        if (ei.canLock(ti)) { // we can lock the object, check if we need a CG
-          if (ei.checkUpdatedSharedness(ti)) { // is this a shared object?
-            ChoiceGenerator<?> cg = ss.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
-            if (cg != null) {
-              if (ss.setNextChoiceGenerator(cg)) {
-                ei.registerLockContender(ti);  // Record that this thread would lock the object upon next execution
-                return true;
-              }
-            }
-          }
-
-        } else { // already locked by another thread, we have to block and therefore need a CG
-          ei.updateRefTidWith(ti.getId()); // Ok, now we know it is shared
-
-          ei.block(ti); // do this before we obtain the CG so that this thread is not in its choice set
-
-          ChoiceGenerator<?> cg = ss.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
-          ss.setMandatoryNextChoiceGenerator(cg, "blocking sync without CG");
-          return true;
-        }
-      }
+    if (ei.getLockingThread() == ti) {
+      assert ei.getLockCount() > 0;
+      // a little optimization - recursive locks are always left movers
+      return  null;
     }
 
-    return false;
+    // first time around - reexecute if the scheduling policy gives us a choice point
+    if (!ti.isFirstStepInsn()) {
+
+      if (!ei.canLock(ti)) {
+        // block first, so that we don't get this thread in the list of CGs
+        ei.block(ti);
+      }
+
+      ChoiceGenerator<?> cg = ss.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
+      if (cg != null) { // Ok, break here
+        if (!ti.isBlocked()) {
+          // record that this thread would lock the object upon next execution
+          ei.registerLockContender(ti);
+        }
+        return cg;
+      }
+
+      assert !ti.isBlocked() : "scheduling policy did not return ChoiceGenerator for blocking INVOKE";
+    }
+
+    return null;
   }
-
-
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);

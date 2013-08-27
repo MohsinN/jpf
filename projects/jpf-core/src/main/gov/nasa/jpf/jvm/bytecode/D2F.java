@@ -18,22 +18,26 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.Types;
 
 
 /**
  * Convert double to float
  * ..., value => ..., result
  */
-public class D2F extends Instruction {
+public class D2F extends JVMInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    th.push(Types.floatToInt((float) Types.longToDouble(th.longPop())), false);
-
-    return getNext(th);
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+    
+    double v = frame.popDouble();
+    frame.pushFloat( (float)v);
+    
+    return getNext(ti);
   }
 
 

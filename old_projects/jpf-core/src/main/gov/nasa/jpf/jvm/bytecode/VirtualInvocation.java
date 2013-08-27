@@ -18,11 +18,13 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.ElementInfo;
+import gov.nasa.jpf.jvm.FieldInfo;
 import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.MJIEnv;
 import gov.nasa.jpf.jvm.MethodInfo;
+import gov.nasa.jpf.jvm.StaticElementInfo;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
@@ -32,44 +34,39 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public abstract class VirtualInvocation extends InstanceInvocation {
 
-  // note that we can't null laseCalleeCi and invokedMethod in cleanupTransients()
-  // since we use it as an internal optimization (loops with repeated calls on the
-  // same object)
-  
   ClassInfo lastCalleeCi; // cached for performance
 
-  protected VirtualInvocation () {}
+  private boolean m_skipLocalSync;      // Can't store this in a static since there might be multiple VM instances.
+  private boolean m_skipLocalSyncSet;
 
-  protected VirtualInvocation (String clsDescriptor, String methodName, String signature){
-    super(clsDescriptor, methodName, signature);
-  }
+  protected VirtualInvocation () {}
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
     int objRef = ti.getCalleeThis(getArgSize());
 
-    if (objRef == -1) {
-      lastObj = -1;
+    if (objRef == -1)
       return ti.createAndThrowException("java.lang.NullPointerException", "Calling '" + mname + "' on null object");
-    }
 
     MethodInfo mi = getInvokedMethod(ti, objRef);
-
-    if (mi == null) {
-      String clsName = ti.getClassInfo(objRef).getName();
-      return ti.createAndThrowException("java.lang.NoSuchMethodError", clsName + '.' + mname);
-    }
     
-    ElementInfo ei = ks.heap.get(objRef);
-
-    if (mi.isSynchronized()) {
-      if (checkSyncCG(ei, ss, ti)){
-        return this;
-      }
-    }
+    if (mi == null)
+      return ti.createAndThrowException("java.lang.NoSuchMethodError", ti.getClassInfo(objRef).getName() + "." + mname);
+    
+    ElementInfo ei = ks.da.get(objRef);
+    
+    if (mi.isSynchronized())
+      if (!isLockOwner(ti, ei))                            // If the object isn't already owned by this thread, then consider a choice point
+        if (isShared(ti, ei)) {                            // If the object is shared, then consider a choice point
+          ChoiceGenerator<?> cg = getSyncCG(objRef, mi, ss, ks, ti);
+          if (cg != null) {
+            ss.setNextChoiceGenerator(cg);
+            return this;   // repeat exec, keep insn on stack
+          }
+        }
 
     return mi.execute(ti);    // this will lock the object if necessary
   }
-  
+
   /**
    * If the current thread already owns the lock, then the current thread can go on.
    * For example, this is a recursive acquisition.
@@ -86,6 +83,25 @@ public abstract class VirtualInvocation extends InstanceInvocation {
     return ei.getLockCount() == 1;
   }
 
+  /**
+   * If the object isn't shared, then the current thread can go on.
+   * For example, this object isn't reachable by other threads.
+   */
+  protected boolean isShared(ThreadInfo ti, ElementInfo ei) {
+    if (!getSkipLocalSync(ti))
+      return true;
+
+    return ei.isShared();
+  }
+
+  private boolean getSkipLocalSync(ThreadInfo ti) {
+    if (!m_skipLocalSyncSet) {
+      m_skipLocalSync = ti.getVM().getConfig().getBoolean("vm.por.skip_local_sync", false); // Default is false to keep original behavior.
+      m_skipLocalSyncSet = true;
+    }
+
+    return m_skipLocalSync;
+  }
 
   public MethodInfo getInvokedMethod(ThreadInfo ti){
     int objRef;
@@ -101,7 +117,7 @@ public abstract class VirtualInvocation extends InstanceInvocation {
 
   public MethodInfo getInvokedMethod (ThreadInfo ti, int objRef) {
 
-    if (objRef != MJIEnv.NULL) {
+    if (objRef != -1) {
       lastObj = objRef;
 
       ClassInfo cci = ti.getClassInfo(objRef);
@@ -112,14 +128,12 @@ public abstract class VirtualInvocation extends InstanceInvocation {
 
         // here we could catch the NoSuchMethodError
         if (invokedMethod == null) {
-          lastObj = MJIEnv.NULL;
-          lastCalleeCi = null;
+          lastObj = -1;
         }
       }
 
     } else {
-      lastObj = MJIEnv.NULL;
-      lastCalleeCi = null;
+      lastObj = -1;
       invokedMethod = null;
     }
 
@@ -128,7 +142,7 @@ public abstract class VirtualInvocation extends InstanceInvocation {
 
   public Object getFieldValue (String id, ThreadInfo ti){
     int objRef = getCalleeThis(ti);
-    ElementInfo ei = ti.getElementInfo(objRef);
+    ElementInfo ei = ti.getVM().getDynamicArea().get(objRef);
 
     Object v = ei.getFieldValueObject(id);
 

@@ -18,11 +18,12 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ChoiceGenerator;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 /**
  * Exit monitor for object 
@@ -30,17 +31,19 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public class MONITOREXIT extends LockInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    int objref = ti.peek();
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+    
+    int objref = frame.peek();
     if (objref == -1) {
       return ti.createAndThrowException("java.lang.NullPointerException",
                                         "attempt to release lock for null object");
     }
 
     lastLockRef = objref;
-    ElementInfo ei = ks.heap.get(objref);
 
     if (!ti.isFirstStepInsn()){
+      ElementInfo ei = ti.getModifiableElementInfo(objref);
       
       // we only do this in the bottom half, but before potentially creating
       // a CG so that other threads that might become runnable are included
@@ -49,10 +52,12 @@ public class MONITOREXIT extends LockInstruction {
       if (ei.getLockCount() == 0){ // this gave up the lock, check for CG
         // this thread obviously has referenced the object before, but other
         // referencers might have terminated so we want to update anyways
-        if (ei.checkUpdatedSharedness(ti)) {
-          ChoiceGenerator cg = ss.getSchedulerFactory().createMonitorExitCG(ei, ti);
+        ei = ei.getInstanceWithUpdatedSharedness(ti); 
+        if (ei.isShared()) {
+          VM vm  = ti.getVM();
+          ChoiceGenerator<?> cg = vm.getSchedulerFactory().createMonitorExitCG(ei, ti);
           if (cg != null) {
-            if (ss.setNextChoiceGenerator(cg)) {
+            if (vm.setNextChoiceGenerator(cg)) {
               return this;
             }
           }
@@ -60,7 +65,8 @@ public class MONITOREXIT extends LockInstruction {
       }
     }
 
-    ti.pop();
+    frame = ti.getModifiableTopFrame(); // now we need to modify it
+    frame.pop();
 
     return getNext(ti);
   }

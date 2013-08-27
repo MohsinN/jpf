@@ -24,7 +24,6 @@
  * of Java 1.4 you can't import unnamed package classes into named packages
  */
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /*
@@ -53,6 +52,10 @@ class B {
 }
 
 public class TypeNameTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test
   public void testArrayCloning() {

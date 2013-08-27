@@ -46,12 +46,12 @@ public final class Method extends AccessibleObject implements Member {
   public native Class<?> getDeclaringClass();
 
   public native Annotation[] getAnnotations();
-  public native Annotation[] getDeclaredAnnotations();
-  public native <T extends Annotation> T getAnnotation( Class<T> annotationCls);
-  public native Annotation[][] getParameterAnnotations();
 
-  public boolean isSynthetic (){
-    return Modifier.isSynthetic(getModifiers());
+  public native <T extends Annotation> T getAnnotation( Class<T> annotationCls);
+
+  public boolean isSynthetic () {
+    // ?? don't know of others
+    return (name.startsWith("access$"));
   }
 
   public native String toString();
@@ -60,17 +60,5 @@ public final class Method extends AccessibleObject implements Member {
   // represented by this method
   public Object getDefaultValue() {
     throw new UnsupportedOperationException("Method.getDefaultValue() not supported yet");
-  }
-
-  public native boolean equals (Object obj);
-
-  public boolean isVarArgs (){
-    return (getModifiers() & Modifier.VARARGS) != 0;
-  }
-
-  public native int hashCode ();
-
-  public boolean isBridge (){
-    return (getModifiers() & Modifier.BRIDGE) != 0;
   }
 }

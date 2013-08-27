@@ -20,11 +20,16 @@ package gov.nasa.jpf.test.mc.data;
 
 import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 public class DataChoiceTest extends TestJPF {
 
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
+
+
+  //--- tests
   class MyType {
 
     String id;
@@ -73,7 +78,7 @@ public class DataChoiceTest extends TestJPF {
     }
 
     if (verifyNoPropertyViolation()){
-      int i = Verify.getIntFromList(1,2,3,4,5); // ..and change the combination on my luggage
+      int i = Verify.getIntFromSet(1,2,3,4,5); // ..and change the combination on my luggage
       System.out.println(i);
       if (i>0 && i < 6){
         Verify.incrementCounter(0);
@@ -121,7 +126,7 @@ public class DataChoiceTest extends TestJPF {
     }
 
     if (verifyNoPropertyViolation()){
-      double d = Verify.getDoubleFromList(-42.0,0,42.0);
+      double d = Verify.getDoubleFromSet(-42.0,0,42.0);
       System.out.println(d);
 
       if (d == -42.0 || d == 0.0 || d == 42.0){

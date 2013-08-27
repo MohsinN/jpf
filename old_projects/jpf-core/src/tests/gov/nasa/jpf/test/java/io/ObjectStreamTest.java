@@ -20,20 +20,23 @@
 package gov.nasa.jpf.test.java.io;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-
 import org.junit.Test;
 
 /**
  * regression test for object streams
  */
 public class ObjectStreamTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   static class X implements Serializable {
     String q = "the ultimate question";
@@ -61,7 +64,7 @@ public class ObjectStreamTest extends TestJPF {
     }
 
     public String toString() {
-      return "Y{z="+z+",b="+b+",c="+c+",s="+s+",i="+i+",l="+l+",f="+f+",d="+d+ '}';
+      return "Y{z="+z+",b="+b+",c="+c+",s="+s+",i="+i+",l="+l+",f="+f+"d="+d+'}';
     }
   }
 
@@ -94,7 +97,6 @@ public class ObjectStreamTest extends TestJPF {
         X x = (X) o;
         assert x.a.i == -42;
       } catch (Throwable t){
-        //t.printStackTrace();
         fail("serialization readback failed: " + t);
       }
 

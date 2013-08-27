@@ -18,26 +18,24 @@
 //
 package gov.nasa.jpf.jvm.choice;
 
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ChoiceGeneratorBase;
+import java.io.PrintWriter;
+
 import gov.nasa.jpf.jvm.ThreadChoiceGenerator;
 import gov.nasa.jpf.jvm.ThreadInfo;
-
-import java.io.PrintWriter;
 
 /**
  * a pseudo CG that is used to break transitions. It can be used to break and
  * just reschedule the current thread, or to indicate an end state
  * (e.g. for System.exit())
  */
-public class BreakGenerator extends ChoiceGeneratorBase<ThreadInfo> implements ThreadChoiceGenerator {
+public class BreakGenerator extends ThreadChoiceGenerator {
 
   ThreadInfo ti;
   int state = -1;
   boolean isTerminator;
 
   public BreakGenerator (String id, ThreadInfo ti, boolean isTerminator) {
-    super(id);
+    super(id, true);
     
     this.ti = ti;
     this.isTerminator = isTerminator;
@@ -75,26 +73,6 @@ public class BreakGenerator extends ChoiceGeneratorBase<ThreadInfo> implements T
 
   public void reset () {
     state = -1;
-    isDone = false;
   }
 
-  @Override
-  public boolean contains (ThreadInfo ti){
-    return this.ti == ti;
-  }
-
-  @Override
-  public Class<ThreadInfo> getChoiceType() {
-    return ThreadInfo.class;
-  }
-
-  @Override
-  public ChoiceGenerator<ThreadInfo> randomize() {
-    return this;
-  }
-  
-  @Override
-  public boolean isSchedulingPoint(){
-    return true; // that's the whole point of having a BreakGenerator
-  }
 }

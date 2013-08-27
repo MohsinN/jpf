@@ -18,7 +18,7 @@
 //
 package gov.nasa.jpf;
 
-import gov.nasa.jpf.jvm.RestorableVMState;
+import gov.nasa.jpf.jvm.VMState;
 import gov.nasa.jpf.search.SearchState;
 
 /**
@@ -26,13 +26,13 @@ import gov.nasa.jpf.search.SearchState;
  * listeners 
  */
 public class State {
-  RestorableVMState     vmState;
+  VMState     vmState;
   SearchState searchState;
   boolean     hasSuccessor; // <2do> pcm - do we really need this?
   boolean     isNew;
 
   public State (boolean isNew, boolean hasSuccessor, SearchState searchState, 
-                RestorableVMState vmState) {
+                VMState vmState) {
     this.isNew = isNew;
     this.hasSuccessor = hasSuccessor;
     this.searchState = searchState;
@@ -47,7 +47,7 @@ public class State {
     return searchState;
   }
 
-  public RestorableVMState getVMState () {
+  public VMState getVMState () {
     return vmState;
   }
 

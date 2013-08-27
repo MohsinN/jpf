@@ -75,7 +75,7 @@ public class SimpleIdleFilter extends ListenerAdapter {
 
 	    ThreadInfo ti = jvm.getLastThreadInfo();
 
-	    int tid = ti.getId();
+	    int tid = ti.getIndex();
 	    ts = threadStats.get(tid);
 	    if (ts == null) {
 	      ts = new ThreadStat(ti.getName());
@@ -84,7 +84,7 @@ public class SimpleIdleFilter extends ListenerAdapter {
 
        ts.backJumps++;
 
-       int loopStackDepth = ti.getStackDepth();
+       int loopStackDepth = ti.countStackFrames();
        int loopPc = jvm.getNextInstruction().getPosition();
 
        if ((loopStackDepth != ts.loopStackDepth) || (loopPc != ts.loopStartPc)) {

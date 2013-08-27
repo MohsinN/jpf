@@ -19,9 +19,7 @@
 package java.io;
 
 import gov.nasa.jpf.jvm.Verify;
-
-import java.nio.charset.Charset;
-import java.nio.charset.CharsetEncoder;
+import java.nio.charset.*;
 
 /**
  * natively convert char output into byte output
@@ -69,10 +67,6 @@ public class OutputStreamWriter extends Writer {
   }
   
   public void flush() {
-    // nothing
-  }
-
-  void flushBuffer() {
     // nothing
   }
   

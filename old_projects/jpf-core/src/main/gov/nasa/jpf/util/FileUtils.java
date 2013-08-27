@@ -18,18 +18,12 @@
 //
 package gov.nasa.jpf.util;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.PrintWriter;
+import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 
 /**
  * utility class to find all files matching (possibly hierarchical)
@@ -344,166 +338,13 @@ public class FileUtils {
     return p;
   }
 
-  public static void printFile (PrintWriter pw, File file){
-    try {
-      FileReader fr = new FileReader(file);
-      BufferedReader r = new BufferedReader(fr);
 
-      String line;
-      while ((line = r.readLine()) != null){
-        pw.println(line);
-      }
 
-      r.close();
+  //--- test & debug
 
-    } catch (IOException iox){
-      pw.println("!! error printing file: " + file.getPath());
+  public static void main (String[] args) {
+    for (File f : findMatches(args[0])) {
+      System.out.println(f);
     }
-  }
-
-  public static boolean removeRecursively(File file) {
-    if (file.exists()) {
-      File[] childs = file.listFiles();
-
-      for (File child : childs) {
-        if (child.isDirectory()){
-          removeRecursively(child);
-        } else {
-          child.delete();
-        }
-      }
-
-      return file.delete();
-    }
-
-    return false;
-  }
-
-  public static byte[] getContents( File file) throws IOException {
-    if (file.isFile()){
-      long length = file.length();
-      byte[] data = new byte[(int)length];
-
-      FileInputStream is = new FileInputStream(file);
-      int nRead = 0;
-
-      while (nRead < data.length) {
-        int n = is.read(data, nRead, (data.length - nRead));
-        if (n < 0) {
-          throw new IOException("premature end of file: " + file);
-        }
-        nRead += n;
-      }
-
-      is.close();
-
-      return data;
-    }
-
-    return null;
-  }
-  
-  public static String getContentsAsString( File file) throws IOException {
-    byte[] data = getContents(file);
-    return new String(data);
-  }
-  
-  public static void setContents(File file, byte[] data) throws IOException {
-    FileOutputStream os = new FileOutputStream(file);
-    os.write(data);
-    os.close();
-  }
-
-  public static void setContents(File file, String data) throws IOException {
-    FileWriter fw = new FileWriter(file);
-    fw.append(data);
-    fw.close();
-  }
-    
-  public static String asCanonicalUserPathName (String path){
-    String userHome = System.getProperty("user.home");
-    int len = userHome.length();
-    if (path.startsWith(userHome) && path.charAt(len) == '/') {
-      return "${user.home}" + path.substring(len).replace('\\', '/');
-    } else {
-      return path.replace('\\', '/');
-    }
-  }
-  
-  public static String asUnixPathName (File file){
-    String userHome = System.getProperty("user.home") + File.separatorChar;
-    int uhLen = userHome.length();
-
-    String pn = file.getAbsolutePath();
-    if (pn.startsWith(userHome)) {
-      pn = "~/" + pn.substring(uhLen).replace('\\', '/');
-    } else {
-      pn = pn.replace('\\', '/');
-    }
-    return pn;
-  }
-
-  public static String unixToUserPathName (String unixPathName){
-    if (unixPathName.startsWith("~/")){
-      return "${user.home}" + unixPathName.substring(1);
-    } else {
-      String userHome = System.getProperty("user.home");
-      int len = userHome.length();
-      if (unixPathName.startsWith(userHome) && unixPathName.charAt(len) == '/'){
-        return "${user.home}" + unixPathName.substring(len);
-      } else {
-        return unixPathName;
-      }
-    }
-  }
-  
-  public static boolean ensureDirs (File file){
-    File dir = file.getParentFile();
-    if (!dir.isDirectory()){
-      return dir.mkdirs();
-    } else {
-      return true;
-    }
-  }
-  
-  public static String getRelativeUnixPath (File baseDir, File refFile) throws IOException {
-		String bpn = baseDir.getCanonicalPath().replace('\\', '/');
-		String rpn = refFile.getCanonicalPath().replace('\\', '/');
-
-		int len = Math.min(bpn.length(), rpn.length());
-		for (int i = 0, n = 0; i < len; i++) {
-			char c = bpn.charAt(i);
-			if (c == '/') {
-				n = i + 1;
-			} else if (c != rpn.charAt(i)) {
-				bpn = bpn.substring(n);
-				rpn = rpn.substring(n);
-				break;
-			}
-		}
-
-		len = bpn.length();
-		String up = "";
-		for (int i = 0; i < len; i++) {
-			if (bpn.charAt(i) == '/') {
-				up += "../";
-			}
-		}
-
-		String relPath = up + rpn;
-		return relPath;
-  }
-  
-  public static boolean copyFile (File src, File toDir) throws IOException {
-    if (src.isFile()) {
-      File tgt = new File(toDir, src.getName());
-      if (tgt.createNewFile()) {
-        byte[] data = getContents(src);
-        setContents(tgt, data);
-        return true;
-      }
-    }
-
-    return false;
   }
 }

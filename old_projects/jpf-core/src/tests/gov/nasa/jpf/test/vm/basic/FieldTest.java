@@ -19,7 +19,6 @@
 package gov.nasa.jpf.test.vm.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
@@ -66,6 +65,10 @@ public class FieldTest extends TestFieldBase {
   float   _F = base_F;
   double  _D = base_D;
   Object  _o = base_o;
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test public void testReadInstance () {
     if (verifyNoPropertyViolation()) {

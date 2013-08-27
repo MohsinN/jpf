@@ -20,6 +20,7 @@ package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.MethodInfo;
@@ -44,16 +45,16 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public class INVOKECLINIT extends INVOKESTATIC {
 
-  public INVOKECLINIT (ClassInfo ci){
-    super(ci.getSignature(), "<clinit>", "()V");
+  public INVOKECLINIT () {
   }
-
+  
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
     
     MethodInfo callee = getInvokedMethod(ti);
     ClassInfo ci = callee.getClassInfo();
     
-    ElementInfo ei = ti.getElementInfo(ci.getClassObjectRef());
+    DynamicArea da = ti.getVM().getDynamicArea();
+    ElementInfo ei = da.get(ci.getClassObjectRef());
 
     // first time around - reexecute if the scheduling policy gives us a choice point
     if (!ti.isFirstStepInsn()) {
@@ -64,12 +65,13 @@ public class INVOKECLINIT extends INVOKESTATIC {
       }
       
       ChoiceGenerator cg = ss.getSchedulerFactory().createSyncMethodEnterCG(ei, ti);
-      if (ss.setNextChoiceGenerator(cg)){
+      if (cg != null) { // Ok, break here
         if (!ti.isBlocked()) {
           // record that this thread would lock the object upon next execution
           ei.registerLockContender(ti);
         }
-        return this;   // repeat exec, keep insn on stack
+        ss.setNextChoiceGenerator(cg);
+        return this;   // repeat exec, keep insn on stack    
       }
       
       assert !ti.isBlocked() : "scheduling policy did not return ChoiceGenerator for blocking INVOKE";

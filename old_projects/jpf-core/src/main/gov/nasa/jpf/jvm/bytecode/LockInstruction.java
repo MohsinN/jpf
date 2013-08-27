@@ -18,8 +18,7 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.*;
 
 
 /**
@@ -27,6 +26,8 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public abstract class LockInstruction extends Instruction {
   int lastLockRef = -1;
+  private boolean m_skipLocalSync;          // Can't store this in a static since there might be multiple VM instances.
+  private boolean m_skipLocalSyncSet;
 
   /**
     * only useful post-execution (in an instructionExecuted() notification)
@@ -35,6 +36,14 @@ public abstract class LockInstruction extends Instruction {
     return lastLockRef;
   }
   
+  public ElementInfo getLastLockElementInfo() {
+    if (lastLockRef != -1) {
+      return DynamicArea.getHeap().get(lastLockRef);
+    }
+    
+    return null;
+  }
+
   /**
    * If the current thread already owns the lock, then the current thread can go on.
    * For example, this is a recursive acquisition.
@@ -43,6 +52,35 @@ public abstract class LockInstruction extends Instruction {
     return ei.getLockingThread() == ti;
   }
   
+  /**
+   * If the object will still be owned, then the current thread can go on.
+   * For example, all but the last monitorexit for the object.
+   */
+  protected boolean isLastUnlock(ElementInfo ei) {
+    return ei.getLockCount() == 1;
+  }
+  
+  /**
+   * If the object isn't shared, then the current thread can go on.
+   * For example, this object isn't reachable by other threads.
+   */
+  protected boolean isShared(ThreadInfo ti, ElementInfo ei) {
+    if (!getSkipLocalSync(ti)) {
+      return true;
+    }
+    
+    return ei.isShared();
+  }
+
+  private boolean getSkipLocalSync(ThreadInfo ti) {
+    if (!m_skipLocalSyncSet) {
+      m_skipLocalSync    = ti.getVM().getConfig().getBoolean("vm.por.skip_local_sync", false);  // Default is false to keep original behavior.
+      m_skipLocalSyncSet = true;
+    }
+
+    return m_skipLocalSync;
+  }
+
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

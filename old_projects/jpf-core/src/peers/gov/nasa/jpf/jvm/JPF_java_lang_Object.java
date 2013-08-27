@@ -34,8 +34,8 @@ public class JPF_java_lang_Object {
 
 
   public static int clone____Ljava_lang_Object_2 (MJIEnv env, int objref) {
-    Heap heap = env.getHeap();
-    ElementInfo objinfo = heap.get(objref);
+    DynamicArea da = env.getDynamicArea();
+    ElementInfo objinfo = da.get(objref);
     ClassInfo ci = objinfo.getClassInfo();
     if (!ci.isInstanceOf("java.lang.Cloneable")) {
       env.throwException("java.lang.CloneNotSupportedException",
@@ -48,20 +48,17 @@ public class JPF_java_lang_Object {
         
         String componentType;
         if (cci.isPrimitive()){
-          componentType = Types.getTypeSignature(cci.getName(),false);
+          componentType = Types.getTypeCode(cci.getName(),false);
         } else {
           componentType = cci.getType();
         }
 
-        newref = heap.newArray(componentType, objinfo.arrayLength(), env.getThreadInfo());
+        newref = da.newArray(componentType, objinfo.arrayLength(), env.getThreadInfo());
       } else {
-        newref = heap.newObject(ci, env.getThreadInfo());
+        newref = da.newObject(ci, env.getThreadInfo());
       }
-      ElementInfo newinfo = heap.get(newref);
-
-      // Ok, this is nasty but efficient
-      newinfo.fields = objinfo.getFields().clone();
-
+      ElementInfo newinfo = da.get(newref);
+      newinfo.getFields().copyFrom(objinfo.getFields());
       return newref;
     }
   }
@@ -71,7 +68,7 @@ public class JPF_java_lang_Object {
   }
 
   public static void registerNatives____V (MJIEnv env, int clsObjRef) {
-    // nothing to do, we just intercept
+    // let go un-noticed
   }
 
   static void wait0(MJIEnv env, int objref, long timeout) {
@@ -117,12 +114,14 @@ public class JPF_java_lang_Object {
                              "un-synchronized wait");
           return;
         }
-        // releases the lock and sets BLOCKED threads to UNBLOCKED
+        // releases all locks and sets BLOCKED threads to UNBLOCKED
         ei.wait(ti, timeout);
 
         // note we pass in the timeout value, since this might determine the type of CG that is created
-        ChoiceGenerator<?> cg = ss.getSchedulerFactory().createWaitCG(ei, ti, timeout);
-        ss.setMandatoryNextChoiceGenerator(cg, "wait without CG");
+        ChoiceGenerator cg = ss.getSchedulerFactory().createWaitCG(ei, ti, timeout);
+        assert (cg != null) : "wait of " + ti.getName() + " on: " + ei + " created no choice generator";
+        ss.setNextChoiceGenerator(cg);
+
         env.repeatInvocation(); // so that we can still see the wait on the callstack
       }
     }
@@ -138,7 +137,7 @@ public class JPF_java_lang_Object {
     wait0(env,objref,timeout);
   }
 
-  public static void notify____V (MJIEnv env, int objref) {
+  public static final void notify____V (MJIEnv env, int objref) {
     // IllegalMonitorStateExceptions are checked in the MJIEnv methods
 
     ThreadInfo ti = env.getThreadInfo();
@@ -147,8 +146,9 @@ public class JPF_java_lang_Object {
     if (!ti.isFirstStepInsn()) { // first time around
       ElementInfo ei = env.getElementInfo(objref);
       
-      ChoiceGenerator<?> cg = ss.getSchedulerFactory().createNotifyCG(ei, ti);
-      if (ss.setNextChoiceGenerator(cg)){
+      ChoiceGenerator cg = ss.getSchedulerFactory().createNotifyCG(ei, ti);
+      if (cg != null) {
+        ss.setNextChoiceGenerator(cg);
         ti.skipInstructionLogging();
         env.repeatInvocation();
         return;
@@ -174,8 +174,9 @@ public class JPF_java_lang_Object {
       
       ElementInfo ei = env.getElementInfo(objref);
       
-      ChoiceGenerator<?> cg = ss.getSchedulerFactory().createNotifyAllCG(ei, ti);
-      if (ss.setNextChoiceGenerator(cg)){
+      ChoiceGenerator cg = ss.getSchedulerFactory().createNotifyAllCG(ei, ti);
+      if (cg != null) {
+        ss.setNextChoiceGenerator(cg);
         ti.skipInstructionLogging();
         env.repeatInvocation();
         return;

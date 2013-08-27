@@ -19,15 +19,19 @@
 
 package gov.nasa.jpf.test.java.lang.ref;
 
-import gov.nasa.jpf.jvm.Verify;
-import gov.nasa.jpf.util.test.TestJPF;
-
-import java.lang.ref.WeakReference;
-
+import gov.nasa.jpf.*;
+import gov.nasa.jpf.jvm.*;
 import org.junit.Test;
+import gov.nasa.jpf.util.test.TestJPF;
+import java.lang.ref.*;
 
 public class WeakReferenceTest extends TestJPF
 {
+   public static void main(String[] args)
+   {
+      runTestsOfThisClass(args);
+   }
+
    @Test
    public void testGCClearsRef()
    {
@@ -74,7 +78,7 @@ public class WeakReferenceTest extends TestJPF
    private static void forceGC()
    {
       System.gc();         // Mark that GC is needed
-      Verify.breakTransition(); // Cause a state to be captured and hence GC to run
+      Verify.getBoolean(); // Cause a state to be captured and hence GC to run
    }
    
    private static class Target   // Make this object easy to find in JPF heap

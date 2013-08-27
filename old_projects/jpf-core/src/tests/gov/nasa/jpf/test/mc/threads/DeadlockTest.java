@@ -19,13 +19,16 @@
 package gov.nasa.jpf.test.mc.threads;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
  * various deadlock detection test
  */
 public class DeadlockTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   //--- tests
   abstract class SyncRunnable implements Runnable {
@@ -134,11 +137,11 @@ public class DeadlockTest extends TestJPF {
     }
 
     public void run() {
-      //while (true) {
+      while (true) {
         synchronized (this) {
           other.doSomething();
         }
-      //}
+      }
     }
   }
 
@@ -152,9 +155,9 @@ public class DeadlockTest extends TestJPF {
     }
 
     public synchronized void run() {
-      //while (true) {
+      while (true) {
         other.doSomething();
-      //}
+      }
     }
   }
   static Object lock1 = new Object();
@@ -354,27 +357,6 @@ public class DeadlockTest extends TestJPF {
 
       t1.start();
       t2.start();
-    }
-  }
-
-  @Test
-  public void testTerminationDeadlock() {
-    if (verifyDeadlock()){
-      Thread t = new Thread(){
-        public void run(){
-          System.out.println("# t running");
-          synchronized(this){
-            System.out.println("# t waiting (forever)..");
-            try {
-              wait();
-            } catch (InterruptedException ix){
-              fail("t got unexpectedly interrupted");
-            }
-          }
-        }
-      };
-      t.start();
-      System.out.println("# main thread terminating");
     }
   }
 }

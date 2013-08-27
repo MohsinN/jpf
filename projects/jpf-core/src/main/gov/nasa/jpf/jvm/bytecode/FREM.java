@@ -18,35 +18,43 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.Types;
 
 
 /**
  * Remainder float
  * ..., value1, value2 => ..., result
  */
-public class FREM extends Instruction {
+public class FREM extends JVMInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    float v1 = Types.intToFloat(th.pop());
-    float v2 = Types.intToFloat(th.pop());
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+
+    float v1 = frame.popFloat();
+    float v2 = frame.popFloat();
 
     if (v1 == 0){
-      return th.createAndThrowException("java.lang.ArithmeticException","division by zero");
+      return ti.createAndThrowException("java.lang.ArithmeticException","division by zero");
     }
 
-    th.push(Types.floatToInt(v2 % v1), false);
+    float r = v2 % v1;
+    
+    frame.pushFloat(r);
 
-    return getNext(th);
+    return getNext(ti);
   }
 
+  @Override
   public int getByteCode () {
     return 0x72;
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

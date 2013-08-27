@@ -43,6 +43,7 @@ data/src/jpf/gov/nasa/jpf/jvm/bytecode/INVOKEINTERFACE.java.i
 data/src/examples/NumericValueCheck.jpf.i
 data/src/classes/java/util/StringTokenizer.java.i
 data/src/mji/model/java/lang/Thread.java.i
+data/src/classes/java/nio/Buffer.java.i
 data/src/peers/gov/nasa/jpf/vm/JPF_java_util_concurrent_atomic_AtomicReferenceFieldUpdater.java.i
 data/src/main/gov/nasa/jpf/tools/ChoiceTracker.java.i
 data/src/peers/gov/nasa/jpf/vm/JPF_java_lang_Character.java.i
@@ -650,6 +651,7 @@ data/src/jpf/gov/nasa/jpf/verify/TestSpecLexer.java.i
 data/src/main/gov/nasa/jpf/listener/NoStateCycles.java.i
 data/src/jpf/gov/nasa/jpf/search/SearchListenerMulticaster.java.i
 data/test/gov/nasa/jpf/jvm/TestAtomicReferenceFieldUpdater.java.i
+data/src/classes/java/nio/channels/FileChannel.java.i
 data/src/peers/gov/nasa/jpf/vm/JPF_java_text_Bidi.java.i
 data/src/mji/model/sun/misc/JavaIODeleteOnExitAccess.java.i
 data/src/jpf/gov/nasa/jpf/jvm/abstraction/linearization/NodeOrderingHeuristic.java.i
@@ -1482,6 +1484,7 @@ data/src/main/gov/nasa/jpf/util/SplitOutputStream.java.i
 data/src/classes/java/lang/String.java.i
 data/tools/xml-apis.jar.i
 data/src/tests/gov/nasa/jpf/vm/choice/IntChoiceFromListTest.java.i
+data/src/classes/java/nio/ByteBuffer.java.i
 data/src/peers/gov/nasa/jpf/vm/JPF_java_io_ObjectOutputStream.java.i
 data/tools/xml-apis.jar.d
 data/src/jpf/gov/nasa/jpf/util/ExpandableStringReader.java.i
@@ -1901,6 +1904,7 @@ data/src/main/gov/nasa/jpf/report/PublisherExtensionAdapter.java.i
 data/test/gov/nasa/jpf/vm/EnumTest.java.i
 data/src/jpf/gov/nasa/jpf/jvm/MethodInfo.java.i
 data/test/gov/nasa/jpf/jvm/TestJavaTextDateFormat.java.i
+data/src/classes/java/nio/package-info.java.i
 data/src/jpf/gov/nasa/jpf/jvm/untracked/UntrackedFieldsFactory.java.i
 data/src/main/gov/nasa/jpf/vm/serialize/FramePolicy.java.i
 data/src/jpf/gov/nasa/jpf/jvm/choice/DoubleSpec.java.i
@@ -2188,6 +2192,7 @@ data/src/main/gov/nasa/jpf/vm/ReferenceArrayFields.java.i
 data/src/jpf/gov/nasa/jpf/util/StringSetMatcher.java.i
 data/src/jpf/gov/nasa/jpf/jvm/bytecode/GETSTATIC.java.i
 data/src/main/gov/nasa/jpf/jvm/VMListener.java.i
+data/src/tests/gov/nasa/jpf/test/java/io/FileIOStreamTest.java.i
 data/src/tests/gov/nasa/jpf/util/LimitedInputStreamTest.java.i
 data/src/main/gov/nasa/jpf/listener/SimpleIdleFilter.java.i
 data/src/main/gov/nasa/jpf/jvm/classfile/ClassFileReaderAdapter.java.i
@@ -2272,6 +2277,7 @@ data/src/jpf/gov/nasa/jpf/jvm/abstraction/symmetry/Threads.java.i
 data/src/peers/gov/nasa/jpf/jvm/AtomicFieldUpdater.java.i
 data/src/jpf/gov/nasa/jpf/jvm/bytecode/DCMPG.java.i
 data/src/main/gov/nasa/jpf/vm/DefaultMementoRestorer.java.i
+data/src/classes/java/nio/BufferUnderflowException.java.i
 data/src/jpf/gov/nasa/jpf/jvm/ClinitRequired.java.i
 data/src/peers/gov/nasa/jpf/vm/JPF_java_util_concurrent_atomic_AtomicReferenceArray.java.i
 data/test/gov/nasa/jpf/test/vm/threads/WaitTest.java.i
@@ -2285,6 +2291,7 @@ data/src/main/gov/nasa/jpf/util/script/Script.java.i
 data/src/peers/gov/nasa/jpf/jvm/JPF_java_lang_Object.java.i
 data/src/tests/gov/nasa/jpf/test/java/lang/reflect/FieldTest.java.i
 data/dist/jpf.jar.i
+data/src/classes/java/nio/ByteOrder.java.i
 data/src/jpf/gov/nasa/jpf/verify/ContractOr.java.i
 data/src/tests/gov/nasa/jpf/test/unit/configTestRequiresFail.jpf.i
 data/src/classes/sun/reflect/ConstantPool.java.i

@@ -23,7 +23,9 @@ import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.search.Search;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.TreeSet;
 
 
 /**
@@ -89,7 +91,6 @@ public abstract class HeuristicSearch extends Search {
   
   void backtrackToParent () {
     backtrack();
-
     depth--;
     notifyStateBacktracked();    
   }
@@ -104,12 +105,11 @@ public abstract class HeuristicSearch extends Search {
    * @returns false if this is cut short by a property termination or
    * explicit termination request
    */
-  protected boolean generateChildren () {
+  protected boolean generateChildren (int maxDepth) {
 
     childStates = new ArrayList<HeuristicState>();
     
     while (!done) {
-      
       if (!forward()) {
         notifyStateProcessed();
         return true;
@@ -118,42 +118,29 @@ public abstract class HeuristicSearch extends Search {
       depth++;
       notifyStateAdvanced();
 
-      if (currentError != null){
-        notifyPropertyViolated();
-        if (hasPropertyTermination()) {
-          return false;
-        }
-        
-        // note that we don't store the error state anymore, which means we
-        // might encounter it along different paths. However, this is probably
-        // what we want for search.multiple_errors.
-        
-      } else {
+      if (hasPropertyTermination()) { // ?? multiple_errors == true ??
+        return false;
+      }
       
-        if (!isEndState() && !isIgnoredState()) {
-          boolean isNewState = isNewState();
-
-          if (isNewState && depth >= depthLimit) {
-            // we can't do this before we actually generated the VM child state
-            // since we don't want to report DEPTH_CONSTRAINTs for parents
-            // that have only visited or end state children
-            notifySearchConstraintHit("depth limit reached: " + depthLimit);
-
-          } else if (isNewState || isPathSensitive) {
-
-            if (isQueueLimitReached()) {
-              notifySearchConstraintHit("queue limit reached: " + getQueueSize());
-            }
+      if (!isEndState && !isIgnoredState) {
+        if (isNewState && depth >= maxDepth) {
+          // we can't do this before we actually generated the VM child state
+          // since we don't want to report DEPTH_CONSTRAINTs for parents
+          // that have only visited or end state children
+          notifySearchConstraintHit(DEPTH_CONSTRAINT);
           
-            HeuristicState newHState = queueCurrentState();            
-            if (newHState != null) { 
-              childStates.add(newHState);
-              notifyStateStored();
-            }
+        } else if (isNewState || isPathSensitive) {
+
+          if (isQueueLimitReached()) {
+            notifySearchConstraintHit( QUEUE_CONSTRAINT);
           }
-        
-        } else {
-          // end state or ignored transition
+          
+          HeuristicState newHState = queueCurrentState();
+          
+          if (newHState != null) { 
+            childStates.add(newHState);
+            notifyStateStored();
+          }
         }
       }
       
@@ -166,7 +153,6 @@ public abstract class HeuristicSearch extends Search {
   
   private void restoreState (HeuristicState hState) {    
     vm.restoreState(hState.getVMState());
-
     // note we have to query the depth from the VM because the state is taken from the queue
     // and we have no idea when it was entered there
     depth = vm.getPathLength();
@@ -174,6 +160,7 @@ public abstract class HeuristicSearch extends Search {
   }
    
   public void search () {
+    int maxDepth = getMaxSearchDepth();
         
     queueCurrentState();
     notifyStateStored();
@@ -186,23 +173,18 @@ public abstract class HeuristicSearch extends Search {
     notifySearchStarted();
     
     if (!hasPropertyTermination()) {
-      generateChildren();
+      generateChildren(maxDepth);
 
       while (!done && (parentState = getNextQueuedState()) != null) {
         restoreState(parentState);
         
-        generateChildren();
+        generateChildren(maxDepth);
       }
     }
     
     notifySearchFinished();
   }
-
-  public boolean supportsBacktrack () {
-    // we don't do multi-level backtracks, but automatically do backtrackToParent()
-    // after each child state generation
-    return false;
-  }
+    
 }
 
 

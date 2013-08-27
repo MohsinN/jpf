@@ -18,32 +18,39 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.Types;
 
 
 /**
  * Divide double
  * ..., value1, value2 => ..., result
  */
-public class DDIV extends Instruction {
+public class DDIV extends JVMInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    double v1 = Types.longToDouble(th.longPop());
-    double v2 = Types.longToDouble(th.longPop());
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+
+    double v1 = frame.popDouble();
+    double v2 = frame.popDouble();
     
     double r = v2 / v1;
-    th.longPush(Types.doubleToLong(r));
-
-    return getNext(th);
+    
+    frame.pushDouble(r);
+    
+    return getNext(ti);
   }
 
+  @Override
   public int getByteCode () {
     return 0x6F;
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

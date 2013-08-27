@@ -18,24 +18,30 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Jump subroutine
  * ... => ..., address
  */
-public class JSR extends Instruction {
+public class JSR extends JVMInstruction {
   private int target;
 
   public JSR(int targetPc){
     target = targetPc;
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    th.push(getNext(th).getPosition(), false);
+  @Override
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
+    
+    int tgtAdr = getNext(ti).getPosition();
+    
+    frame.push( tgtAdr);
 
     return mi.getInstructionAt(target);
   }
@@ -44,10 +50,12 @@ public class JSR extends Instruction {
     return 3; // opcode, bb1, bb2
   }
   
+  @Override
   public int getByteCode () {
     return 0xA8;
   }
   
+  @Override
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }

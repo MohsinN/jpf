@@ -19,7 +19,6 @@
 package gov.nasa.jpf.jvm;
 
 import gov.nasa.jpf.JPFListener;
-import gov.nasa.jpf.classfile.ClassFile;
 
 /**
  * interface to register for callbacks by the JVM
@@ -83,19 +82,7 @@ public interface VMListener extends JPFListener {
   void threadScheduled (JVM vm); // this might go into the choice generator notifications
 
   /**
-   * a new classfile is about to be parsed. This notification allows replacement
-   * of the related classfile data via ClassFile.{get/set}Data() and can be
-   * used to do on-the-fly classfile instrumentation with 3rd party libraries 
-   */
-  public void loadClass (JVM vm, ClassFile cf);
-  
-  /**
-   * new class was loaded. This is notified after the ClassInfo has been
-   * instantiated, but before the class object is initialized, i.e. clinit
-   * is called. The main use for this notification is to identify and 
-   * store ClassInfos, MethodInfos, FieldInfos or Instructions that are
-   * used by listeners etc. in order to enable efficient identify based filters
-   * in the performance critical instruction notifications
+   * new class was loaded
    */
   void classLoaded (JVM vm);
   
@@ -156,36 +143,17 @@ public interface VMListener extends JPFListener {
   void exceptionHandled (JVM vm);
 
   /**
-   * next ChoiceGenerator was registered, which means this is the end of the current transition
-   * 
-   * the reason why we have this in addition to the choiceGeneratorSet is that listeners
-   * can reset the registered CG and so force the current transition to continue (although the
-   * listener in this case has to make sure the operand stack is in a consistent state for
-   * continued execution because there might be a bottom half of an Instruction.execute() missing)
-   */
-  void choiceGeneratorRegistered (JVM vm);
-
-  /**
-   * a new ChoiceGenerator was set, which means we are at the beginning of a new transition.
-   *
-   * NOTE - this notification happens before the KernelState is stored, i.e. listeners are NOT
-   * allowed to alter the KernelState (e.g. by changing field values or thread states)
+   * a new ChoiceGenerator was registered, which means we have a transition boundary
    */
   void choiceGeneratorSet (JVM vm);
   
   /**
    * the next choice was requested from a previously registered ChoiceGenerator
-   *
-   * NOTE - this notification happens before the KernelState is stored, i.e. listeners are NOT
-   * allowed to alter the KernelState (e.g. by changing field values or thread states)
    */
   void choiceGeneratorAdvanced (JVM vm);
   
   /**
    * a ChoiceGnerator has returned all his choices
-   *
-   * NOTE - this notification happens before the KernelState is stored, i.e. listeners are NOT
-   * allowed to alter the KernelState (e.g. by changing field values or thread states)
    */
   void choiceGeneratorProcessed (JVM vm);
 

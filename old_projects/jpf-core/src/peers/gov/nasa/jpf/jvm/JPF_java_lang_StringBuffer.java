@@ -18,6 +18,7 @@
 //
 package gov.nasa.jpf.jvm;
 
+import gov.nasa.jpf.jvm.MJIEnv;
 
 /**
  * MJI NativePeer class for java.lang.StringBuffer library abstraction

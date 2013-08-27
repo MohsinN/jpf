@@ -22,6 +22,8 @@ import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
+import org.apache.bcel.classfile.ConstantPool;
+
 
 /**
  * Push long constant
@@ -30,9 +32,8 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public class LCONST extends Instruction {
   private long value;
 
-
-  public LCONST(long value){
-    this.value = value;
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    value = ((org.apache.bcel.generic.LCONST) i).getValue().longValue();
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
@@ -59,10 +60,6 @@ public class LCONST extends Instruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
-  }
-
-  public long getValue() {
-	return value;
   }
   
 }

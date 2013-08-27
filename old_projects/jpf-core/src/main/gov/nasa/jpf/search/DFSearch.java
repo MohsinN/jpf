@@ -58,19 +58,18 @@ public class DFSearch extends Search {
    * we backtrack to the state where they were introduced.
    */
   public void search () {
-    boolean depthLimitReached = false;
+    int maxDepth = getMaxSearchDepth();
 
     depth = 0;
 
     notifySearchStarted();
 
     while (!done) {
-      if (checkAndResetBacktrackRequest() || !isNewState() || isEndState() || isIgnoredState() || depthLimitReached ) {
+      if ( !isNewState || isEndState || isIgnoredState) {
         if (!backtrack()) { // backtrack not possible, done
           break;
         }
 
-        depthLimitReached = false;
         depth--;
         notifyStateBacktracked();
       }
@@ -79,29 +78,23 @@ public class DFSearch extends Search {
         depth++;
         notifyStateAdvanced();
 
-        if (currentError != null){
-          notifyPropertyViolated();
-
-          if (hasPropertyTermination()) {
-            break;
-          }
-          // for search.multiple_errors we go on and treat this as a new state
-          // but hasPropertyTermination() will issue a backtrack request
-        }
-
-        if (depth >= depthLimit) {
-          depthLimitReached = true;
-          notifySearchConstraintHit("depth limit reached: " + depthLimit);
-          continue;
-        }
-
-        if (!checkStateSpaceLimit()) {
-          notifySearchConstraintHit("memory limit reached: " + minFreeMemory);
-          // can't go on, we exhausted our memory
+        if (hasPropertyTermination()) {
           break;
         }
 
-      } else { // forward did not execute any instructions
+        if (isNewState) {
+          if (depth >= maxDepth) {
+            isEndState = true;
+            notifySearchConstraintHit(DEPTH_CONSTRAINT + ": " + maxDepth);
+          }
+
+          if (!checkStateSpaceLimit()) {
+            notifySearchConstraintHit(FREE_MEMORY_CONSTRAINT + ": " + minFreeMemory );
+            // can't go on, we exhausted our memory
+            break;
+          }
+        }
+      } else { // state was processed
         notifyStateProcessed();
       }
     }

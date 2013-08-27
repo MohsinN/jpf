@@ -19,27 +19,21 @@
 
 package gov.nasa.jpf.listener;
 
+import gov.nasa.jpf.jvm.JVMInstruction;
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPFConfigException;
 import gov.nasa.jpf.PropertyListenerAdapter;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.LocalVarInfo;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.StackFrame;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.bytecode.DSTORE;
-import gov.nasa.jpf.jvm.bytecode.FSTORE;
-import gov.nasa.jpf.jvm.bytecode.FieldInstruction;
-import gov.nasa.jpf.jvm.bytecode.ISTORE;
-import gov.nasa.jpf.jvm.bytecode.InstructionVisitorAdapter;
-import gov.nasa.jpf.jvm.bytecode.LSTORE;
-import gov.nasa.jpf.jvm.bytecode.LocalVariableInstruction;
-import gov.nasa.jpf.jvm.bytecode.PUTFIELD;
-import gov.nasa.jpf.jvm.bytecode.PUTSTATIC;
+import gov.nasa.jpf.jvm.bytecode.*;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.FieldSpec;
 import gov.nasa.jpf.util.VarSpec;
+import gov.nasa.jpf.vm.FieldInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.LocalVarInfo;
+import gov.nasa.jpf.vm.MethodInfo;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 /**
  * little listener that checks value ranges of specified numeric fields and local vars
@@ -138,7 +132,7 @@ public class NumericValueChecker extends PropertyListenerAdapter {
 
     void checkVarInsn (LocalVariableInstruction insn){
       if (varChecks != null){
-        ThreadInfo ti = vm.getLastThreadInfo();
+        ThreadInfo ti = ThreadInfo.getCurrentThread();
         StackFrame frame = ti.getTopFrame();
         int slotIdx = insn.getLocalVariableIndex();
 
@@ -193,7 +187,7 @@ public class NumericValueChecker extends PropertyListenerAdapter {
   }
 
 
-  JVM vm;
+  VM vm;
   Visitor visitor;
 
   // the stuff we monitor
@@ -262,13 +256,13 @@ public class NumericValueChecker extends PropertyListenerAdapter {
   }
 
   @Override
-  public void instructionExecuted (JVM vm){
+  public void instructionExecuted (VM vm, ThreadInfo ti, Instruction nextInsn, Instruction executedInsn){
     this.vm = vm;
-    vm.getLastInstruction().accept(visitor);
+    ((JVMInstruction)executedInsn).accept(visitor);
   }
 
   @Override
-  public boolean check(Search search, JVM vm) {
+  public boolean check(Search search, VM vm) {
     return (error == null);
   }
 

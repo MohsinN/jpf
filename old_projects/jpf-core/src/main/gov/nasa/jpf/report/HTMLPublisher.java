@@ -18,42 +18,15 @@
 //
 package gov.nasa.jpf.report;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.Error;
 import gov.nasa.jpf.JPF;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.LocalVarInfo;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.Path;
-import gov.nasa.jpf.jvm.ReturnInstruction;
-import gov.nasa.jpf.jvm.StackFrame;
-import gov.nasa.jpf.jvm.Step;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Transition;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.util.ObjectList;
-import gov.nasa.jpf.util.RepositoryEntry;
-import gov.nasa.jpf.util.Source;
-
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.Writer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.BitSet;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.logging.Logger;
+import gov.nasa.jpf.Error;
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.jvm.*;
+import gov.nasa.jpf.jvm.bytecode.*;
+import gov.nasa.jpf.util.*;
+import java.io.*;
+import java.util.*;
+import java.util.logging.*;
 
 /*
  * Outputs the report in HTML format.  Currently only Firefox 3.0.7 through 3.0.10 have been tested.
@@ -559,11 +532,11 @@ public class HTMLPublisher extends Publisher {
     output.println("</td></tr>");
 
     output.print("         <tr><td>&#160;&#160;&#160;New Objects:&#160;&#160;</td><td align=\"right\">");
-    output.print(stats.nNewObjects);
+    output.print(stats.nObjects);
     output.println("</td></tr>");
 
     output.print("         <tr><td>&#160;&#160;&#160;Free Objects:&#160;&#160;</td><td align=\"right\">");
-    output.print(stats.nReleasedObjects);
+    output.print(stats.nRecycled);
     output.println("</td></tr>");
 
     output.print("         <tr><td>&#160;&#160;&#160;Max Memory:&#160;&#160;</td><td align=\"right\">");
@@ -936,11 +909,11 @@ public class HTMLPublisher extends Publisher {
     output.println("           <tr>");
 
     output.print("              <td align=\"right\">");
-    output.print(thread.getId());
+    output.print(thread.getIndex());
     output.println("</td>");
 
     output.print("              <td align=\"left\"><a href=\"#\" onclick=\"doClick(this);\" rel=\"");
-    output.print(thread.getId());
+    output.print(thread.getIndex());
     output.print("\">");
     output.print(thread.getName());
     output.println("</a></td>");
@@ -1022,20 +995,25 @@ public class HTMLPublisher extends Publisher {
   }
 
   private void writeThreadStack(PrintWriter output, ThreadInfo thread) {
+    StackFrame frame;
+    List<StackFrame> stack;
     String frameID;
+    int i;
 
     output.println("      <hr/>");
     output.print("      <p id=\"");
-    output.print(thread.getId());
+    output.print(thread.getIndex());
     output.print("\"><b>Thread #");
-    output.print(thread.getId());
+    output.print(thread.getIndex());
     output.print("</b> - ");
     output.print(thread.getName());
     output.println("</p>");
 
     output.println("      <p><b>Call Stack</b></p>");
 
-    if (thread.getStackDepth() <= 0) {
+    stack = thread.getStack();
+
+    if (stack.isEmpty()) {
       output.println("      <i>No call stack.</i>");
       output.println("      <br/>");
       output.println("      <br/>");
@@ -1043,17 +1021,18 @@ public class HTMLPublisher extends Publisher {
     }
 
     writeTableTreeBegin(output);
-    writeTableTreeNodeBegin(output, "thread" + thread.getId());
+    writeTableTreeNodeBegin(output, "thread" + thread.getIndex());
     output.println("            <td></td>");
     writeTableTreeNodeEnd(output);
 
-    int i = thread.getStackDepth()-1;
-    for (StackFrame frame : thread){
+    for (i = stack.size() - 1; i >= 0; i--) {
+      frame = stack.get(i);
+
       if (frame.isDirectCallFrame()) {
         continue;
       }
 
-      frameID = "thread" + thread.getId() + "-frame" + i--;
+      frameID = "thread" + thread.getIndex() + "-frame" + i;
 
       writeStackMethod(output, frame, frameID);
       writeLocalVariables(output, frame, frameID);
@@ -1106,7 +1085,7 @@ public class HTMLPublisher extends Publisher {
   }
 
   private void writeLocalVariables(PrintWriter output, StackFrame frame, String frameID) {
-    LocalVarInfo localVars[];
+    String names[];
     Object attr;
     int i;
 
@@ -1116,33 +1095,27 @@ public class HTMLPublisher extends Publisher {
     output.println("          <td>Local Variables</td>");
     writeTableTreeNodeEnd(output);
 
-    localVars = frame.getLocalVars();
-    if (localVars == null) {
+    names = frame.getLocalVariableNames();
+    if (names == null) {
       return;
     }
 
     frameID += "-";
 
-    for (i = 0; i < localVars.length; i++) {
+    for (i = 0; i < frame.getLocalVariableCount(); i++) {
       writeTableTreeNodeBegin(output, frameID + i);
 
       output.print("          <td>");
-      output.print(localVars[i].getType());
+      output.print(frame.getLocalVariableType(names[i]));
       output.print(' ');
-      output.print(localVars[i].getName());
+      output.print(names[i]);
       output.print(" = ");
-      output.print(frame.getLocalValueObject(localVars[i]));
+      output.print(frame.getLocalValueObject(i));
 
       attr = frame.getLocalAttr(i);
       if (attr != null) {
         output.print(" (");
-        int k=0;
-        for (Object a : ObjectList.iterator(attr)){
-          if (k++ > 0){
-            output.print(',');
-          }
-          output.print(a);
-        }
+        output.print(attr);
         output.print(')');
       }
 
@@ -1225,13 +1198,7 @@ public class HTMLPublisher extends Publisher {
       attr = frame.getOperandAttr(i);
       if (attr != null) {
         output.print(" (");
-        int k=0;
-        for (Object a : ObjectList.iterator(attr)){
-          if (k++ > 0){
-            output.print(',');
-          }
-          output.print(a);
-        }
+        output.print(attr);
         output.print(')');
       }
 
@@ -1318,15 +1285,15 @@ public class HTMLPublisher extends Publisher {
   }
 
   private void writeThreadLockedObjects(PrintWriter output, ThreadInfo thread) {
-    List<ElementInfo> locks;
+    LinkedList<ElementInfo> locks;
     ElementInfo block;
     int i;
 
     output.println("      <hr/>");
     output.print("      <p id=\"");
-    output.print(thread.getId());
+    output.print(thread.getIndex());
     output.print("\"><b>Thread #");
-    output.print(thread.getId());
+    output.print(thread.getIndex());
     output.print("</b> - ");
     output.print(thread.getName());
     output.println("</p>");

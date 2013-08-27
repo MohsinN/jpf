@@ -18,9 +18,8 @@
 //
 package gov.nasa.jpf.jvm;
 
-import java.lang.reflect.Modifier;
-
 import gov.nasa.jpf.Config;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.util.MethodInfoRegistry;
 import gov.nasa.jpf.util.RunListener;
 import gov.nasa.jpf.util.RunRegistry;
@@ -39,7 +38,7 @@ public class JPF_java_lang_reflect_Constructor {
     // this is an example of how to handle cross-initialization between
     // native peers - this might also get explicitly called by the java.lang.Class
     // peer, since it creates Constructor objects. Here we have to make sure
-    // we only reset between JPF runs
+    // we only re-pushClinit between JPF runs
     
     if (registry == null){
       registry = new MethodInfoRegistry();
@@ -52,11 +51,9 @@ public class JPF_java_lang_reflect_Constructor {
     }
   }
 
-  static int createConstructorObject (MJIEnv env, ClassInfo ciCtor, MethodInfo mi){
-    // note - it is the callers responsibility to ensure Constructor is properly initialized    
-    
+  static int createConstructorObject (MJIEnv env, MethodInfo mi){
     int regIdx = registry.registerMethodInfo(mi);
-    int eidx = env.newObject(ciCtor);
+    int eidx = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.reflect.Constructor"));
     ElementInfo ei = env.getElementInfo(eidx);
     
     ei.setIntField("regIdx", regIdx);
@@ -81,17 +78,13 @@ public class JPF_java_lang_reflect_Constructor {
   
   // <2do> .. and some more delegations to JPF_java_lang_Method
 
-  
   public static int newInstance___3Ljava_lang_Object_2__Ljava_lang_Object_2 (MJIEnv env, int mthRef,
                                                                              int argsRef) {
     ThreadInfo ti = env.getThreadInfo();
-    StackFrame frame = ti.getReturnedDirectCall();
-
-    if (frame != null){ // reflection call already returned
-      // check if its the right one ??
-      return frame.pop(); // the object reference of the created object we stored in (1)
-
-    } else { // do the reflection call
+    Instruction insn = ti.getPC();        
+    DirectCallStackFrame frame;
+    
+    if (!ti.isResumedInstruction(insn)) { // make a direct call  
       MethodInfo mi = getMethodInfo(env,mthRef);
       ClassInfo ci = mi.getClassInfo();
 
@@ -99,50 +92,33 @@ public class JPF_java_lang_reflect_Constructor {
         env.throwException("java.lang.InstantiationException");
         return MJIEnv.NULL;
       }
-
+      
       int objRef = env.newObject(ci);
+
       MethodInfo stub = mi.createDirectCallStub("[reflection]");
-
-      frame = new DirectCallStackFrame(stub, stub.getMaxStack()+1, stub.getMaxLocals());
-      frame.push(objRef, true);  // (1) we store the return object on the frame
-      frame.dup();
-
-      if (!JPF_java_lang_reflect_Method.pushUnboxedArguments(env, mi, frame, argsRef)) {
-        return MJIEnv.NULL;
-      }
-
+      frame = new DirectCallStackFrame(stub, insn);
+        
+      frame.push(objRef, true);
+      frame.dup(); // we store the return object on the frame (don't do that with a normal frame)
+      JPF_java_lang_reflect_Method.pushUnboxedArguments(env, mi, frame, argsRef);
+      
       ti.pushFrame(frame);
-
-      //env.repeatInvocation(); // we don't need this, direct calls don't advance their return frame
-      return MJIEnv.NULL; // doesn't matter, we come back
+      env.repeatInvocation();
+      
+      return MJIEnv.NULL; // doesn't matter
+      
+    } else { // direct call returned, unbox return type (if any)
+      frame = ti.getReturnedDirectCall();
+      return frame.pop();
     }
   }
     
   public static int getParameterTypes_____3Ljava_lang_Class_2 (MJIEnv env, int objRef){
     // kind of dangerous, but we don't refer to any fields and the underlying JPF construct
     // (MethodInfo) is the same, so we just delegate to avoid copying non-trivial code
-    return JPF_java_lang_reflect_Method.getParameterTypes (env, getMethodInfo(env,objRef));
+    return JPF_java_lang_reflect_Method.getParameterTypes (env, objRef, getMethodInfo(env,objRef));
   }
 
-  
-  public static int getAnnotations_____3Ljava_lang_annotation_Annotation_2 (MJIEnv env, int objRef){
-    // <2do> check if ctor annotations are inherited, which is a bit off
-    return JPF_java_lang_reflect_Method.getAnnotations( env, getMethodInfo(env,objRef));
-  }
-  
-  public static int getDeclaredAnnotations_____3Ljava_lang_annotation_Annotation_2 (MJIEnv env, int objRef){
-    return JPF_java_lang_reflect_Method.getDeclaredAnnotations( env, getMethodInfo(env,objRef));
-  }
-  
-  public static int getAnnotation__Ljava_lang_Class_2__Ljava_lang_annotation_Annotation_2 (MJIEnv env, int objRef, int annotationClsRef) {
-    return JPF_java_lang_reflect_Method.getAnnotation( env, getMethodInfo(env,objRef), annotationClsRef);
-  }
-  
-  public static int getParameterAnnotations_____3_3Ljava_lang_annotation_Annotation_2 (MJIEnv env, int objRef){
-    return JPF_java_lang_reflect_Method.getParameterAnnotations( env, getMethodInfo(env,objRef));
-  }
-
-  
   public static int getModifiers____I (MJIEnv env, int objRef){
     MethodInfo mi = getMethodInfo(env, objRef);
     return mi.getModifiers();
@@ -154,16 +130,14 @@ public class JPF_java_lang_reflect_Constructor {
     // can't get a Constructor object w/o having initialized it's declaring class first
     return ci.getClassObjectRef();
   }
-  
+
   public static int toString____Ljava_lang_String_2 (MJIEnv env, int objRef){
     StringBuilder sb = new StringBuilder();
     
     MethodInfo mi = getMethodInfo(env, objRef);
 
-    sb.append(Modifier.toString(mi.getModifiers()));
-    sb.append(' ');
+    sb.append(mi.getName());
 
-    sb.append(mi.getClassInfo().getName());
     sb.append('(');
     
     String[] at = mi.getArgumentTypeNames();
@@ -176,36 +150,5 @@ public class JPF_java_lang_reflect_Constructor {
     
     int sref = env.newString(sb.toString());
     return sref;
-  }
-
-  public static boolean equals__Ljava_lang_Object_2__Z (MJIEnv env, int objRef, int mthRef){
-    ElementInfo ei = env.getElementInfo(mthRef);
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(JPF_java_lang_Class.CONSTRUCTOR_CLASSNAME);
-
-    if (ei.getClassInfo() == ci){
-      MethodInfo mi1 = getMethodInfo(env, objRef);
-      MethodInfo mi2 = getMethodInfo(env, mthRef);
-      if (mi1.getClassInfo() == mi2.getClassInfo()){
-        if (mi1.getName().equals(mi2.getName())){
-          if (mi1.getReturnType().equals(mi2.getReturnType())){
-            byte[] params1 = mi1.getArgumentTypes();
-            byte[] params2 = mi2.getArgumentTypes();
-            if (params1.length == params2.length){
-              for (int i = 0; i < params1.length; i++){
-                if (params1[i] != params2[i])
-                  return false;
-              }
-              return true;
-            }
-          }
-        }
-      }
-    }
-    return false;
-  }
-
-  public static int hashCode____I (MJIEnv env, int objRef){
-    MethodInfo ctor = getMethodInfo(env, objRef);
-    return ctor.getClassName().hashCode();
   }
 }

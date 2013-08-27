@@ -4,7 +4,7 @@
   build.xml - generic JPF extension build script
               using Ant (http://jakarta.apache.org/ant)
   public targets:
-    
+
     compile           compile JPF and its specific (modeled) environment libraries
     test              run all JPF tests
     jar               build JPF jar files
@@ -16,24 +16,20 @@
 
   <!-- ========================== COMMON SECTION ========================== -->
 
-  <!-- 
+  <!--
     local props have to come first, because Ant properties are immutable
     NOTE: this file is local - it is never in the repository!
   -->
   <property file="local.properties"/>
-  
-  <!-- this is where we get the 'jpf-core' location from -->
+
+  <!-- this is where we get the 'jpf.core' location from -->
   <property file="${user.home}/.jpf/site.properties"/>
-	
+
   <!-- if there is none, default to a 'jpf-core' peer dir -->
-  <property name="jpf-symbc" value = "../jpf-symbc"/>
   <property name="jpf-core" value = "../jpf-core"/>
-	
-  <property file="${jpf-symbc}/jpf.properties"/> 
 
-  <!-- get the jpf-core path properties -->
+  <!-- get the dependent project properties -->
   <property file="${jpf-core}/jpf.properties"/>
-
 
   <!-- compiler settings -->
   <property name="src_level"     value="6"/>
@@ -46,21 +42,15 @@
 
     <!-- our own classes and libs come first -->
     <pathelement location="build/main"/>
-    
+    <!-- we don't have these
     <pathelement location="build/peers"/>
-    
-    <pathelement location="build/annotations"/>
-
+    -->
     <fileset dir=".">
-  	    <include name="lib/*.jar"/>
+        <include name="lib/*.jar"/>
     </fileset>
 
-    <!-- add in what we need from the core -->
+    <!-- add projects we depend on -->
     <pathelement path="${jpf-core.native_classpath}"/>
-  	<pathelement path="${jpf-symbc.native_classpath}"/>
-  	<pathelement location="${jpf-symbc}/build/main"/>
-  	<pathelement location="${jpf-symbc}/build/annotations"/>
-  	<pathelement location="${jpf-ltl}/build/classes"/>
 
   </path>
 
@@ -110,7 +100,7 @@
 
 
   <!-- ======================= COMPILE SECTION ============================= -->
-    
+
   <!-- public compile -->
   <target name="compile" depends="-init,-compile-annotations,-compile-main,-compile-peers,-compile-classes,-compile-tests,-compile-examples"
           description="compile all JPF core sources" >
@@ -118,28 +108,29 @@
 
   <target name="-compile-annotations" if="have_annotations">
     <mkdir dir="build/annotations"/>
-    <javac srcdir="src/annotations" destdir="build/annotations"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}" classpath=""/>
+    <javac srcdir="src/annotations" destdir="build/annotations" includeantruntime="false"
+           debug="${debug}" source="${src_level}" deprecation="${deprecation}"
+           classpath=""/>
   </target>
 
   <target name="-compile-main" if="have_main">
     <mkdir dir="build/main"/>
-    <javac srcdir="src/main" destdir="build/main"
+    <javac srcdir="src/main" destdir="build/main" includeantruntime="false"
            debug="${debug}" source="${src_level}" deprecation="${deprecation}"
            classpathref="lib.path"/>
   </target>
 
   <target name="-compile-peers" if="have_peers" depends="-compile-main" >
     <mkdir dir="build/peers"/>
-    <javac srcdir="src/peers" destdir="build/peers"
+    <javac srcdir="src/peers" destdir="build/peers" includeantruntime="false"
            debug="${debug}" source="${src_level}" deprecation="${deprecation}"
            classpathref="lib.path"/>
   </target>
 
   <target name="-compile-classes" if="have_classes" depends="-compile-annotations,-compile-main" >
     <mkdir dir="build/classes"/>
-    <javac srcdir="src/classes" destdir="build/classes"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}">
+    <javac srcdir="src/classes" destdir="build/classes" includeantruntime="false"
+           debug="${debug}" source="${src_level}" deprecation="${deprecation}" >
       <classpath>
         <path refid="lib.path"/>
         <pathelement location="build/annotations"/>
@@ -147,44 +138,46 @@
     </javac>
   </target>
 
-	  <target name="-compile-tests" if="have_tests" depends="-compile-annotations,-compile-main">
-	    <mkdir dir="build/tests"/>
-	      <javac srcdir="src/tests" destdir="build/tests"
-	  	     debug="${debug}" source="${src_level}" deprecation="${deprecation}">
-	         <classpath>
-	           <path refid="lib.path"/>
-	           <pathelement location="build/classes"/>
-	         </classpath>
-	      </javac>
-	  </target>
+  <target name="-compile-tests" if="have_tests" depends="-compile-annotations,-compile-main">
+    <mkdir dir="build/tests"/>
+    <javac srcdir="src/tests" destdir="build/tests" includeantruntime="false"
+           debug="${debug}" source="${src_level}" deprecation="${deprecation}" >
+      <classpath>
+        <path refid="lib.path"/>
+        <pathelement location="build/annotations"/>
+        <pathelement location="build/classes"/>
+      </classpath>
+    </javac>
+  </target>
 
   <target name="-compile-examples" if="have_examples" depends="-compile-annotations,-compile-main">
     <mkdir dir="build/examples" />
-    <javac srcdir="src/examples" destdir="build/examples"
-           debug="${debug}" source="${src_level}" deprecation="${deprecation}"
-           classpathref="lib.path"/>
+    <javac srcdir="src/examples" destdir="build/examples" includeantruntime="false"
+           debug="${debug}" source="${src_level}" deprecation="${deprecation}">
+      <classpath>
+        <path refid="lib.path"/>
+        <pathelement location="build/annotations"/>
+      </classpath>
+    </javac>             
   </target>
 
-  
+
   <!-- ======================= MISC SECTION ================================ -->
-  
+
   <!-- build jars -->
   <target name="build" depends="compile,-jar-jvm,-jar-jpf,-jar-annotations"
         description="generate the ${ant.project.name} jar files" >
   </target>
 
   <target name="-jar-jvm" if="have_jvm_code">
-    <jar jarfile="build/${ant.project.name}.jar">
+    <jar jarfile="build/${ant.project.name}.jar" whenmanifestonly="skip">
       <fileset dir="build/main" erroronmissingdir="false"/>
       <fileset dir="build/peers" erroronmissingdir="false"/>
-
-      <!-- we need annotations if we want to run the MethodTester directly -->
-      <fileset dir="build/annotations" erroronmissingdir="false"/>
     </jar>
   </target>
 
   <target name="-jar-jpf" if="have_jpf_code">
-    <jar jarfile="build/${ant.project.name}-classes.jar">
+    <jar jarfile="build/${ant.project.name}-classes.jar" whenmanifestonly="skip">
       <fileset dir="build/classes" erroronmissingdir="false"/>
       <fileset dir="build/annotations" erroronmissingdir="false"/>
     </jar>
@@ -192,12 +185,15 @@
 
   <target name="-jar-annotations" if="have_annotations">
     <!-- optional jar that contains annotations to be used in non-JPF dependent apps -->
-    <jar jarfile="build/${ant.project.name}-annotations.jar">
+    <jar jarfile="build/${ant.project.name}-annotations.jar" whenmanifestonly="skip">
       <fileset dir="build/annotations" erroronmissingdir="false"/>
     </jar>
   </target>
 
-  <target name="dist" description="build binary distribution">
+
+  <!-- build distribution zips -->
+
+  <target name="dist" description="build binary distribution" depends="build">
     <delete file="build/${ant.project.name}.zip"/>
     <!-- 2do this seems stupid - there needs to be a better way to re-base (zip basedir fails miserably) -->
     <zip destfile="build/${ant.project.name}.zip" update="false" excludes="*">
@@ -209,6 +205,27 @@
     </zip>
   </target>
 
+  <target name="src-dist" description="build source distribution">
+    <delete file="build/${ant.project.name}-src.zip"/>
+
+    <zip destfile="build/${ant.project.name}-src.zip" update="false" excludes="*">
+      <zipfileset file="jpf.properties"  prefix="${ant.project.name}"/>
+      <zipfileset file="build.xml"  prefix="${ant.project.name}"/>
+      <zipfileset dir="src" prefix="${ant.project.name}/src" erroronmissingdir="false"/>
+      <zipfileset dir="lib"  prefix="${ant.project.name}/lib" erroronmissingdir="false"/>
+      <zipfileset dir="bin"  prefix="${ant.project.name}/bin" erroronmissingdir="false"/>
+      <zipfileset dir="tools" includes="Run*.jar" prefix="${ant.project.name}/tools" erroronmissingdir="false"/>
+
+      <!-- IDE related configuration files -->
+      <zipfileset file=".project"  prefix="${ant.project.name}"/>
+      <zipfileset file=".classpath"  prefix="${ant.project.name}"/>
+      <zipfileset dir="eclipse" prefix="${ant.project.name}/eclipse" erroronmissingdir="false"/>
+
+      <zipfileset dir="nbproject" prefix="${ant.project.name}/nbproject" erroronmissingdir="false"/>
+    </zip>
+  </target>
+
+
   <!-- public clean: cleanup from previous tasks/builds -->
   <target name="clean">
     <delete dir="build" />
@@ -218,7 +235,7 @@
       <fileset dir="." includes="**/error.xml" />
     </delete>
   </target>
-  
+
 
 
   <!-- ======================= TEST SECTION ================================ -->
@@ -226,10 +243,15 @@
   <target name="test" depends="build"
           description="compile and run core regression tests" if="have_tests">
 
-    <property name="junit.usefile" value="true"/>
+    <condition property="junit.usefile">
+      <!-- don't set if this is running from within an IDE that collects output -->
+      <not>
+        <isset property="netbeans.home"/>  
+      </not>
+    </condition>
 
-    <junit printsummary="on" showoutput="off" haltonfailure="yes"
-           fork="yes" forkmode="perTest" maxmemory="1024m">
+    <junit printsummary="on" showoutput="on" haltonfailure="yes" dir="${basedir}"
+           fork="yes" forkmode="perTest" maxmemory="1024m" outputtoformatters="true">
       <formatter type="plain" usefile="${junit.usefile}"/>
 
       <classpath>
@@ -249,8 +271,8 @@
       </batchtest>
 
     </junit>
-   
+
   </target>
 
-  
+
 </project>

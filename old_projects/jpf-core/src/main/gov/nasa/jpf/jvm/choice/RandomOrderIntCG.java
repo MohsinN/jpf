@@ -1,12 +1,11 @@
 package gov.nasa.jpf.jvm.choice;
 
-import gov.nasa.jpf.jvm.ChoiceGeneratorBase;
 import gov.nasa.jpf.jvm.IntChoiceGenerator;
 
 /**
  * a generic IntChoiceGenerator randomizer. Not very efficient for large int intervals
  */
-public class RandomOrderIntCG extends ChoiceGeneratorBase<Integer> implements IntChoiceGenerator {
+public class RandomOrderIntCG extends IntChoiceGenerator {
   protected int[] choices;
   
   protected int nextIdx;
@@ -50,12 +49,5 @@ public class RandomOrderIntCG extends ChoiceGeneratorBase<Integer> implements In
 
   public void reset() {
     nextIdx = -1;
-
-    isDone = false;
-  }
-
-  @Override
-  public Class<Integer> getChoiceType() {
-    return Integer.class;
   }
 }

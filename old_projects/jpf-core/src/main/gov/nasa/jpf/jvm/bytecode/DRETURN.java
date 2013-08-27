@@ -21,13 +21,34 @@ package gov.nasa.jpf.jvm.bytecode;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.Types;
 
+import org.apache.bcel.classfile.ConstantPool;
+
 
 /**
  * Return double from method
  * ..., value => [empty]
  */
-public class DRETURN extends LongReturn {
-  
+public class DRETURN extends ReturnInstruction {
+  long ret;
+
+  public Object getReturnAttr (ThreadInfo ti) {
+    return ti.getLongOperandAttr();
+  }
+
+  public void setReturnAttr (ThreadInfo ti, Object attr){
+    ti.setLongOperandAttrNoClone(attr);
+  }
+
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+  }
+
+  protected void storeReturnValue (ThreadInfo th) {
+    ret = th.longPop();
+  }
+
+  protected void pushReturnValue (ThreadInfo th) {
+    th.longPush(ret);
+  }
 
   public double getReturnValue() {
     return Types.longToDouble(ret);

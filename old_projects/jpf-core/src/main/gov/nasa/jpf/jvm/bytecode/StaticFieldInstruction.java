@@ -18,10 +18,9 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.StaticElementInfo;
+import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
 /**
@@ -30,12 +29,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public abstract class StaticFieldInstruction extends FieldInstruction {
 
   ClassInfo ci;
-
-  protected StaticFieldInstruction(){}
-
-  protected StaticFieldInstruction(String fieldName, String clsDescriptor, String fieldDescriptor){
-    super(fieldName, clsDescriptor, fieldDescriptor);
-  }
 
   public ClassInfo getClassInfo () {
     if (ci == null) {
@@ -62,18 +55,8 @@ public abstract class StaticFieldInstruction extends FieldInstruction {
     return getLastElementInfo();
   }
 
-  public StaticElementInfo getLastElementInfo() {
+  public ElementInfo getLastElementInfo() {
     return getFieldInfo().getClassInfo().getStaticElementInfo();
-  }
-
-  // this can be different than ci - the field might be in one of its
-  // superclasses
-  public ClassInfo getLastClassInfo(){
-    return getFieldInfo().getClassInfo();
-  }
-
-  public String getLastClassName() {
-    return getLastClassInfo().getName();
   }
 
   protected boolean isNewPorFieldBoundary (ThreadInfo ti) {
@@ -119,14 +102,7 @@ public abstract class StaticFieldInstruction extends FieldInstruction {
         return false;
       }
 
-      ElementInfo ei = fi.getClassInfo().getStaticElementInfo();
-      if (ei.isImmutable()){
-        return false;
-      }
-      if (!ei.checkUpdatedSharedness(ti)){
-        return false;
-      }
-      if (isLockProtected(ti, ei)) {
+      if (isLockProtected(ti, fi.getClassInfo().getStaticElementInfo())) {
         return false;
       }
     }

@@ -18,33 +18,23 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.JPFException;
-
+import org.apache.bcel.classfile.*;
 
 
 /**
  *
  */
-public class LongFieldInfo extends DoubleSlotFieldInfo {
+public class LongFieldInfo extends FieldInfo {
   long init;
 
-  public LongFieldInfo (String name, int modifiers,
-                        ClassInfo ci, int idx, int off) {
-    super(name, "J", modifiers, ci, idx, off);
-  }
-
-  public void setConstantValue(Object constValue){
-    if (constValue instanceof Long){
-      cv = constValue;
-      init = (Long)constValue;
-
-    } else {
-      throw new JPFException("illegal long ConstValue=" + constValue);
-    }
+  public LongFieldInfo (String name, String type, int modifiers,
+                        ConstantValue cv, ClassInfo ci, int idx, int off) {
+    super(name, type, modifiers, cv, ci, idx, off);
+    init = (cv != null) ? Long.parseLong(cv.toString()) : 0;
   }
 
   public void initialize (ElementInfo ei) {
-    ei.getFields().setLongValue( storageOffset, init);
+    ei.getFields().setLongValue( ei, storageOffset, init);
   }
 
   public int getStorageSize() {
@@ -64,13 +54,4 @@ public class LongFieldInfo extends DoubleSlotFieldInfo {
     long v = f.getLongValue(storageOffset);
     return new Long(v);
   }
-
-  public boolean isLongField(){
-    return true;
-  }
-
-  public boolean isNumericField(){
-    return true;
-  }
 }
-

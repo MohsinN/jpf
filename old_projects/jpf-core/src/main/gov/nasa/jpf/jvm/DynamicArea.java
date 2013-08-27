@@ -19,79 +19,56 @@
 package gov.nasa.jpf.jvm;
 
 import gov.nasa.jpf.Config;
+import gov.nasa.jpf.jvm.bytecode.INVOKECLINIT;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
+import gov.nasa.jpf.util.Debug;
+import gov.nasa.jpf.util.IntTable;
+import gov.nasa.jpf.util.IntVector;
+import gov.nasa.jpf.util.Misc;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
+import java.util.Vector;
 
 
 /**
- * DynamicArea is used to model the heap (dynamic memory), idx.e. the area were all
- * objects created by NEW insn live. Hence the garbage collection mechanism resides here
+ * DynamicArea is the heap, i.e. the area were all objects created by NEW
+ * insn live. Hence the garbage collection mechanism resides here
  */
-public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Restorable<Heap>, ElementInfoProcessor {
+public class DynamicArea extends Area<DynamicElementInfo> {
 
-  protected class LiveIterator<E> implements Iterator<E>, Iterable<E> {
-    int idx = elementsMap.nextSetBit(0);
+  static DynamicArea heap;
 
-    public void remove() {
-      throw new UnsupportedOperationException ("illegal operation, only GC can remove objects");
-    }
-
-    public boolean hasNext() {
-      return (idx >= 0);
-    }
-
-    public E next() {
-      if (idx >= 0){
-        int ref = idx;
-        idx = elementsMap.nextSetBit(idx+1);
-        return (E)elements.get(ref);
-
-      } else {
-        throw new NoSuchElementException();
-      }
-    }
-
-    public Iterator<E> iterator() {
-      return this;
-    }
-  }
-
-  protected ReferenceQueue markQueue = new ReferenceQueue();
+  /**
+   * Used to store various mark phase infos
+   */
+  protected final BitSet isUsed = new BitSet();
+  protected final BitSet isRoot = new BitSet();
+  protected final IntVector refThread = new IntVector();
+  protected final IntVector lastAttrs = new IntVector();
 
   protected boolean runFinalizer;
   protected boolean sweep;
 
+  // just an internal helper
+  protected int markLevel;
+
   protected boolean outOfMemory; // can be used by listeners to simulate outOfMemory conditions
 
   /** used to keep track of marked WeakRefs that might have to be updated */
-  protected ArrayList<ElementInfo> weakRefs;
+  protected ArrayList<Fields> weakRefs;
 
-  // which elements are in use
-  BitSet elementsMap = new BitSet(elements.length());
+  /**
+   * DynamicMap is a mapping table used to achieve heap symmetry,
+   * associating thread/pc specific DynamicMapIndex objects with their
+   * corresponding DynamicArea elements[] index.
+   */
+  protected final IntTable<DynamicMapIndex> dynamicMap = new IntTable<DynamicMapIndex>();
 
+  public static void init (Config config) {
 
-  // this is toggled before each gc, and always restored to false if we backtrack. Used in conjunction
-  // with isAlive(ElementInfo), which returns true if the object is either marked or has the right
-  // liveBit value. We need this to avoid additional passes over all live elements at the end of
-  // the gc in order to clean up
-  boolean liveBitValue;
-
-
-  static class DAMemento extends AreaMemento<DynamicArea> implements Memento<Heap>{
-    DAMemento (DynamicArea area){
-      super(area);
-    }
-
-    public Heap restore (Heap heap){
-      // not very typesafe
-      return super.restore((DynamicArea)heap);
-    }
   }
-
 
   /**
    * Creates a new empty dynamic area.
@@ -99,37 +76,19 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
   public DynamicArea (Config config, KernelState ks) {
     super(ks);
 
-    runFinalizer = config.getBoolean("vm.finalize", false);
+    runFinalizer = config.getBoolean("vm.finalize", true);
     sweep = config.getBoolean("vm.sweep",true);
+
+    // beware - we store 'this' in a static field, which (a) makes it
+    // effectively a singleton, (b) means the assignment should be the very last
+    // insn to avoid handing out a ref to a partially initialized object (no
+    // subclassing!)
+    // <2do> - revisit during DynamicArea / Static redesign
+    heap = this;
   }
 
-
-  @Override
-  public void restoreVolatiles () {
-    // we always start with false after a restore
-    liveBitValue = false;
-  }
-
-  public Iterable<ElementInfo> liveObjects() {
-    return new LiveIterator<ElementInfo>();
-  }
-
-  @Override
-  public Iterable<DynamicElementInfo> elements() {
-    return new LiveIterator<DynamicElementInfo>();
-  }
-
-  public Iterable<ElementInfo> markedObjects() {
-    return new MarkedElementInfoIterator();
-  }
-
-
-  public Memento<Heap> getMemento(MementoFactory factory) {
-    return factory.getMemento(this);
-  }
-
-  public Memento<Heap> getMemento(){
-    return new DAMemento(this);
+  public static DynamicArea getHeap () {
+    return heap;
   }
 
   /**
@@ -143,7 +102,7 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
     return n;
   }
 
-  public boolean isOutOfMemory () {
+  public boolean getOutOfMemory () {
     return outOfMemory;
   }
 
@@ -151,51 +110,83 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
     outOfMemory = isOutOfMemory;
   }
 
-  /**
-   * Our deterministic  mark & sweep garbage collector.
-   * It is called after each transition (forward) that has changed a reference,
-   * to ensure heap symmetry (save states), but at the cost of huge
-   * gc loads, where we cannot perform all the nasty performance tricks of normal GCs.
-   * To avoid overpopulation of our heap, this can also be called every
-   * 'vm.max_alloc_gc' allocations.
-   * 
-   * note that we no longer perform reachability analysis here, which has been
-   * replaced by tracking referencing thread ids
-   */
+  public void setSweep (boolean b){
+    sweep = b;
+  }
 
   public void gc () {
-    // note - it actually seems more efficient to directly iterate over the
-    // elements, and not use the elementsMap, which indicates that objects
-    // are reasonably packed at this point
+    analyzeHeap(sweep);
+  }
 
-    JVM vm = JVM.getVM();
+  /**
+   * Our precise mark & sweep garbage collector. Be aware of two things
+   *
+   * (1) it's called every transition (forward) we detect has changed a reference,
+   *     to ensure heap symmetry (save states), but at the cost of huge
+   *     gc loads, where we cannot perform all the nasty performance tricks of
+   *     'normal' GCs
+   * (2) we do even more - we keep track of reachability, i.e. if an object is
+   *     reachable from a thread root object, to check if it is thread local
+   *     (in which case we can ignore corresponding field accesses as potential
+   *     scheduling relevant insns in our on-the-fly partial order reduction).
+   *     Note that reachability does not mean accessibility, which is much harder
+   */
+
+  public void analyzeHeap (boolean sweep) {
+    // <2do> pcm - we should refactor so that POR reachability (which is checked
+    // on each ref PUTFIELD, PUTSTATIC) is more effective !!
+
+    int i;
     int length = elements.size();
+    ElementInfo ei;
     weakRefs = null;
 
-    vm.notifyGCBegin();
+    JVM.getVM().notifyGCBegin();
+    initGc();
 
-    markQueue.clear();
-    liveBitValue = !liveBitValue; // toggle it
+    // phase 0 - not awefully nice - we have to cache the attribute values
+    // so that we can determine at the end of the gc if any live object has
+    // changed only in its attributes. 'lastAttrs' could be a local.
+    // Since we have this loop, we also use it to reset all the propagated
+    // (i.e. re-computed) object attributes of live objects
+    for (i=0; i<length; i++) {
+      ei = elements.get(i);
+      if (ei != null) {
+        lastAttrs.set( i, ei.attributes);
+        ei.attributes &= ~ElementInfo.ATTR_PROP_MASK;
 
-    //--- phase 1 - add our root sets.
-    markPinnedDown();
-    ks.threads.markRoots(this); // mark thread stacks
-    ks.statics.markRoots(this); // mark objects referenced from StaticArea ElementInfos
+        if ((ei.attributes & ElementInfo.ATTR_PINDOWN) != 0){
+          markPinnedDown(i);
+        }
+      }
+    }
 
-    //--- phase 2 - traverse all queued elements
-    markQueue.process(this);
+    // phase 1 - mark our root sets.
+    // After this phase, all directly root reachable objects have a 'lastGC'
+    // value of '-1', but are NOT recursively processed yet (i.e. all other
+    // ElementInfos still have the old 'lastGc'). However, all root marked objects
+    // do have their proper reachability attribute set
+    ks.tl.markRoots(); // mark thread stacks
+    ks.sa.markRoots(); // mark objects referenced from StaticArea ElementInfos
 
-    //--- phase 3 - run finalization (slightly approximated, since it should be
+    // phase 2 - walk through all the marked ones recursively
+    // Now we traverse, and propagate the reachability attribute. After this
+    // phase, all live objects should be marked with the 'curGc' value
+    for (i=0; i<length; i++) {
+      if (isRoot.get(i)) {
+        markRecursive(i);
+      }
+    }
+
+    // phase 3 - run finalization (slightly approximated, since it should be
     // done in a dedicated thread)
     // we need to do this in two passes, or otherwise we might end up
     // removing objects that are still referenced from within finalizers
     if (sweep && runFinalizer) {
-      //for (int i = elementsMap.nextSetBit(0); i >= 0; i = elementsMap.nextSetBit(i + 1)) {
-      for (int i=0; i<length; i++){
-        ElementInfo ei = elements.get(i);
-        if (ei == null) continue;
-        if (!ei.isMarked()) {
-          // <2do> here we have to add the object to the finalizer add
+      for (i = 0; i < length; i++) {
+        ei = elements.get(i);
+        if ((ei != null) && !isUsed.get(i)) {
+          // <2do> here we have to add the object to the finalizer queue
           // and activate the FinalizerThread (which is kind of a root object too)
           // not sure yet how to handle this best to avoid more state space explosion
           // THIS IS NOT YET IMPLEMENTED
@@ -203,87 +194,199 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
       }
     }
 
-    //--- phase 4 - all finalizations are done, reclaim all unmarked objects, idx.e.
-    // all objects with 'lastGc' != 'curGc'
+    // phase 4 - all finalizations are done, reclaim all unmarked objects, i.e.
+    // all objects with 'lastGc' != 'curGc', and check for attribute-only changes
     int count = 0;
 
-    ThreadInfo ti = vm.getCurrentThread();
-    int tid = ti.getId();
-    boolean isThreadTermination = ti.isTerminated();
+    for (i = 0; i < length; i++) {
+      ei = elements.get(i);
+      if (ei != null) {
+        if (isUsed.get(i)) {
+          // Ok, it's live, BUT..
+          // beware of the case where the only change we had was a attribute
+          // change - the downside of our marvelous object attribute system is
+          // that we have to store the attributes so that we can later-on backtrack
 
-    for (int i=0; i<length; i++){
-      ElementInfo ei = elements.get(i);
-      if (ei == null) continue;
-      if (!ei.isMarked() && sweep) {
-        // this object is garbage, toast it
+          // NOTE: even if the critical case is only the one where 'anyChanged'
+          // is false (i.e. there was no other heap change), a high number of
+          // attribute-only object changes (reachability) is bad because it means
+          // the whole object has to be stored (we don't keep the attrs separate
+          // from the other ElementInfo storage). On the other hand, we use
+          // state collapsing, and hence the overhead should be bounded (<= 2x)
+          if (lastAttrs.get(i) != ei.attributes) {
+            /*
+            if (!heapModified) {
+              // that's BAD - an attribute-only change
+              System.out.println("attr-only change of " + ei + " "
+                                   + Integer.toHexString(lastAttrs.get(i)) + " -> "
+                                   + Integer.toHexString(ei.attributes));
+            }
+            */
 
-        ei.processReleaseActions();
-        
-        count++;
-        vm.notifyObjectReleased(ei);
-        remove(i, false);
-        
-      } else {
-        // for subsequent gc and serialization
-        ei.setUnmarked();
-        ei.setAlive(liveBitValue);
-        ei.cleanUp(this, isThreadTermination, tid);
+            markChanged(i);
+          }
+
+        } else if (sweep) {
+          // this object is garbage, toast it
+          count++;
+          JVM.getVM().notifyObjectReleased(ei);
+          remove(i,false);
+        }
       }
     }
 
     if (sweep) {
+      ks.tl.sweepTerminated(isUsed);
       checkWeakRefs(); // for potential nullification
     }
 
-    vm.processPostGcActions();
-    vm.notifyGCEnd();
+    JVM.getVM().notifyGCEnd();
+  }
+
+  protected void initGc () {
+    isRoot.clear();
+    isUsed.clear();
+  }
+
+  void logMark (FieldInfo fi, ElementInfo ei, int tid, int attrMask) {
+    /**/
+    for (int i=0; i<=markLevel; i++) System.out.print("    ");
+
+    if (fi != null) {
+      System.out.print('\'');
+      System.out.print(fi.getName());
+      System.out.print("': ");
+    }
+
+    System.out.print( ei);
+
+    System.out.print( " ,attr:");
+    System.out.print( Integer.toHexString(ei.attributes));
+
+    System.out.print( " ,mask:");
+    System.out.print( Integer.toHexString(attrMask));
+
+    System.out.print( " ,thread:");
+    System.out.print( tid);
+    System.out.print( "/");
+    System.out.print( refThread.get(ei.index));
+    System.out.print( " ");
+
+    if (isRoot.get(ei.index)) System.out.print( "R");
+    if (isUsed.get(ei.index)) System.out.print( "V");
+
+    System.out.println();
+    /**/
+  }
+
+  /**
+   * recursive attribute propagating marker, used to traverse the object graph
+   * (it's here so that we can pass in gc-local data into the ElementInfo
+   * methods). This method is called on all root objects, and starts the
+   * traversal:
+   *       DynamicArea.markRecursive(objref)   <-- tid, default attrMask
+   *       ElementInfo.markRecursive(tid,attrMask)   <-- object attributes
+   *       Fields.markRecursive(tid,attributes,attrMask)   <-- field info
+   *       DynamicArea.markRecursive(objref,tid,refAttrs, attrMask, fieldInfo)
+   * @aspects: gc
+   */
+  protected void markRecursive (int objref) {
+    int tid = refThread.get(objref);
+    ElementInfo ei = elements.get(objref);
+    int attrMask = ElementInfo.ATTR_PROP_MASK;
+
+    markLevel = 0;
+
+    //logMark( null, ei, tid, attrMask);
+
+    if (ei != null) { // <2do> how can this happen?
+      ei.markRecursive(tid, attrMask);
+    }
   }
 
 
-  public void cleanUpDanglingReferences () {
-    // nothing - we already cleaned up our live objects
+  protected void markRecursive (int objref, int refTid, int refAttr, int attrMask, FieldInfo fi) {
+    if (objref == -1) {
+      return;
+    }
+    ElementInfo ei = elements.get(objref);
+
+    if (fi != null) {
+      attrMask &= fi.getAttributes();
+    }
+
+    markLevel++;
+
+    // this is a bit tricky - (1) we have to recursively descend, and (2) we
+    // have to make sure we do this only where needed (or we might get an infinite recursion
+    // or at least get slow)
+
+    if (isUsed.get(objref)) {
+      // we have seen this before, and have to check for a change in attributes that
+      // might require a re-recurse. That change could either be introduced at this
+      // level (we hit a non-shared object referenced from another thread), or it could
+      // be refAttr inflicted (i.e. passed in from a re-recurse). But in any way, we
+      // have to check for these changes being masked out (attrMask)
+
+      int attrs = ei.getAttributes();
+
+      // Ok, gotcha - but be aware sharedness might be masked out (the ThreadGroup thing)
+      if (!ei.isShared() && (refTid != refThread.get(objref))) {
+        ei.setShared(attrMask);
+      }
+
+      // even if we didn't change sharedness here, we have to propagate attributes
+      // (we might get here from the recursion of another object detected to be shared)
+      ei.propagateAttributes(refAttr, attrMask);
+
+
+      // only if the attributes have changed, we have to recurse
+      if (ei.getAttributes() != attrs) {
+        // make sure we don't traverse this again (note that root objects are marked 'isUsed')
+        if (isRoot.get(objref)) {
+          isRoot.clear(objref);
+        }
+
+        ei.markRecursive(refTid, attrMask);
+
+      } else {
+        // if attributes haven't changed, we still have to traverse this if it is a root object
+      }
+
+    } else {
+      // first time around, mark used, record referencing thread, set attributes, and recurse
+      isUsed.set(objref);
+      refThread.set(objref, refTid);
+
+      ei.propagateAttributes(refAttr, attrMask);
+      ei.markRecursive(refTid, attrMask);
+    }
+
+    markLevel--;
   }
 
 
-  //--- these are the mark phase methods
-
-  // called from ElementInfo markRecursive. We don't want to expose the
-  // markQueue since a copying gc might not have it
-  public void queueMark (int objref){
+  /**
+   * called during non-recursive phase1 marking of all objects reachable
+   * from Thread roots
+   * @aspects: gc
+   */
+  protected void markThreadRoot (int objref, int tid) {
     if (objref == -1) {
       return;
     }
 
-    ElementInfo ei = elements.get(objref);
-    if (!ei.isMarked()){ // only add objects once
-      ei.setMarked();
-      markQueue.add(ei);
-    }
-  }
-
-  public void queueMark (ElementInfo ei){
-    if (!ei.isMarked()){ // only add objects once
-      ei.setMarked();
-      markQueue.add(ei);
-    }
-  }
-
-  // called from ReferenceQueue during processing of queued references
-  // note that all queued references are alread marked as live
-  public void processElementInfo (ElementInfo ei) {
-    ei.markRecursive( this); // this might in turn call queueMark
-  }
-
-
-  public void markPinnedDown () {
-    int length = elements.size();
-    for (int i = 0; i < length; i++) {
-      ElementInfo ei = elements.get(i);
-      if (ei != null) {
-        if (ei.isPinnedDown()) {
-          queueMark(ei);
-        }
+    if (isRoot.get(objref)) {
+      int rt = refThread.get(objref);
+      if ((rt != tid) && (rt != -1)) {
+        elements.get(objref).setShared();
+        // <2do> - this would be the place to add a listener notification
       }
+    } else {
+      isRoot.set(objref);
+      refThread.set(objref, tid);
+
+      isUsed.set(objref);
     }
   }
 
@@ -292,26 +395,43 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
    * from static fields
    * @aspects: gc
    */
-  public void markStaticRoot (int objref) {
+  protected void markStaticRoot (int objref) {
     if (objref == -1) {
       return;
     }
-    queueMark(objref);
+
+    isRoot.set(objref);
+    refThread.set(objref, -1);
+
+    isUsed.set(objref);
+
+    elements.get(objref).setShared();
+    // <2do> - this would be the place to add a listener notification
   }
 
-  /**
-   * called during non-recursive phase1 marking of all objects reachable
-   * from Thread roots
-   * @aspects: gc
-   */
-  public void markThreadRoot (int objref, int tid) {
-    if (objref == -1) {
-      return;
+  void markPinnedDown (int objref){
+    isRoot.set(objref);
+    refThread.set(objref, -1);
+    isUsed.set(objref);
+    // don't set shared yet
+  }
+
+  public boolean isSchedulingRelevantObject (int objRef) {
+    if (objRef == -1) return false;
+
+    return elements.get(objRef).isSchedulingRelevant();
+  }
+
+  public void log () {
+    Debug.println(Debug.MESSAGE, "DA");
+
+    for (int i = 0; i < elements.size(); i++) {
+      if (elements.get(i) != null) {
+        elements.get(i).log();
+      }
     }
-    queueMark(objref);
   }
 
-  //--- object creation
 
   /**
    * Creates a new array of the given type
@@ -322,7 +442,7 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
   public int newArray (String elementType, int nElements, ThreadInfo ti) {
 
     //if (!Types.isTypeCode(elementType)) {
-    //  elementType = Types.getTypeSignature(elementType, true);
+    //  elementType = Types.getTypeCode(elementType, true);
     //}
 
     String type = "[" + elementType;
@@ -340,12 +460,12 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
                                      Types.isReference(elementType));
     Monitor  m = new Monitor();
 
-    DynamicElementInfo e = createElementInfo(ci,f, m, ti);
+    DynamicElementInfo e = createElementInfo(f, m);
     add(idx, e);
 
-    //if (ti != null) { // maybe we should report them all, and put the burden on the listener
+    if (ti != null) { // maybe we should report them all, and put the burden on the listener
       JVM.getVM().notifyObjectCreated(ti, elements.get(idx));
-    //}
+    }
 
     // see newObject for 'outOfMemory' handling
 
@@ -361,19 +481,19 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
    * <2do> this should return a DynamicElementInfo (most callers need it anyways,
    * and getting the ref out of the ElementInfo is more efficient than a get(ref)
    */
-  public int newObject (ClassInfo ci, ThreadInfo ti) {
+  public int newObject (ClassInfo ci, ThreadInfo th) {
     int index;
 
     // create the thing itself
     Fields             f = ci.createInstanceFields();
     Monitor            m = new Monitor();
 
-    DynamicElementInfo dei = createElementInfo(ci,f, m, ti);
+    DynamicElementInfo dei = createElementInfo(f, m);
 
     // get the index where to store this sucker, but be aware of that the
     // returned index might be outside the current elements array (super.add
     // takes care of this <Hrmm>)
-    index = indexFor(ti);
+    index = indexFor(th);
 
     // store it on the heap
     add(index, dei);
@@ -381,9 +501,9 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
     // and do the default (const) field initialization
     ci.initializeInstanceData(dei);
 
-    //if (ti != null) { // maybe we should report them all, and put the burden on the listener
-      JVM.getVM().notifyObjectCreated(ti, dei);
-    //}
+    if (th != null) { // maybe we should report them all, and put the burden on the listener
+      JVM.getVM().notifyObjectCreated(th, dei);
+    }
 
     // note that we don't return -1 if 'outOfMemory' (which is handled in
     // the NEWxx bytecode) because our allocs are used from within the
@@ -406,10 +526,13 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
       // <2do> pcm - this is BAD, we shouldn't depend on private impl of
       // external classes - replace with our own java.lang.String !
       e.setReferenceField("value", value);
+      e.setIntField("offset", 0);
+      e.setIntField("count", length);
 
-      ElementInfo eVal = get(value);
-      CharArrayFields cf = (CharArrayFields)eVal.getFields();
-      cf.setCharValues(str.toCharArray());
+      e = get(value);
+      for (int i = 0; i < length; i++) {
+        e.setElement(i, str.charAt(i));
+      }
 
       return index;
     } else {
@@ -460,76 +583,16 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
     if (e == null || !checkInternStringEntry(e)) { // not seen or new state branch
       ref = newString(str,ti);
       ElementInfo ei = get(ref);
-      ei.incPinDown();
+      ei.pinDown(true); // that's important, interns don't get recycled
 
       int vref = ei.getReferenceField("value");
-      ElementInfo eiValues = get(vref);
-      internStrings.put(str, new InternStringEntry(str,ref,eiValues.getFields()));
+      ei = get(vref);
+      internStrings.put(str, new InternStringEntry(str,ref,ei.getFields()));
       return ref;
 
     } else {
       return e.ref;
     }
-  }
-
-  //--- the primitive add and remove operations (update the elementsMap)
-
-  @Override
-  protected void add (int index, DynamicElementInfo dei){
-    elementsMap.set(index);
-    super.add(index, dei);
-  }
-
-  @Override
-  protected void set (int index, DynamicElementInfo dei){
-    elementsMap.set(index);
-    super.set(index, dei);
-  }
-
-  @Override
-  protected void remove (int index, boolean nullOk){
-    elementsMap.clear(index);
-    super.remove(index, nullOk);
-  }
-
-  @Override
-  public void removeAllFrom (int index) {
-    elementsMap.clear(index, elementsMap.length());
-    super.removeAllFrom(index);
-  }
-
-  @Override
-  public void removeAll() {
-    elementsMap.clear();
-    super.removeAll();
-  }
-
-  @Override
-  public void removeRange( int fromIdx, int toIdx){
-    elementsMap.clear(fromIdx, toIdx);
-    super.removeRange(fromIdx,toIdx);
-  }
-
-  public void registerPinDown(int objref){
-    ElementInfo ei = elements.get(objref);
-    ei.incPinDown();
-  }
-
-  public void releasePinDown(int objref){
-    ElementInfo ei = elements.get(objref);
-    ei.decPinDown();
-  }
-
-  public void registerWeakReference (ElementInfo ei) {
-    if (weakRefs == null) {
-      weakRefs = new ArrayList<ElementInfo>();
-    }
-
-    weakRefs.add(ei);
-  }
-
-  public boolean isAlive (ElementInfo ei){
-    return (ei == null || ei.isMarkedOrAlive(liveBitValue));
   }
 
   /**
@@ -539,14 +602,15 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
    */
   protected void checkWeakRefs () {
     if (weakRefs != null) {
-      for (ElementInfo ei : weakRefs) {
-        Fields f = ei.getFields();
+      int len = weakRefs.size();
+
+      for (int i = 0; i < len; i++) {
+        Fields f = weakRefs.get(i);
         int    ref = f.getIntValue(0); // watch out, the 0 only works with our own WeakReference impl
-        if (ref != MJIEnv.NULL) {
-          ElementInfo refEi = get(ref);
-          if ((refEi == null) || (refEi.isNull())) {
-            // we need to make sure the Fields are properly state managed
-            ei.setReferenceField(ei.getFieldInfo(0), MJIEnv.NULL);
+        if (ref != -1) {
+          ElementInfo ei = elements.get(ref);
+          if ((ei == null) || (ei.isNull())) {
+            f.setReferenceValue(ei, 0, -1);
           }
         }
       }
@@ -560,36 +624,143 @@ public class DynamicArea extends Area<DynamicElementInfo> implements Heap, Resto
     return new DynamicElementInfo();
   }
 
-  protected DynamicElementInfo createElementInfo (ClassInfo ci, Fields f, Monitor m, ThreadInfo ti){
-    int tid = ti == null ? 0 : ti.getId();
-    return new DynamicElementInfo(ci,f,m,tid);
+  protected DynamicElementInfo createElementInfo (Fields f, Monitor m){
+    return new DynamicElementInfo(f,m);
   }
 
 
-  protected int indexFor (ThreadInfo ti){
-    //return elements.nextNull(0);
-    return elementsMap.nextClearBit(0);
-  }
-
-  
-  // for debugging only
-  public void checkConsistency(boolean isStore) {
-    int nTotal = 0;
-    for (int i = 0; i<elements.size(); i++) {
-      DynamicElementInfo ei = elements.get(i);
-            
-      if (ei != null) {
-        assert ei.getObjectRef() == i : "inconsistent reference value of " + ei + " : " + i;
-        if (ei.hasChanged()){
-          assert hasChanged.get(i) : "inconsistent change status of " + ei;
-        }
-        nTotal++;
-        
-        ei.checkConsistency();
-      }      
+  protected void registerWeakReference (Fields f) {
+    if (weakRefs == null) {
+      weakRefs = new ArrayList<Fields>();
     }
-    
-    assert (nTotal == nElements) : "inconsistent number of elements: " + nTotal;
+
+    weakRefs.add(f);
+  }
+
+  public int getNext (ClassInfo ci, int idx){
+    int n = elements.size();
+    for (int i=idx; i<n; i++){
+      ElementInfo ei = elements.get(i);
+      if (ei != null){
+        if (ei.getClassInfo().isInstanceOf(ci)){
+          return i;
+        }
+      }
+    }
+
+    return -1;
+  }
+
+  protected int indexFor (ThreadInfo th) {
+    Instruction pc = null;
+
+    if (th != null) {
+      int pos = th.countStackFrames();
+      while (pc instanceof INVOKECLINIT && pos > 0) {
+        pos--;
+        pc = th.getPC(pos);
+      }
+    }
+
+    int index;
+
+    DynamicMapIndex dmi = new DynamicMapIndex(pc, (th == null) ? 0 : th.index, 0);
+
+    for (;;) {
+      int newIdx = dynamicMap.nextPoolVal();
+      IntTable.Entry<DynamicMapIndex> e = dynamicMap.pool(dmi);
+      index = e.val;
+      if (index == newIdx || elements.get(index) == null) {
+        // new or unoccupied
+        break;
+      }
+      // else: occupied & seen before; also ok to modify dmi
+      dmi.next();
+    }
+
+    return index;
+  }
+
+  /*
+   * The following code is used to linearize a rooted structure in the heap
+   * A PredicateMap is used to map states onto predicates as an additional key
+   * used during the linearization
+   */
+
+  protected IntTable<String> object2Value;
+
+  protected int lincount;
+
+  protected PredicateMap pMap = null;
+
+  public Vector<String> linearizeRoot(int objref) {
+  	object2Value = new IntTable<String>();
+  	lincount = 0;
+  	Vector<String> result = new Vector<String>();
+  	return linearize(objref,result);
+  }
+
+  public Vector<String> linearizeRoot(int objref, PredicateMap obj) {
+  	object2Value = new IntTable<String>();
+  	lincount = 0;
+  	Vector<String> result = new Vector<String>();
+  	pMap = obj;
+  	return linearize(objref,result);
+  }
+  /*
+   * A StructureMap is a special PredicateMap that is just an identity
+   * function, i.e. only the structure is important no additional predicaes
+   * are used
+   */
+  static class StructureMap extends PredicateMap {
+  	public void evaluate() {
+  	}
+  	public String getRep() {
+  		return "";
+  	}
+  }
+
+  public Vector<String> linearize(int objref, Vector<String> result) {
+
+  	PredicateMap mapObj = pMap;
+
+  	if (objref == -1) {
+    	result.addElement("-1");
+  		return result;
+    }
+
+  	if (mapObj == null)
+    	mapObj = new StructureMap();
+
+  	mapObj.setRef(objref);
+  	String refRep = "" + mapObj.getRef();
+
+  	String objRep;
+
+  	if (object2Value.hasEntry(refRep)) {
+  		objRep = "" + object2Value.get(refRep).val;
+  		result.addElement(objRep);
+  		return result;
+  	} else {
+    	object2Value.add(refRep, lincount);
+    	mapObj.evaluate();
+    	objRep = "" + lincount + mapObj.getRep();
+    	lincount++;
+  	}
+
+  	result.addElement(objRep);
+
+    ElementInfo ei = elements.get(objref);
+    return ei.linearize(result);
+  }
+
+  // for debugging
+  protected void verifyLockInfo() {
+    for (DynamicElementInfo dei : elements) {
+      if (dei != null) {
+        dei.verifyLockInfo(ks.tl);
+      }
+    }
   }
 }
 

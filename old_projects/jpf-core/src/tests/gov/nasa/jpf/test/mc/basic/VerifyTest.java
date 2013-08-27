@@ -19,12 +19,8 @@
 package gov.nasa.jpf.test.mc.basic;
 
 
-import gov.nasa.jpf.ListenerAdapter;
 import gov.nasa.jpf.jvm.Verify;
-import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.test.TestJPF;
-import gov.nasa.jpf.util.test.TestJPFHelper;
-
 import org.junit.Test;
 
 
@@ -32,6 +28,10 @@ import org.junit.Test;
  * test various Verify APIs
  */
 public class VerifyTest extends TestJPF {
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test public void testBreak () {
 
@@ -57,7 +57,7 @@ public class VerifyTest extends TestJPF {
     if (verifyNoPropertyViolation()) {
       String target = Verify.getProperty("target");
       System.out.println("got target=" + target);
-      assert target.equals(TestJPFHelper.class.getName());
+      assert "gov.nasa.jpf.test.mc.basic.VerifyTest".equals( target);
 
       Verify.setProperties("foo=bar");
       String p = Verify.getProperty("foo");
@@ -106,57 +106,6 @@ public class VerifyTest extends TestJPF {
       assert value == !falseFirst;
     }
   }
-  
-  /**
-   * This test ensures that stateBacktracked() is called even if the transistion 
-   * is ignored.  This is important for listeners that keep a state that must 
-   * match the JVM's state exactly and the state is updated in the middle of 
-   * transitions.  This is not possible if a backtrack happens on an ignored 
-   * transition and the stateBacktracked is not called.
-   */
-  @Test
-  public void backtrackNotificationAfterIgnore() {
-    if (verifyNoPropertyViolation("+listener+=,gov.nasa.jpf.test.mc.basic.VerifyTest$CountBacktrack",
-            "+vm.max_transition_length=MAX")) {
-      if (Verify.getBoolean(false)) {
-        Verify.ignoreIf(true);
-      }
-    } else {
-      // 2 for the Verify.getBoolean, 1 for <root>
-      assertEquals(3, CountBacktrack.getBacktrackedCount());
-    }
-  }
-  
-  public static class CountBacktrack extends ListenerAdapter {
-
-    private static int m_backtrackedCount;
-
-    public void stateBacktracked(Search search) {
-      m_backtrackedCount++;
-    }
-
-    public static int getBacktrackedCount() {
-      return (m_backtrackedCount);
-    }
-  }
    
-  // <2do>... and many more to come
-
-
-  @Test
-  public void testBitSet() {
-    int id = 2;
-
-    if (verifyNoPropertyViolation()) {      
-      // JPF execution only
-      Verify.setBitInBitSet(id, 3, true);
-      Verify.setBitInBitSet(id, 1, true);
-      
-    } else {
-      // host VM execution only
-      assert Verify.getBitInBitSet(id, 1) == true;
-      assert Verify.getBitInBitSet(id, 2) == false;
-      assert Verify.getBitInBitSet(id, 3) == true;
-    }
-  }
+  //... and many more to come
 }

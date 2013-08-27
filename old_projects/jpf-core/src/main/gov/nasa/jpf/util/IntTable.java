@@ -18,17 +18,9 @@
 //
 package gov.nasa.jpf.util;
 
-import gov.nasa.jpf.JPFException;
-
 import java.util.Iterator;
 
-/**
- * a hash map that holds int values
- * this is a straight forward linked list hashmap
- *
- * note: this does deep copy clones, which can be quite expensive
- */
-public final class IntTable<E> implements Iterable<IntTable.Entry<E>>, Cloneable{
+public final class IntTable<E> implements Iterable<IntTable.Entry<E>>{
   static final int INIT_TBL_POW = 7;
   static final double MAX_LOAD = 0.80;
   
@@ -49,37 +41,7 @@ public final class IntTable<E> implements Iterable<IntTable.Entry<E>>, Cloneable
     newTable(pow);
     size = 0;
   }
-
-  // this is a deep copy (needs to be because entries are reused when growing the table)
-  public IntTable<E> clone() {
-    try {
-      IntTable t = (IntTable)super.clone();
-      ObjArray<Entry<E>> tbl = table.clone();
-      t.table = tbl;
-
-      // clone entries
-      int len = tbl.length();
-      for (int i=0; i<len; i++){
-        Entry<E> eFirst = tbl.get(i);
-        if (eFirst != null){
-          eFirst = eFirst.clone();
-          Entry<E> ePrev = eFirst;
-          for (Entry<E> e = eFirst.next; e != null; e = e.next){
-            e = e.clone();
-            ePrev.next = e;
-            ePrev = e;
-          }
-          tbl.set(i, eFirst);
-        }
-      }
-
-      return t;
-
-    } catch (CloneNotSupportedException cnsx){
-      throw new JPFException("clone failed");
-    }
-  }
-
+  
   protected void newTable(int pow) {
     tblPow = pow;
     table = new ObjArray<Entry<E>>(1 << tblPow);
@@ -106,7 +68,7 @@ public final class IntTable<E> implements Iterable<IntTable.Entry<E>>, Cloneable
   }
   
   private void addList(Entry<E> e) {
-    Entry<E> cur = e;
+	Entry<E> cur = e;
     while (cur != null) {
       Entry<E> tmp = cur;
       cur = cur.next;
@@ -170,9 +132,7 @@ public final class IntTable<E> implements Iterable<IntTable.Entry<E>>, Cloneable
     int idx = getTableIndex(key);
     Entry<E> e = getHelper(key, idx);
     if (e == null) {
-      if (maybeRehash()){
-        idx = getTableIndex(key);
-      }
+      maybeRehash();
       doAdd(new Entry<E>(key,val), idx);
       size++;
     } else {
@@ -255,22 +215,14 @@ public final class IntTable<E> implements Iterable<IntTable.Entry<E>>, Cloneable
    * encapsulates an Entry in the table.  changes to val will be reflected
    * in the table.
    */  
-  public static class Entry<E> implements Cloneable {
+  public static class Entry<E> {
     public    final E  key;
     public    int      val;
     protected Entry<E> next;
     
     protected Entry(E k, int v) { key = k; val = v; next = null; }
     protected Entry(E k, int v, Entry<E> n) { key = k; val = v; next = n; }
-
-    public Entry<E> clone() {
-      try {
-        return (Entry<E>)super.clone();
-      } catch (CloneNotSupportedException x){
-        throw new JPFException("clone failed");
-      }
-    }
-
+    
     public String toString() {
       return key.toString() + " => " + val;
     }

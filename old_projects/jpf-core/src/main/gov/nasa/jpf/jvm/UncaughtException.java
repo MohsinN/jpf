@@ -25,12 +25,7 @@ import java.io.PrintWriter;
 
 /**
  * represents the case of an unhandled exception detected by JPF
- *
- * This is a "controlflow exception", but I finally made my peace with it since
- * UncaughtExceptions can be thrown from various places, including the VM (<clinit>, finalizer)
- * and we can't rely on that all these locations can check for pc == null. Even if they would,
- * at this point there is nothing to do anymore, get to the NoUncaughtProperty reporting
- * as quickly as possible, since chances are we would be even obfuscating the problem
+ * <2do> control flow exception (non local goto), remove this!
  */
 @SuppressWarnings("serial")
 public class UncaughtException extends RuntimeException implements Printable {
@@ -47,7 +42,7 @@ public class UncaughtException extends RuntimeException implements Printable {
     thread = ti;
     xObjRef = objRef;
     
-    ElementInfo ei = ti.getElementInfo(xObjRef);
+    ElementInfo ei = DynamicArea.getHeap().get(xObjRef);
     xClsName = ei.getClassInfo().getName();
     details = ei.getStringField("detailMessage");
   }
@@ -58,7 +53,7 @@ public class UncaughtException extends RuntimeException implements Printable {
   
   public String getMessage () {
     String s = "uncaught exception in thread " + thread.getName() +
-              " #" + thread.getId() + " : "
+              " #" + thread.getIndex() + " : "
               + xClsName;
     
     if (details != null) {
@@ -72,7 +67,7 @@ public class UncaughtException extends RuntimeException implements Printable {
     pw.print("uncaught exception in thread ");
     pw.print( thread.getName());
     pw.print(" #");
-    pw.print(thread.getId());
+    pw.print(thread.index);
     pw.print(" : ");
 
     thread.printStackTrace(pw, xObjRef);

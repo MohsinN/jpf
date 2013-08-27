@@ -22,6 +22,8 @@ import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
+import org.apache.bcel.classfile.ConstantPool;
+
 
 /**
  * Push byte
@@ -30,20 +32,14 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public class BIPUSH extends Instruction {
   private int value;
 
-  public BIPUSH() {} // this is going away
-
-  public BIPUSH(int value){
-    this.value = value;
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    value = ((org.apache.bcel.generic.BIPUSH) i).getValue().byteValue();
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     th.push(value, false);
 
     return getNext(th);
-  }
-  
-  public int getValue(){
-	  return value;
   }
   
   public int getLength() {

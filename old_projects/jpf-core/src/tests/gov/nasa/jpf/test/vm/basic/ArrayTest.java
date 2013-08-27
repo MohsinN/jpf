@@ -19,13 +19,16 @@
 package gov.nasa.jpf.test.vm.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
  * JPF part of unit test for standard VM array operations.
  */
 public class ArrayTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test
   public void test2DArray() {

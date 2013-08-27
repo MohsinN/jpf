@@ -66,12 +66,12 @@ public class DoubleSpec {
       catch (JPFException e){ //not local? try a field!
         int id = ti.getThis();
         if(id>=0){  // in a normal (non-static) method
-          ElementInfo ei = vm.getElementInfo(id);
+          ElementInfo ei = vm.getDynamicArea().get(id);
           ret = ei.getDoubleField(varId[0]);
         }
         else { // static method (no this)- must be static var
           ClassInfo ci = ti.getMethod().getClassInfo();
-          StaticElementInfo ei = vm.getKernelState().statics.get(ci.getName());
+          StaticElementInfo ei = vm.getKernelState().sa.get(ci.getName());
           ret = ei.getDoubleField(varId[0]);
         }
       }

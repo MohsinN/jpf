@@ -18,17 +18,18 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.*;
+import org.apache.bcel.classfile.ConstantPool;
+
 
 /**
  * Exit monitor for object 
  * ..., objectref => ... 
  */
 public class MONITOREXIT extends LockInstruction {
+
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+  }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
     int objref = ti.peek();
@@ -38,34 +39,35 @@ public class MONITOREXIT extends LockInstruction {
     }
 
     lastLockRef = objref;
-    ElementInfo ei = ks.heap.get(objref);
+    ElementInfo ei = ks.da.get(objref);
 
-    if (!ti.isFirstStepInsn()){
-      
-      // we only do this in the bottom half, but before potentially creating
-      // a CG so that other threads that might become runnable are included
-      ei.unlock(ti); // might still be recursive
+    ei.unlock(ti);                              // Do this before potentially creating the CG, but don't pop yet, since then we've lost the lock object (also in RETURN)
 
-      if (ei.getLockCount() == 0){ // this gave up the lock, check for CG
-        // this thread obviously has referenced the object before, but other
-        // referencers might have terminated so we want to update anyways
-        if (ei.checkUpdatedSharedness(ti)) {
-          ChoiceGenerator cg = ss.getSchedulerFactory().createMonitorExitCG(ei, ti);
-          if (cg != null) {
-            if (ss.setNextChoiceGenerator(cg)) {
-              return this;
-            }
-          }
-        }
-      }
-    }
-
-    ti.pop();
+    if (isLastUnlock(ei))                       // If this is the last release, then consider a choice point
+      if (isShared(ti, ei))                     // If the object is shared, then consider a choice point
+        if (!ti.isFirstStepInsn())              // First time around - reexecute if the scheduling policy gives us a choice point
+          if (executeChoicePoint(ss, ti, ei))
+            return this;                        // Repeat execution.  Keep instruction on the stack.
+    
+    ti.pop();                                   // Now we can safely purge the lock object, the unlocking already is done above.
 
     return getNext(ti);
   }
+  
+  private boolean executeChoicePoint(SystemState ss, ThreadInfo ti, ElementInfo ei) {
+    
+    ChoiceGenerator cg = ss.getSchedulerFactory().createMonitorExitCG(ei, ti);
+        
+    if (cg == null) {
+      return false; 
+    }
+    
+    ss.setNextChoiceGenerator(cg);
+    //ti.skipInstructionLogging();
 
-
+    return true;
+  }
+  
   public int getByteCode () {
     return 0xC3;
   }

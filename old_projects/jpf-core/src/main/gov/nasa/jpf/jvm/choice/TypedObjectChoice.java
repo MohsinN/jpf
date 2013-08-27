@@ -19,21 +19,19 @@
 
 package gov.nasa.jpf.jvm.choice;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.jvm.ChoiceGeneratorBase;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.Heap;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.ReferenceChoiceGenerator;
-
 import java.util.ArrayList;
+
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.DynamicArea;
+import gov.nasa.jpf.jvm.ElementInfo;
+import gov.nasa.jpf.jvm.ReferenceChoiceGenerator;
 
 /**
  * a choice generator that enumerates the set of all objects of a certain type. This
  * is a replacement for the old 'Verify.randomObject'
  */
-public class TypedObjectChoice extends ChoiceGeneratorBase<Integer> implements ReferenceChoiceGenerator {
+public class TypedObjectChoice extends ReferenceChoiceGenerator {
   
   // the requested object type
   protected String type;
@@ -48,7 +46,7 @@ public class TypedObjectChoice extends ChoiceGeneratorBase<Integer> implements R
   public TypedObjectChoice (Config conf, String id)  {
     super(id);
     
-    Heap heap = JVM.getVM().getHeap();
+    DynamicArea heap = DynamicArea.getHeap();
     
     type = conf.getString(id + ".type");
     if (type == null) {
@@ -57,7 +55,7 @@ public class TypedObjectChoice extends ChoiceGeneratorBase<Integer> implements R
     
     ArrayList<ElementInfo> list = new ArrayList<ElementInfo>();
     
-    for ( ElementInfo ei : heap.liveObjects()) {
+    for ( ElementInfo ei : heap) {
       ClassInfo ci = ei.getClassInfo();
       if (ci.isInstanceOf(type)) {
         list.add(ei);
@@ -67,7 +65,7 @@ public class TypedObjectChoice extends ChoiceGeneratorBase<Integer> implements R
     values = new int[list.size()];
     int i = 0;
     for ( ElementInfo ei : list) {
-      values[i++] = ei.getObjectRef();
+      values[i++] = ei.getIndex();
     }
     
     count = -1;
@@ -96,8 +94,6 @@ public class TypedObjectChoice extends ChoiceGeneratorBase<Integer> implements R
   @Override
   public void reset () {
     count = -1;
-
-    isDone = false;
   }
 
   public Integer getNextChoice () {
@@ -136,10 +132,5 @@ public class TypedObjectChoice extends ChoiceGeneratorBase<Integer> implements R
       values[j] = tmp;
     }
     return this;
-  }
-
-  @Override
-  public Class<Integer> getChoiceType() {
-    return Integer.class;
   }
 }

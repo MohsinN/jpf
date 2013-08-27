@@ -21,7 +21,6 @@ package gov.nasa.jpf.test.vm.threads;
 import gov.nasa.jpf.annotation.FilterField;
 import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 
@@ -30,6 +29,10 @@ import org.junit.Test;
  */
 public class ThreadTest extends TestJPF {
   static String didRunThread = null;
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test public void testDaemon () {
     if (verifyNoPropertyViolation()) {

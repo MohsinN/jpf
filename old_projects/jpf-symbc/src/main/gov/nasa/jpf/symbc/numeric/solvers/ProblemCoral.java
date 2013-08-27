@@ -52,8 +52,8 @@ import coral.util.Config;
  * with each variables if they exist.
  *
  *
- * @author Matheus Arrais (mbas@cin.ufpe.br)
- * @author Mateus Borges (mab@cin.ufpe.br)
+ * @author Mateus Arrais (mabs@cin.ufpe.br)
+ * @author Marcelo Borges (mab@cin.ufpe.br)
  * @author Marcelo d'Amorim (damorim@cin.ufpe.br)
  *
  */
@@ -61,32 +61,21 @@ import coral.util.Config;
 public class ProblemCoral extends ProblemGeneral {
 
 	private static final long timeout = -1; //Config.timeout; // 1s default
-	private SolverKind solverKind;
+	private SolverKind solverKind = SolverKind.PSO_OPT4J;
 	private coral.PC pc = new coral.PC();
-	private boolean optmize;
 	
-	public ProblemCoral() {
-		this(SolverKind.PSO_OPT4J, true);
-	}
-	
-	public ProblemCoral(SolverKind solverKind, boolean preprocOptimizations){
+	{
 		/**
 		 * setting maximum number of iterations allowed.
 		 * the solver return with no solution in that 
 		 * case.  note that the constraint may still be
 		 * satisfiable.
 		 */
-		this.solverKind = solverKind;
-		this.optmize = preprocOptimizations;
 		Config.nIterationsPSO = 500;
 		/**
 		 * random seed used to generate random numbers. 
 		 */
 		Config.seed = 464655;
-	}
-	
-	public coral.PC getPc() {
-		return pc;
 	}
 	
 	/**************************************************
@@ -588,14 +577,11 @@ public class ProblemCoral extends ProblemGeneral {
 		Solver solver = solverKind.get();
 		Boolean result = null;
 		try {
-			Config.toggleValueInference = optmize;
-			Config.removeSimpleEqualities = optmize;
 			sol = solveIt(pc, solver);
 			/**
 			 * this is to comply with the assumption
 			 * of the calling method
 			 */
-			
 			if (sol.getResult() == Result.SAT) {
 				result = true;
 			}
@@ -612,6 +598,7 @@ public class ProblemCoral extends ProblemGeneral {
 	@SuppressWarnings("unused")
 	private Env solveIt(final PC pc, final Solver solver) throws InterruptedException {
 		final Env[] env = new Env[1];
+		Config.nIterationsPSO = 400; // number of iterations
 		Runnable solverJob = new Runnable() {
 			@Override
 			public void run() {
@@ -622,11 +609,7 @@ public class ProblemCoral extends ProblemGeneral {
 				}
 			}
 		};
-		/**
-		 * If solving is based on timeouts (value > 0) 
-		 * the code spawns a timer thread.  otherwise,
-		 * it calls the run() method directly.
-		 */
+
 		if (timeout > 0) { // old code; not executed
 			Thread t = new Thread(solverJob);
 			t.start();
@@ -658,11 +641,7 @@ public class ProblemCoral extends ProblemGeneral {
 	@Override
 	public int getIntValue(Object dpVar) {
 		SymNumber symNumber = sol.getValue((SymLiteral)dpVar);
-		try {
 		return symNumber.evalNumber().intValue();
-		} catch (NullPointerException _) {
-			throw _;
-		}
 	}
 
 	@Override

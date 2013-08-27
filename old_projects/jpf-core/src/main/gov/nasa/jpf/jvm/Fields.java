@@ -18,10 +18,9 @@
 //
 package gov.nasa.jpf.jvm;
 
+import gov.nasa.jpf.JPFException;
 import gov.nasa.jpf.util.HashData;
 import gov.nasa.jpf.util.IntVector;
-import gov.nasa.jpf.util.Misc;
-import gov.nasa.jpf.util.ObjectList;
 
 
 /**
@@ -34,6 +33,16 @@ import gov.nasa.jpf.util.ObjectList;
  * @see gov.nasa.jpf.jvm.Monitor
  */
 public abstract class Fields implements Cloneable {
+  static int FATTR_MASK = 0xffff; // pass all propagated attributes
+
+  /** Type of the object or class */
+  protected final String type;
+
+  /** the class of this object */
+  protected final ClassInfo ci;
+
+  /** this is where we store the instance data */
+  protected int[] values;
 
   /**
    * we use this to store arbitrary field attributes (like symbolic values),
@@ -46,19 +55,23 @@ public abstract class Fields implements Cloneable {
    */
   protected Object objectAttr;
 
+  protected Fields (String type, ClassInfo ci, int dataSize) {
+    this.type = type;
+    this.ci = ci;
 
-  protected Fields() {}
+    values = new int[dataSize];
+  }
 
-  public boolean hasFieldAttr() {
+  public boolean hasFieldAttrs() {
     return fieldAttrs != null;
   }
 
-  public boolean hasFieldAttr (Class<?> attrType){    
+  public boolean hasFieldAttrs (Class<?> attrType){
     Object[] fa = fieldAttrs;
     if (fa != null){
       for (int i=0; i<fa.length; i++){
         Object a = fa[i];
-        if (a != null && ObjectList.containsType(a, attrType)){
+        if (a != null && attrType.isAssignableFrom(a.getClass())){
           return true;
         }
       }
@@ -66,277 +79,429 @@ public abstract class Fields implements Cloneable {
     return false;
   }
 
-
   /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
+   * set the (optional) attribute for a field
+   *
+   * note that the provided fieldIndex is the ordinal of the field, not
+   * an index into values (a long field occupies two values slots)
    */
-  public Object getFieldAttr(int fieldOrElementIndex){
+  public void setFieldAttr (int fieldOrElementIndex, Object attr){
+    if (fieldAttrs == null){
+      if (attr == null){
+        return; // no need to waste an array object for storing null
+      }
+      fieldAttrs = new Object[getNumberOfFieldsOrElements()];
+    }
+    fieldAttrs[fieldOrElementIndex] = attr;
+  }
+
+  public <T> T getFieldAttr (Class<T> attrType, int fieldOrElementIndex){
+    if (fieldAttrs != null){
+      Object a = fieldAttrs[fieldOrElementIndex];
+      if (a != null && attrType.isAssignableFrom(a.getClass())){
+        return (T) a;
+      }
+    }
+
+    return null;
+  }
+
+  // supposed to return all
+  public Object getFieldAttr (int fieldOrElementIndex){
     if (fieldAttrs != null){
       return fieldAttrs[fieldOrElementIndex];
     }
     return null;
   }
 
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setFieldAttr (int nFieldsOrElements, int fieldOrElementIndex, Object attr){
-    if (fieldAttrs == null){
-      if (attr == null){
-        return; // no need to waste an array object for storing null
-      }
-      fieldAttrs = new Object[nFieldsOrElements];
-    }
-    fieldAttrs[fieldOrElementIndex] = attr;
-  }
-  
-  public void addFieldAttr (int nFieldsOrElements, int fieldOrElementIndex, Object attr){
-    if (attr != null){
-      if (fieldAttrs == null) {
-        fieldAttrs = new Object[nFieldsOrElements];
-      }
-      fieldAttrs[fieldOrElementIndex] = ObjectList.add(fieldAttrs[fieldOrElementIndex], attr);
-    }
-  }
-  
-  public void removeFieldAttr (int fieldOrElementIndex, Object attr){
-    if (fieldAttrs != null){
-     fieldAttrs[fieldOrElementIndex] = ObjectList.remove(fieldAttrs[fieldOrElementIndex], attr);
-    }
-  }
-  
-  public void replaceFieldAttr (int fieldOrElementIndex, Object oldAttr, Object newAttr){
-    if (fieldAttrs != null){
-     fieldAttrs[fieldOrElementIndex] = ObjectList.replace(fieldAttrs[fieldOrElementIndex], oldAttr, newAttr);
-    }
-  }
-  
-  public boolean hasFieldAttr (int fieldOrElementIndex, Class<?> type){
-    if (fieldAttrs != null){
-     return ObjectList.containsType(fieldAttrs[fieldOrElementIndex], type);
-    }
-    return false;
-  }
-
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getFieldAttr (int fieldOrElementIndex, Class<T> type){
-    if (fieldAttrs != null){
-     return ObjectList.getFirst(fieldAttrs[fieldOrElementIndex], type);
-    }
-    return null;    
-  }
-  
-  public <T> T getNextFieldAttr (int fieldOrElementIndex, Class<T> type, Object prev){
-    if (fieldAttrs != null){
-     return ObjectList.getNext(fieldAttrs[fieldOrElementIndex], type, prev);
-    }
-    return null;    
-  }
-  
-  public ObjectList.Iterator fieldAttrIterator(int fieldOrElementIndex){
-    Object a = (fieldAttrs != null) ? fieldAttrs[fieldOrElementIndex] : null;
-    return ObjectList.iterator(a);
-  }
-  
-  public <T> ObjectList.TypedIterator<T> fieldAttrIterator(int fieldOrElementIndex, Class<T> type){
-    Object a = (fieldAttrs != null) ? fieldAttrs[fieldOrElementIndex] : null;
-    return ObjectList.typedIterator(a, type);
-  }
-  
-
-  //--- object attributes
   public boolean hasObjectAttr () {
     return (objectAttr != null);
   }
 
   public boolean hasObjectAttr (Class<?> attrType){
-    return ObjectList.containsType(objectAttr, attrType);
+    return objectAttr != null && attrType.isAssignableFrom(objectAttr.getClass());
   }
 
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */
-  public Object getObjectAttr(){
+  public void setObjectAttr (Object attr){
+    objectAttr = attr;
+  }
+
+  public <T> T getObjectAttr (Class<T> attrType) {
+    if (objectAttr != null && attrType.isAssignableFrom(objectAttr.getClass())){
+      return (T)objectAttr;
+    }
+    return null;
+  }
+
+  // supposed to return all
+  public Object getObjectAttr () {
     return objectAttr;
   }
 
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setObjectAttr (Object attr){
-    objectAttr = attr;    
-  }
-
-  public void addObjectAttr (Object attr){
-    objectAttr = ObjectList.add(objectAttr, attr);
-  }
-
-  public void removeObjectAttr (Object attr){
-    objectAttr = ObjectList.remove(objectAttr, attr);
-  }
-
-  public void replaceObjectAttr (Object oldAttr, Object newAttr){
-    objectAttr = ObjectList.replace(objectAttr, oldAttr, newAttr);
+  int getNumberOfFieldsOrElements () {
+    return getNumberOfFields();
   }
 
   /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getObjectAttr (Class<T> attrType) {
-    return ObjectList.getFirst(objectAttr, attrType);
-  }
-
-  public <T> T getNextObjectAttr (Class<T> attrType, Object prev) {
-    return ObjectList.getNext(objectAttr, attrType, prev);
-  }
-
-  public ObjectList.Iterator objectAttrIterator(){
-    return ObjectList.iterator(objectAttr);
-  }
-  
-  public <T> ObjectList.TypedIterator<T> objectAttrIterator(Class<T> attrType){
-    return ObjectList.typedIterator(objectAttr, attrType);
-  }
-
-
-  public abstract int[] asFieldSlots();
-
-  /**
-   * give an approximation of the heap size in bytes - we assume fields are word
-   * aligned, hence the number of values*4 should be good. Note that this is
+   * give an approximation of the heap size in bytes - we assume fields a word
+   * aligned, hence the number of fields*4 should be good. Note that this is
    * overridden by ArrayFields (arrays would be packed)
    */
-  public abstract int getHeapSize ();
+  public int getHeapSize () {
+    return values.length * 4;
+  }
 
+  /**
+   * do we have a reference field with value objRef? This is used by
+   * the reachability analysis
+   */
+  public boolean hasRefField (int objRef) {
+    return ci.hasRefField( objRef, this);
+  }
+
+  /**
+   * Returns true if the fields belong to an array.
+   */
+  public boolean isArray () {
+    return Types.getBaseType(type) == Types.T_ARRAY;
+  }
 
   public boolean isReferenceArray () {
     return false;
   }
 
-  // our low level getters and setters
-  public abstract int getIntValue (int index);
-
-  // same as getIntValue(), just here to make intentions clear
-  public abstract int getReferenceValue (int index);
-
-  public abstract long getLongValue (int index);
-
-  public abstract boolean getBooleanValue (int index);
-
-  public abstract byte getByteValue (int index);
-
-  public abstract char getCharValue (int index);
-
-  public abstract short getShortValue (int index);
-
-  public abstract float getFloatValue (int index);
-
-  public abstract double getDoubleValue (int index);
-
-  //--- the field modifier methods (both instance and static)
-
-  public abstract void setReferenceValue (int index, int newValue);
-
-  public abstract void setBooleanValue (int index, boolean newValue);
-
-  public abstract void setByteValue (int index, byte newValue);
-
-  public abstract void setCharValue (int index, char newValue);
-
-  public abstract void setShortValue (int index, short newValue);
-
-  public abstract void setFloatValue (int index, float newValue);
-
-  public abstract void setIntValue (int index, int newValue);
-
-  public abstract void setLongValue (int index, long newValue);
-
-  public abstract void setDoubleValue (int index, double newValue);
-
-  public abstract Fields clone ();
-
-  protected Fields cloneFields() {
-    try {
-      Fields f = (Fields)super.clone();
-
-      if (fieldAttrs != null) {
-        f.fieldAttrs = fieldAttrs.clone();
-      }
-
-      if (objectAttr != null) {
-        f.objectAttr = objectAttr; //
-      }
-
-      return f;
-    } catch (CloneNotSupportedException cnsx){
-      return null;
-    }
+  /**
+   * Returns a reference to the class information.
+   */
+  public ClassInfo getClassInfo () {
+    return ci;
   }
 
-  public abstract boolean equals(Object o);
+  public abstract int getNumberOfFields ();
+  // NOTE - fieldIndex (ClassInfo) != storageOffset (Fields). We *don't pad anymore!
+  public abstract FieldInfo getFieldInfo (int fieldIndex);
 
-  // <2do> not multi-attr aware yet
-  protected boolean compareAttrs(Fields f) {
-    if (fieldAttrs != null || f.fieldAttrs != null) {
-      if (!Misc.compare(fieldAttrs, f.fieldAttrs)) {
+  // our low level getters and setters
+  public int getIntValue (int index) {
+    return values[index];
+  }
+
+  public boolean isEqual (Fields other, int off, int len, int otherOff) {
+    int iEnd = off + len;
+    int jEnd = otherOff + len;
+    int[] v = other.values;
+
+    if ((iEnd > values.length) || (jEnd > v.length)) {
+      return false;
+    }
+
+    for (int i=off, j=otherOff; i<iEnd; i++, j++) {
+      if (values[i] != v[j]) {
         return false;
       }
     }
 
-    if (!ObjectList.equals(objectAttr, f.objectAttr)){
+    return true;
+  }
+
+  // same as above, just here to make intentions clear
+  public int getReferenceValue (int index) {
+    return values[index];
+  }
+
+  public long getLongValue (int index) {
+    return Types.intsToLong(values[index + 1], values[index]);
+  }
+
+  public boolean getBooleanValue (int index) {
+    return Types.intToBoolean(values[index]);
+  }
+
+  public byte getByteValue (int index) {
+    return (byte) values[index];
+  }
+
+  public char getCharValue (int index) {
+    return (char) values[index];
+  }
+
+  public short getShortValue (int index) {
+    return (short) values[index];
+  }
+
+  // beware, this is only for internal use, to increase efficiency
+  protected int[] getValues() {
+    return values;
+  }
+
+  //--- the field modifier methods (both instance and static)
+
+  public void setReferenceValue (ElementInfo ei, int index, int newValue) {
+    values[index] = newValue;
+  }
+
+  public void setBooleanValue (ElementInfo ei, int index, boolean newValue) {
+    values[index] = newValue ? 1 : 0;
+  }
+
+  public void setByteValue (ElementInfo ei, int index, byte newValue) {
+    values[index] = newValue;
+  }
+
+  public void setCharValue (ElementInfo ei, int index, char newValue) {
+    values[index] = (int)newValue;
+  }
+
+  public void setShortValue (ElementInfo ei, int index, short newValue) {
+    values[index] = newValue;
+  }
+
+  public void setFloatValue (ElementInfo ei, int index, float newValue) {
+    values[index] = Types.floatToInt(newValue);
+  }
+
+  public void setIntValue (ElementInfo ei, int index, int newValue) {
+    values[index] = newValue;
+  }
+
+  public void setLongValue (ElementInfo ei, int index, long newValue) {
+		values[index++] = Types.hiLong(newValue);
+    values[index] = Types.loLong(newValue);
+  }
+
+  public void setDoubleValue (ElementInfo ei, int index, double newValue) {
+    values[index++] = Types.hiDouble(newValue);
+    values[index] = Types.loDouble(newValue);
+  }
+
+
+  public float getFloatValue (int index) {
+    return Types.intToFloat(values[index]);
+  }
+
+  public double getDoubleValue (int index) {
+    return Types.intsToDouble( values[index+1], values[index]);
+  }
+
+
+
+
+  /**
+   * Returns the type of the object or class associated with the fields.
+   */
+  public String getType () {
+    return type;
+  }
+
+  /**
+   * Creates a clone.
+   */
+  public Fields clone () {
+    Fields f;
+
+    try {
+      f = (Fields) super.clone();
+      f.values = values.clone();
+
+      // NOTE - attribute objects are not cloned automatically - if you
+      // change them and they need to preserve state, you have to do this explicitly
+
+      if (fieldAttrs != null){
+        f.fieldAttrs = fieldAttrs.clone();
+      }
+
+      if (objectAttr != null){
+        f.objectAttr = objectAttr; //
+      }
+    } catch (CloneNotSupportedException e) {
+      throw new InternalError(e.getMessage());
+    }
+
+    return f;
+  }
+
+  /**
+   * Checks for equality.
+   */
+  public boolean equals (Object o) {
+    if (o == null || !(o instanceof Fields)) {
+      return false;
+    }
+
+    Fields f = (Fields) o;
+
+    if (!type.equals(f.type) || (ci != f.ci)) {
+      return false;
+    }
+
+    //--- check values
+    int[] v1 = values;
+    int[] v2 = f.values;
+    int   l = v1.length;
+    if (l != v2.length) {
+      return false;
+    }
+    for (int i = 0; i < l; i++) {
+      if (v1[i] != v2[i]) {
+        return false;
+      }
+    }
+
+    //--- check attributes (if any)
+    Object[] a = fieldAttrs;
+    Object[] a1 = f.fieldAttrs;
+    if ((a == null) != (a1 == null)) {
+      return false;
+    }
+    if (a != null) {
+      l = a.length;
+      if (l != a1.length) {
+        return false;
+      }
+      for (int i=0; i<l; i++) {
+        if (a[i] == null) {
+          if (a1[i] != null) {
+            return false;
+          }
+        } else {
+          if (a1[i] == null) {
+            return false;
+          } else if (!a[i].equals(a1[i])) {
+            return false;
+          }
+        }
+      }
+    }
+
+    if (objectAttr != null){
+      if (!objectAttr.equals(f.objectAttr)){
+        return false;
+      }
+    } else if (f.objectAttr != null){
       return false;
     }
 
     return true;
   }
 
-  // serialization interface
-  public abstract void appendTo(IntVector v);
-
-
-  public int hashCode () {
-    HashData hd = new HashData();
-    hash(hd);
-    hashAttrs(hd);
-    return hd.getValue();
+  public void copyTo(IntVector v) {
+    v.append(values);
   }
 
-  public abstract void hash(HashData hd);
+
+
+  public int arrayLength () {
+    // re-implemented by ArrayFields
+    throw new JPFException ("attempt to get length of non-array: " + ci.getName());
+  }
+
+  public boolean[] asBooleanArray () {
+    throw new JPFException( "not an array object: " + ci.getName());
+  }
+  public byte[] asByteArray () {
+    throw new JPFException( "not an array object: " + ci.getName());
+  }
+  public char[] asCharArray () {
+    throw new JPFException( "not an array object: " + ci.getName());
+  }
+  public short[] asShortArray () {
+    throw new JPFException( "not an array object: " + ci.getName());
+  }
+  public int[] asIntArray () {
+    throw new JPFException( "not an array object: " + ci.getName());
+  }
+  public long[] asLongArray () {
+    throw new JPFException( "not an array object: " + ci.getName());
+  }
+  public float[] asFloatArray () {
+    throw new JPFException( "not an array object: " + ci.getName());
+  }
+  public double[] asDoubleArray () {
+    throw new JPFException( "not an array object: " + ci.getName());
+  }
+
+  /**
+   * Computes an hash code.
+   */
+  public int hashCode () {
+    HashData hd = new HashData();
+
+    hash(hd);
+
+    return hd.getValue();
+  }
 
   /**
    * Adds some data to the computation of an hashcode.
    */
-  public void hashAttrs (HashData hd) {
+  public void hash (HashData hd) {
+    int[] v = values;
+    for (int i=0, l=v.length; i < l; i++) {
+      hd.add(v[i]);
+    }
 
     // it's debatable if we add the attributes to the state, but whatever it
     // is, it should be kept consistent with the StackFrame.hash()
     Object[] a = fieldAttrs;
     if (a != null) {
       for (int i=0, l=a.length; i < l; i++) {
-        ObjectList.hash(a[i], hd);
+        hd.add(a[i]);
       }
     }
 
     if (objectAttr != null){
-      ObjectList.hash(objectAttr, hd);
+      hd.add(objectAttr);
     }
   }
 
+  /**
+   * Size of the fields.
+   */
+  public int size () {
+    return values.length;
+  }
 
-  // <2do> not multi-attr aware yet
-  public void copyAttrs(Fields other) {
+  public String toString () {
+    StringBuilder sb = new StringBuilder("Fields(type=");
+
+    sb.append(type);
+    sb.append(',');
+
+    sb.append("ci=");
+    sb.append(ci.getName());
+    sb.append(',');
+
+    sb.append("values=");
+    sb.append('[');
+
+    for (int i = 0; i < values.length; i++) {
+      if (i != 0) {
+        sb.append(',');
+      }
+
+      sb.append(values[i]);
+    }
+
+    sb.append(']');
+    sb.append(',');
+
+    sb.append(')');
+
+    return sb.toString();
+  }
+
+  protected abstract String getLogChar ();
+
+  // do not modify result!
+  public int[] dumpRawValues() {
+    return values;
+  }
+
+  public void copyFrom(Fields other) {
+    //assert (other.values.length == this.values.length);
+    assert (other.ci == this.ci);
+    System.arraycopy(other.values, 0, this.values, 0, values.length);
+
     if (other.fieldAttrs != null){
       if (fieldAttrs == null){
         fieldAttrs = other.fieldAttrs.clone();
@@ -346,5 +511,11 @@ public abstract class Fields implements Cloneable {
     }
 
     objectAttr = other.objectAttr;
+  }
+
+  // Method that finds the FieldInfo for the given storrageOffset
+  // of some field, overriden in StaticFields and DynamicFields.
+  protected FieldInfo findFieldInfo (int storageOffset) {
+    return null;
   }
 }

@@ -79,8 +79,6 @@ public abstract class InstructionVisitorAdapter
 
 	public void visit(DDIV ins) {}
 
-  public void visit(DIRECTCALLRETURN ins) {}
-
 	public void visit(DLOAD ins) {}
 
 	public void visit(DMUL ins) {}
@@ -232,8 +230,6 @@ public abstract class InstructionVisitorAdapter
 	public void visit(INVOKESTATIC ins){}
 	
 	public void visit(INVOKEVIRTUAL ins){}
-
-  public void visit(EXECUTENATIVE ins){}
 	
 	public void visit(IOR ins){}
 	
@@ -322,8 +318,6 @@ public abstract class InstructionVisitorAdapter
 	public void visit(MONITOREXIT ins){}
 	
 	public void visit(MULTIANEWARRAY ins){}
-
-  public void visit(NATIVERETURN ins) {}
 	
 	public void visit(NEW ins){}
 	
@@ -344,6 +338,8 @@ public abstract class InstructionVisitorAdapter
 	public void visit(RETURN ins){}
 	
 	public void visit(ReturnInstruction ins){}
+	
+	public void visit(RUNSTART ins){}
 	
 	public void visit(SALOAD ins){}
 	

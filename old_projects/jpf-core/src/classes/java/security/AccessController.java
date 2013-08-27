@@ -18,6 +18,12 @@
 //
 package java.security;
 
+import java.security.Permission;
+import java.security.PrivilegedExceptionAction;
+import java.security.AccessControlContext;
+import java.security.PrivilegedActionException;
+import java.security.AccessControlException;
+import java.security.PrivilegedAction;
 
 /*
  * MJI model class for java.security.AccessController library abstraction

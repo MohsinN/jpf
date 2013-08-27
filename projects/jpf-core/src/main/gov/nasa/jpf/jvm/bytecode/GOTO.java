@@ -18,9 +18,10 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.MethodInfo;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -29,7 +30,7 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  *
  * <2do> store this as code insnIndex, not as bytecode position
  */
-public class GOTO extends Instruction {
+public class GOTO extends JVMInstruction {
   protected int targetPosition;
   Instruction target;
 
@@ -37,7 +38,7 @@ public class GOTO extends Instruction {
     this.targetPosition = targetPosition;
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
+  public Instruction execute (ThreadInfo th) {
     return getTarget();
   }
 
@@ -66,5 +67,23 @@ public class GOTO extends Instruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
+  }
+
+  @Override
+  public Instruction typeSafeClone(MethodInfo mi) {
+    GOTO clone = null;
+
+    try {
+      clone = (GOTO) super.clone();
+
+      // reset the method that this insn belongs to
+      clone.mi = mi;
+
+      clone.target = null;
+    } catch (CloneNotSupportedException e) {
+      e.printStackTrace();
+    }
+
+    return clone;
   }
 }

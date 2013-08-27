@@ -1,7 +1,6 @@
 package gov.nasa.jpf.annotation;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.*;
 
 /**
  * annotation that can be used to change JPF config properties

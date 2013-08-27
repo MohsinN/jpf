@@ -18,24 +18,23 @@
 //
 package gov.nasa.jpf.jvm;
 
+
 import gov.nasa.jpf.Config;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.util.MethodInfoRegistry;
 import gov.nasa.jpf.util.RunListener;
 import gov.nasa.jpf.util.RunRegistry;
 
-import java.lang.reflect.Modifier;
-import java.util.ArrayList;
 
 public class JPF_java_lang_reflect_Method {
 
   static MethodInfoRegistry registry;
-
-  // class init - this is called automatically from the NativePeer ctor
+    
   public static void init (Config conf) {
     // this is an example of how to handle cross-initialization between
     // native peers - this might also get explicitly called by the java.lang.Class
     // peer, since it creates Method objects. Here we have to make sure
-    // we only reset between JPF runs
+    // we only re-pushClinit between JPF runs
 
     if (registry == null){
       registry = new MethodInfoRegistry();
@@ -48,21 +47,17 @@ public class JPF_java_lang_reflect_Method {
     }
   }
 
-  static int createMethodObject (MJIEnv env, ClassInfo ciMth, MethodInfo mi){
-    // note - it is the callers responsibility to ensure Method is properly initialized    
+  static int createMethodObject (MJIEnv env, MethodInfo mi){
     int regIdx = registry.registerMethodInfo(mi);
-    int eidx = env.newObject( ciMth);
+    int eidx = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.reflect.Method"));
     ElementInfo ei = env.getElementInfo(eidx);
     
     ei.setIntField("regIdx", regIdx);
-    ei.setBooleanField("isAccessible", mi.isPublic());
     
     return eidx;
   }
   
-  // this is NOT an MJI method, but it is used outside this package, so
-  // we have to add 'final'
-  public static final MethodInfo getMethodInfo (MJIEnv env, int objRef){
+  static MethodInfo getMethodInfo (MJIEnv env, int objRef){
     return registry.getMethodInfo(env,objRef, "regIdx");
   }
   
@@ -83,7 +78,7 @@ public class JPF_java_lang_reflect_Method {
     return mi.getModifiers();
   }
   
-  static int getParameterTypes( MJIEnv env, MethodInfo mi) {
+  static int getParameterTypes( MJIEnv env, int objRef, MethodInfo mi) {
     try {
       ThreadInfo ti = env.getThreadInfo();
       String[] argTypeNames = mi.getArgumentTypeNames();
@@ -112,16 +107,16 @@ public class JPF_java_lang_reflect_Method {
   }
   
   public static int getParameterTypes_____3Ljava_lang_Class_2 (MJIEnv env, int objRef){
-    return getParameterTypes(env, getMethodInfo(env, objRef));
+    return getParameterTypes(env, objRef, getMethodInfo(env, objRef));
   }
   
-  static int getExceptionTypes(MJIEnv env, MethodInfo mi) {
+  static int getExceptionTypes(MJIEnv env, int objRef, MethodInfo mi) {
     try {
       ThreadInfo ti = env.getThreadInfo();
       String[] exceptionNames = mi.getThrownExceptionClassNames();
        
       if (exceptionNames == null) {
-        exceptionNames = new String[0];
+        exceptionNames = MethodInfo.EMPTY;
       }
        
       int[] ar = new int[exceptionNames.length];
@@ -148,7 +143,7 @@ public class JPF_java_lang_reflect_Method {
   }
   
   public static int getExceptionTypes_____3Ljava_lang_Class_2 (MJIEnv env, int objRef) {
-    return getExceptionTypes(env, getMethodInfo(env, objRef));
+    return getExceptionTypes(env, objRef, getMethodInfo(env, objRef));
   }
   
   public static int getReturnType____Ljava_lang_Class_2 (MJIEnv env, int objRef){
@@ -177,407 +172,115 @@ public class JPF_java_lang_reflect_Method {
   }
     
   static int createBoxedReturnValueObject (MJIEnv env, MethodInfo mi, StackFrame frame) {
-    byte rt = mi.getReturnTypeCode();
+    byte rt = mi.getReturnType();
     int ret = MJIEnv.NULL;
     ElementInfo rei;
-    Object attr = null;
-
+    
     if (rt == Types.T_DOUBLE) {
-      attr = frame.getLongOperandAttr();
       double v = frame.doublePop();
       ret = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.Double"));
       rei = env.getElementInfo(ret);
       rei.setDoubleField("value", v);
-    } else if (rt == Types.T_FLOAT) {
-      attr = frame.getOperandAttr();
-      int v = frame.pop();
-      ret = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.Float"));
+    } else if (rt == Types.T_LONG) {
+      long v = frame.longPop();
+      ret = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.Long"));
+      rei = env.getElementInfo(ret);
+      rei.setLongField("value", v);
+    } else if (rt == Types.T_BYTE) {
+      int v = frame.pop(); 
+      ret = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.Byte"));
       rei = env.getElementInfo(ret);
       rei.setIntField("value", v);
-    } else if (rt == Types.T_LONG) {
-      attr = frame.getLongOperandAttr();
-      long v = frame.longPop();
-      ret = env.valueOfLong(v);
-    } else if (rt == Types.T_BYTE) {
-      attr = frame.getOperandAttr();
-      int v = frame.pop(); 
-      ret = env.valueOfByte((byte)v);
     } else if (rt == Types.T_CHAR) {
-      attr = frame.getOperandAttr();
       int v = frame.pop(); 
-      ret = env.valueOfCharacter((char)v);
+      ret = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.Character"));
+      rei = env.getElementInfo(ret);
+      rei.setIntField("value", v);
     } else if (rt == Types.T_SHORT) {
-      attr = frame.getOperandAttr();
       int v = frame.pop(); 
-      ret = env.valueOfShort((short)v);
+      ret = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.Short"));
+      rei = env.getElementInfo(ret);
+      rei.setIntField("value", v);
     } else if (rt == Types.T_INT) {
-      attr = frame.getOperandAttr();
       int v = frame.pop(); 
-      ret = env.valueOfInteger(v);
+      ret = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.Integer"));
+      rei = env.getElementInfo(ret);
+      rei.setIntField("value", v);
     } else if (rt == Types.T_BOOLEAN) {
-      attr = frame.getOperandAttr();
-      int v = frame.pop();
-      ret = env.valueOfBoolean((v == 1)? true: false);
+      int v = frame.pop(); 
+      ret = env.newObject(ClassInfo.getResolvedClassInfo("java.lang.Boolean"));
+      rei = env.getElementInfo(ret);
+      rei.setIntField("value", v);
     } else if (mi.isReferenceReturnType()){ 
-      attr = frame.getOperandAttr();
       ret = frame.pop();
     }
 
-    env.setReturnAttribute(attr);
     return ret;
   }
 
-  static boolean pushUnboxedArguments (MJIEnv env, MethodInfo mi, StackFrame frame, int argsRef) {
-    ElementInfo source;
-    ClassInfo sourceClass;
-    String destTypeNames[];
-    int i, nArgs, passedCount, sourceRef;
-    byte sourceType, destTypes[];
-
-    destTypes     = mi.getArgumentTypes();
-    destTypeNames = mi.getArgumentTypeNames();
-    nArgs         = destTypeNames.length;
-    
-    // according to the API docs, passing null instead of an empty array is allowed for no args
-    passedCount   = (argsRef != MJIEnv.NULL) ? env.getArrayLength(argsRef) : 0;
-    
-    if (nArgs != passedCount) {
-      env.throwException(IllegalArgumentException.class.getName(), "Wrong number of arguments passed.  Actual = " + passedCount + ".  Expected = " + nArgs);
-      return false;
-    }
-    
-    for (i = 0; i < nArgs; i++) {
-      
-      sourceRef = env.getReferenceArrayElement(argsRef, i);
-
-      // we have to handle null references explicitly
-      if (sourceRef == MJIEnv.NULL) {
-        if ((destTypes[i] != Types.T_REFERENCE) && (destTypes[i] != Types.T_ARRAY)) {
-          env.throwException(IllegalArgumentException.class.getName(), "Wrong argument type at index " + i + ".  Actual = (null).  Expected = " + destTypeNames[i]);
-          return false;
-        } 
-         
-        frame.pushRef(MJIEnv.NULL);
-        continue;
+  static void pushUnboxedArguments (MJIEnv env, MethodInfo mi, StackFrame frame, int argsRef) {
+    byte[] at = mi.getArgumentTypes();
+    int nArgs = at.length;
+        
+    for (int i=0; i<nArgs; i++) {
+      int argRef = env.getReferenceArrayElement(argsRef, i);
+      if (argRef != MJIEnv.NULL){
+        ElementInfo aei = env.getElementInfo(argRef);
+        ClassInfo aci = aei.getClassInfo();
+        
+        // of course, we should only unbox if the argument type is a builtin
+        if (aci.isBoxClass() && (at[i] != Types.T_OBJECT)) { // unbox
+          String cname = aci.getName();
+          if (cname.equals("java.lang.Long")) {
+            long l = aei.getLongField("value");
+            frame.longPush(l);
+          } else if (cname.equals("java.lang.Double")) {
+            double d = aei.getDoubleField("value");
+            frame.push(Types.hiDouble(d), false);
+            frame.push(Types.loDouble(d), false);
+          } else {
+            int v = aei.getIntField("value");
+            frame.push(v, false);
+          }
+        } else { // otherwise it's a reference
+          frame.push(argRef, true);
+        }
+      } else {
+        frame.push(MJIEnv.NULL,true);
       }
-
-      source      = env.getElementInfo(sourceRef);
-      sourceClass = source.getClassInfo();   
-      sourceType = getSourceType( sourceClass, destTypes[i], destTypeNames[i]);
-
-      Object attr = env.getElementInfo(argsRef).getFields().getFieldAttr(i);
-      if ((sourceType == Types.T_NONE) || !pushArg(frame, source, sourceType, destTypes[i], attr)){
-        env.throwException(IllegalArgumentException.class.getName(), "Wrong argument type at index " + i + ".  Source Class = " + sourceClass.getName() + ".  Dest Class = " + destTypeNames[i]);
-        return false;        
-      }
-    }
-    
-    return true;
-  }
-
-  // this returns the primitive type in case we have to unbox, and otherwise checks reference type compatibility
-  private static byte getSourceType (ClassInfo ciArgVal, byte destType, String destTypeName){
-    switch (destType){
-    // the primitives
-    case Types.T_BOOLEAN:
-    case Types.T_BYTE:
-    case Types.T_CHAR:
-    case Types.T_SHORT:
-    case Types.T_INT:
-    case Types.T_LONG:
-    case Types.T_FLOAT:
-    case Types.T_DOUBLE:
-      return Types.getUnboxedType(ciArgVal.getName());
-      
-    case Types.T_ARRAY:
-    case Types.T_REFERENCE: // check if the source type is assignment compatible with the destType
-      if (ciArgVal.isInstanceOf(destTypeName)){
-        return destType;
-      }
-    }
-    
-    return Types.T_NONE;
-  }
-  
-  // do the proper type conversion - Java is pretty forgiving here and does
-  // not throw exceptions upon value truncation
-  private static boolean pushArg( StackFrame frame, ElementInfo eiArg, byte srcType, byte destType, Object attr){    
-    switch (srcType) {
-    case Types.T_DOUBLE:
-    {
-      double v = eiArg.getDoubleField("value");
-      if (destType == Types.T_DOUBLE){      
-        frame.longPush(Double.doubleToLongBits(v));
-        frame.setOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_FLOAT: // covers float, double
-    {
-      float v = eiArg.getFloatField("value");
-      switch (destType){
-      case Types.T_FLOAT:
-        frame.push(Float.floatToIntBits(v));
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_DOUBLE:
-        frame.longPush(Double.doubleToLongBits(v));
-        frame.setLongOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_LONG:
-    {
-      long v = eiArg.getLongField("value");
-      switch (destType){
-      case Types.T_LONG:
-        frame.longPush(v);
-        frame.setLongOperandAttr(attr);
-        return true;
-      case Types.T_FLOAT:
-        frame.push(Float.floatToIntBits((float)v));
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_DOUBLE:
-        frame.longPush( Double.doubleToLongBits((double)v));
-        frame.setLongOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_INT:
-    { 
-      int v = eiArg.getIntField("value");
-      switch (destType){
-      case Types.T_INT:
-        frame.push(v);
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_LONG:
-        frame.longPush(v);
-        frame.setLongOperandAttr(attr);
-        return true;        
-      case Types.T_FLOAT:
-        frame.push( Float.floatToIntBits((float)v));
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_DOUBLE:
-        frame.longPush( Double.doubleToLongBits((double)v));
-        frame.setLongOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_SHORT:
-    { 
-      int v = eiArg.getShortField("value");
-      switch (destType){
-      case Types.T_SHORT:
-      case Types.T_INT:
-        frame.push(v);
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_LONG:
-        frame.longPush(v);
-        frame.setLongOperandAttr(attr);
-        return true;        
-      case Types.T_FLOAT:
-        frame.push( Float.floatToIntBits((float)v));
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_DOUBLE:
-        frame.longPush( Double.doubleToLongBits((double)v));
-        frame.setLongOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_BYTE:
-    { 
-      byte v = eiArg.getByteField("value");
-      switch (destType){
-      case Types.T_BYTE:
-      case Types.T_SHORT:
-      case Types.T_INT:
-        frame.push(v);
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_LONG:
-        frame.longPush(v);
-        frame.setLongOperandAttr(attr);
-        return true;
-      case Types.T_FLOAT:
-        frame.push( Float.floatToIntBits((float)v));
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_DOUBLE:
-        frame.longPush( Double.doubleToLongBits((double)v));
-        frame.setLongOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_CHAR:
-    {
-      char v = eiArg.getCharField("value");
-      switch (destType){
-      case Types.T_CHAR:
-      case Types.T_INT:
-        frame.push(v);
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_LONG:
-        frame.longPush(v);
-        frame.setLongOperandAttr(attr);
-        return true;        
-      case Types.T_FLOAT:
-        frame.push( Float.floatToIntBits((float)v));
-        frame.setOperandAttr(attr);
-        return true;
-      case Types.T_DOUBLE:
-        frame.longPush( Double.doubleToLongBits((double)v));
-        frame.setLongOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_BOOLEAN:
-    {
-      boolean v = eiArg.getBooleanField("value");
-      if (destType == Types.T_BOOLEAN){
-        frame.push(v ? 1 : 0);
-        frame.setOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_ARRAY:
-    {
-      int ref =  eiArg.getObjectRef();
-      if (destType == Types.T_ARRAY){
-        frame.pushRef(ref);
-        frame.setOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_REFERENCE:
-    {
-      int ref =  eiArg.getObjectRef();
-      if (destType == Types.T_REFERENCE){
-        frame.pushRef(ref);
-        frame.setOperandAttr(attr);
-        return true;
-      }
-      return false;
-    }
-    case Types.T_VOID:
-    default:
-      return false;
     }
   }
-
   
   public static int invoke__Ljava_lang_Object_2_3Ljava_lang_Object_2__Ljava_lang_Object_2 (MJIEnv env, int mthRef,
                                                                                            int objRef, int argsRef) {
     ThreadInfo ti = env.getThreadInfo();
+    Instruction insn = ti.getPC();
+        
     MethodInfo mi = getMethodInfo(env,mthRef);
-    ClassInfo calleeClass = mi.getClassInfo();
-    ElementInfo mth = ti.getElementInfo(mthRef);
-    boolean accessible = (Boolean) mth.getFieldValueObject("isAccessible");
+    DirectCallStackFrame frame;
     
-    if (mi.isStatic()){ // this might require class init and reexecution
-      if (calleeClass.requiresClinitExecution(ti)){
-        env.repeatInvocation();
-        return 0;
-      }
-    } else { // check if we have an object
-      if (objRef == MJIEnv.NULL){
-        env.throwException("java.lang.NullPointerException");
-        return MJIEnv.NULL;
-      }
-    }
-    
-    if (!accessible) {
-      StackFrame frame = ti.getTopFrame().getPrevious();
-      ClassInfo callerClass = frame.getClassInfo();
-      
-      if (callerClass != calleeClass) {
-        env.throwException(IllegalAccessException.class.getName(), "Class " + callerClass.getName() + " can not access a member of class " + calleeClass.getName() + " with modifiers \"" + Modifier.toString(mi.getModifiers()));
-        return MJIEnv.NULL;
-      }
-    }
-    
-    StackFrame frame = ti.getReturnedDirectCall();
-
-    if (frame != null){ // we have returned from the direct call
-      return createBoxedReturnValueObject( env, mi, frame);
-
-    } else { // first time, set up direct call
+    if (!ti.isResumedInstruction(insn)) { // make a direct call
       MethodInfo stub = mi.createReflectionCallStub();
-      frame = new DirectCallStackFrame(stub);
-
+      frame = new DirectCallStackFrame(stub, insn);
+        
       if (!mi.isStatic()) {
-        ElementInfo obj = ti.getElementInfo(objRef);
-        ClassInfo objClass = obj.getClassInfo();
-        
-        if (!objClass.isInstanceOf(calleeClass)) {
-          env.throwException(IllegalArgumentException.class.getName(), "Object is not an instance of declaring class.  Actual = " + objClass + ".  Expected = " + calleeClass);
-          return MJIEnv.NULL;
-        }
-        
         frame.push(objRef, true);
       }
-
-      if (!pushUnboxedArguments(env, mi, frame, argsRef)) {
-        return MJIEnv.NULL;  
-      }
-       
+      
+      pushUnboxedArguments(env, mi, frame, argsRef);
+      
       ti.pushFrame(frame);
+      env.repeatInvocation();
       
       return MJIEnv.NULL;
+    } else { // direct call returned, unbox return type (if any)      
+      return createBoxedReturnValueObject(env, mi, ti.getReturnedDirectCall());
     }
   }
   
-  // this one has to collect annotations upwards in the inheritance chain
-  static int getAnnotations (MJIEnv env, MethodInfo mi){
-    String mname = mi.getName();
-    String msig = mi.genericSignature;
-    ArrayList<AnnotationInfo> aiList = new ArrayList<AnnotationInfo>();
-    
-    // our own annotations
-    ClassInfo ci = mi.getClassInfo();
-    for (AnnotationInfo ai : mi.getAnnotations()) {
-      aiList.add(ai);
-    }
-    
-    // our superclass annotations
-    for (ci = ci.getSuperClass(); ci != null; ci = ci.getSuperClass()){
-      mi = ci.getMethod(mname, msig, false);
-      if (mi != null){
-        for (AnnotationInfo ai: mi.getAnnotations()){
-          aiList.add(ai);
-        }        
-      }
-    }
-
-    try {
-      return env.newAnnotationProxies(aiList.toArray(new AnnotationInfo[aiList.size()]));
-    } catch (ClinitRequired x){
-      env.handleClinitRequest(x.getRequiredClassInfo());
-      return MJIEnv.NULL;
-    }    
-  }
-  public static int getAnnotations_____3Ljava_lang_annotation_Annotation_2 (MJIEnv env, int mthRef){
-    return getAnnotations( env, getMethodInfo(env,mthRef));
-  }
-  
-  // the following ones consist of a package default implementation that is shared with
-  // the constructor peer, and a public model method
-  static int getAnnotation (MJIEnv env, MethodInfo mi, int annotationClsRef){
-    ClassInfo aci = env.getReferredClassInfo(annotationClsRef);
+  public static int getAnnotation__Ljava_lang_Class_2__Ljava_lang_annotation_Annotation_2 (MJIEnv env, int mthRef, int annotationClsRef) {
+    MethodInfo mi = getMethodInfo(env,mthRef);
+    ClassInfo aci = JPF_java_lang_Class.getReferredClassInfo(env,annotationClsRef);
     
     AnnotationInfo ai = mi.getAnnotation(aci.getName());
     if (ai != null){
@@ -591,12 +294,10 @@ public class JPF_java_lang_reflect_Method {
     }
     
     return MJIEnv.NULL;
-  }  
-  public static int getAnnotation__Ljava_lang_Class_2__Ljava_lang_annotation_Annotation_2 (MJIEnv env, int mthRef, int annotationClsRef) {
-    return getAnnotation(env, getMethodInfo(env,mthRef), annotationClsRef);
   }
   
-  static int getDeclaredAnnotations (MJIEnv env, MethodInfo mi){
+  public static int getAnnotations_____3Ljava_lang_annotation_Annotation_2 (MJIEnv env, int mthRef){
+    MethodInfo mi = getMethodInfo(env,mthRef);
     AnnotationInfo[] ai = mi.getAnnotations();
 
     try {
@@ -604,43 +305,31 @@ public class JPF_java_lang_reflect_Method {
     } catch (ClinitRequired x){
       env.handleClinitRequest(x.getRequiredClassInfo());
       return MJIEnv.NULL;
-    }    
+    }
   }
-  public static int getDeclaredAnnotations_____3Ljava_lang_annotation_Annotation_2 (MJIEnv env, int mthRef){
-    return getDeclaredAnnotations( env, getMethodInfo(env,mthRef));
-  }
-  
-  static int getParameterAnnotations (MJIEnv env, MethodInfo mi){
-    AnnotationInfo[][] pa = mi.getParameterAnnotations();
-    // this should always return an array object, even if the method has no arguments
-    
-    try {
-      int paRef = env.newObjectArray("[Ljava/lang/annotation/Annotation;", pa.length);
-      
-      for (int i=0; i<pa.length; i++){
-        int eRef = env.newAnnotationProxies(pa[i]);
-        env.setReferenceArrayElement(paRef, i, eRef);
-      }
-
-      return paRef;
-      
-    } catch (ClinitRequired x){ // be prepared that we might have to initialize respective annotation classes
-      env.handleClinitRequest(x.getRequiredClassInfo());
-      return MJIEnv.NULL;
-    }    
-  }
-  public static int getParameterAnnotations_____3_3Ljava_lang_annotation_Annotation_2 (MJIEnv env, int mthRef){
-    return getParameterAnnotations( env, getMethodInfo(env,mthRef));
-  }
-  
   
   public static int toString____Ljava_lang_String_2 (MJIEnv env, int objRef){
     StringBuilder sb = new StringBuilder();
     
     MethodInfo mi = getMethodInfo(env, objRef);
 
-    sb.append(Modifier.toString(mi.getModifiers()));
-    sb.append(' ');
+    if (mi.isPublic()){
+      sb.append("public ");
+    } else if (mi.isProtected()){
+      sb.append("protected ");
+    } else if (mi.isPrivate()){
+      sb.append("private ");
+    }
+
+    if (mi.isStatic()){
+      sb.append("static ");
+    }
+    if (mi.isSynchronized()){
+      sb.append("synchronized ");
+    }
+    if (mi.isNative()){
+      sb.append("native ");
+    }
 
     sb.append(mi.getReturnTypeName());
     sb.append(' ');
@@ -662,37 +351,5 @@ public class JPF_java_lang_reflect_Method {
     
     int sref = env.newString(sb.toString());
     return sref;
-  }
-
-  public static boolean equals__Ljava_lang_Object_2__Z (MJIEnv env, int objRef, int mthRef){
-    ElementInfo ei = env.getElementInfo(mthRef);
-    ClassInfo ci = ClassInfo.getResolvedClassInfo(JPF_java_lang_Class.METHOD_CLASSNAME);
-
-    if (ei.getClassInfo() == ci){
-      MethodInfo mi1 = getMethodInfo(env, objRef);
-      MethodInfo mi2 = getMethodInfo(env, mthRef);
-      if (mi1.getClassInfo() == mi2.getClassInfo()){
-        if (mi1.getName().equals(mi2.getName())){
-          if (mi1.getReturnType().equals(mi2.getReturnType())){
-            byte[] params1 = mi1.getArgumentTypes();
-            byte[] params2 = mi2.getArgumentTypes();
-            if (params1.length == params2.length){
-              for (int i = 0; i < params1.length; i++){
-                if (params1[i] != params2[i]){
-                  return false;
-                }
-              }
-              return true;
-            }
-          }
-        }
-      }
-    }
-    return false;
-  }
-
-  public static int hashCode____I (MJIEnv env, int objRef){
-    MethodInfo mi = getMethodInfo(env, objRef);
-    return mi.getClassName().hashCode() ^ mi.getName().hashCode();
   }
 }

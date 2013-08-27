@@ -19,14 +19,20 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.Config;
+import gov.nasa.jpf.JPFException;
 import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.ElementInfo;
+import gov.nasa.jpf.jvm.FieldLockInfoFactory;
+import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.SystemState;
+
+import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.generic.ConstantPoolGen;
+import org.apache.bcel.generic.Type;
+import org.apache.bcel.generic.ReferenceType;
 import gov.nasa.jpf.jvm.FieldInfo;
 import gov.nasa.jpf.jvm.FieldLockInfo;
-import gov.nasa.jpf.jvm.FieldLockInfoFactory;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
 
 /**
  * parent class for PUT/GET FIELD/STATIC insns
@@ -53,7 +59,6 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
   protected int    size;  // is it a word or a double word field
   protected boolean isReferenceField;
 
-  protected long lastValue;
   
   public static void init (Config config) {
     if (config.getBoolean("vm.por") && config.getBoolean("vm.por.sync_detection")) {
@@ -64,28 +69,30 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
       skipConstructedFinals = config.getBoolean("vm.por.skip_constructed_finals", false);
     }
   }
-
-  protected FieldInstruction() {}
-
-  protected FieldInstruction(String name, String clsName, String fieldDescriptor){
-    fname = name;
-    className = Types.getClassNameFromTypeName(clsName);
-    isReferenceField = Types.isReferenceSignature(fieldDescriptor);
-    size = Types.getTypeSize(fieldDescriptor);
-  }
-
-  public String getClassName(){
-     return className;
-  }
-
-  /**
-   * only defined in instructionExecuted() notification context
-   */
-  public long getLastValue() {
-    return lastValue;
-  }
-
   
+  public String getClassName()   // Needed for Java Race Finder
+  {
+     return(className);
+  }
+
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    org.apache.bcel.generic.FieldInstruction fi;
+    ConstantPoolGen                          cpg;
+
+    fi = (org.apache.bcel.generic.FieldInstruction) i;
+    cpg = ClassInfo.getConstantPoolGen(cp);
+
+    fname = fi.getFieldName(cpg);
+    className = fi.getReferenceType(cpg).toString();
+
+    Type ft = fi.getFieldType(cpg);
+    if (ft instanceof ReferenceType) {
+      isReferenceField = true;
+    }
+
+    size = ft.getSize();
+  }
+
   public abstract boolean isRead();
 
   public abstract FieldInfo getFieldInfo ();
@@ -175,7 +182,7 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
    */
   protected boolean isMonitorEnterPrologue () {
     Instruction[] code = mi.getInstructions();
-    int off = insnIndex+1;
+    int off = offset+1;
 
     if (off < code.length-3) {
       // we don't reach out further than 3 instructions
@@ -199,10 +206,9 @@ public abstract class FieldInstruction extends Instruction implements VariableAc
   protected boolean createAndSetFieldCG ( SystemState ss, ElementInfo ei, ThreadInfo ti) {
     ChoiceGenerator<?> cg = ss.getSchedulerFactory().createSharedFieldAccessCG(ei, ti);
     if (cg != null) {
-      if (ss.setNextChoiceGenerator(cg)){
-        ti.skipInstructionLogging(); // <2do> Hmm, might be more confusing not to see it
-        return true;
-      }
+      ss.setNextChoiceGenerator(cg);
+      ti.skipInstructionLogging();
+      return true;
     }
 
     return false;

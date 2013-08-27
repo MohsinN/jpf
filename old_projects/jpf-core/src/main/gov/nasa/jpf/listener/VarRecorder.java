@@ -18,27 +18,11 @@
 //
 package gov.nasa.jpf.listener;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.FieldInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.StackFrame;
-import gov.nasa.jpf.jvm.Step;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
-import gov.nasa.jpf.jvm.bytecode.ArrayInstruction;
-import gov.nasa.jpf.jvm.bytecode.ArrayLoadInstruction;
-import gov.nasa.jpf.jvm.bytecode.FieldInstruction;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.jvm.bytecode.LocalVariableInstruction;
-import gov.nasa.jpf.jvm.bytecode.StoreInstruction;
-import gov.nasa.jpf.jvm.bytecode.VariableAccessor;
-import gov.nasa.jpf.util.StringSetMatcher;
-
-import java.util.HashMap;
+import gov.nasa.jpf.*;
+import gov.nasa.jpf.jvm.*;
+import gov.nasa.jpf.jvm.bytecode.*;
+import gov.nasa.jpf.util.*;
+import java.util.*;
 
 /**
  * Simple listener tool to record the values of variables as they are accessed.
@@ -174,13 +158,11 @@ public class VarRecorder extends ListenerAdapter {
     return(recordClass);
   }
 
-  // <2do> general purpose listeners should not use anonymous attribute types such as String
-  
   private final void saveVariableName(JVM jvm, String name) {
     ThreadInfo ti;
 
     ti = jvm.getLastThreadInfo();
-    ti.addOperandAttr(name);
+    ti.setOperandAttr(name);
   }
 
   private final void saveVariableType(JVM jvm, byte type) {
@@ -194,7 +176,7 @@ public class VarRecorder extends ListenerAdapter {
       return;
 
     str = encodeType(type);
-    frame.addOperandAttr(str);
+    frame.setOperandAttr(str);
   }
 
   private final boolean isArrayReference(JVM jvm) {
@@ -216,7 +198,7 @@ public class VarRecorder extends ListenerAdapter {
     if (objRef == -1)
       return(false);
 
-    ei = jvm.getHeap().get(objRef);
+    ei = DynamicArea.getHeap().get(objRef);
     if (ei == null)
       return(false);
 
@@ -230,34 +212,32 @@ public class VarRecorder extends ListenerAdapter {
     Instruction inst;
     String type;
 
-    ti = jvm.getLastThreadInfo();
+    ti    = jvm.getLastThreadInfo();
     frame = ti.getTopFrame();
-    if ((frame.getTopPos() >= 0) && (frame.isOperandRef())) {
-      return (Types.T_REFERENCE);
+    if ((frame.getTopPos() >= 0) && (frame.isOperandRef()))
+      return(Types.T_OBJECT);
+
+    type  = null;
+    inst  = jvm.getLastInstruction();
+
+    if (((recordLocals) && (inst instanceof LocalVariableInstruction)) ||
+        ((recordFields) && (inst instanceof FieldInstruction)))
+    {
+       if (inst instanceof LocalVariableInstruction)
+         type = ((LocalVariableInstruction) inst).getLocalVariableType();
+       else {
+         fi   = ((FieldInstruction) inst).getFieldInfo();
+         type = fi.getType();
+       }
     }
 
-    type = null;
-    inst = jvm.getLastInstruction();
+    if ((recordArrays) && (inst instanceof ArrayInstruction))
+      return(getTypeFromInstruction(inst));
 
-    if (((recordLocals) && (inst instanceof LocalVariableInstruction))
-            || ((recordFields) && (inst instanceof FieldInstruction))) {
-      if (inst instanceof LocalVariableInstruction) {
-        type = ((LocalVariableInstruction) inst).getLocalVariableType();
-      } else {
-        fi = ((FieldInstruction) inst).getFieldInfo();
-        type = fi.getType();
-      }
-    }
+    if (type == null)
+      return(Types.T_VOID);
 
-    if ((recordArrays) && (inst instanceof ArrayInstruction)) {
-      return (getTypeFromInstruction(inst));
-    }
-
-    if (type == null) {
-      return (Types.T_VOID);
-    }
-
-    return (decodeType(type));
+    return(decodeType(type));
   }
 
   private final static byte getTypeFromInstruction(Instruction inst) {
@@ -274,7 +254,7 @@ public class VarRecorder extends ListenerAdapter {
     name = name.substring(name.lastIndexOf('.') + 1);
 
     switch (name.charAt(0)) {
-      case 'A': return(Types.T_REFERENCE);
+      case 'A': return(Types.T_OBJECT);
       case 'B': return(Types.T_BYTE);      // Could be a boolean but it is better to assume a byte.
       case 'C': return(Types.T_CHAR);
       case 'F': return(Types.T_FLOAT);
@@ -295,7 +275,7 @@ public class VarRecorder extends ListenerAdapter {
       case Types.T_FLOAT:   return("F");
       case Types.T_INT:     return("I");
       case Types.T_LONG:    return("J");
-      case Types.T_REFERENCE:  return("L");
+      case Types.T_OBJECT:  return("L");
       case Types.T_SHORT:   return("S");
       case Types.T_VOID:    return("V");
       case Types.T_BOOLEAN: return("Z");
@@ -306,11 +286,13 @@ public class VarRecorder extends ListenerAdapter {
   }
 
   private final static byte decodeType(String type) {
-    if (type.charAt(0) == '?'){
-      return(Types.T_REFERENCE);
-    } else {
-      return Types.getBuiltinType(type);
-    }
+     if (type.length() != 1)
+       return(Types.T_OBJECT);
+
+     if (type.charAt(0) == '?')
+       return(Types.T_OBJECT);
+
+     return(Types.getBaseType(type));
   }
 
   private String getName(JVM jvm, byte type) {
@@ -369,16 +351,15 @@ public class VarRecorder extends ListenerAdapter {
 
   private String getArrayName(JVM jvm, byte type, boolean store) {
     ThreadInfo ti;
-    String attr;
+    Object attr;
     int offset;
 
     ti     = jvm.getLastThreadInfo();
     offset = calcOffset(type, store) + 1;
-    // <2do> String is really not a good attribute type to retrieve!
-    attr   = ti.getOperandAttr(offset, String.class); 
+    attr   = ti.getOperandAttr(offset);
 
     if (attr != null)
-      return(attr);
+      return(attr.toString());
 
     return("?");
   }
@@ -427,8 +408,8 @@ public class VarRecorder extends ListenerAdapter {
       case Types.T_LONG:    return(String.valueOf(Types.intsToLong(lo, hi)));
       case Types.T_SHORT:   return(String.valueOf(lo));
 
-      case Types.T_REFERENCE:
-        ElementInfo ei = JVM.getVM().getHeap().get(lo);
+      case Types.T_OBJECT:
+        ElementInfo ei = DynamicArea.getHeap().get(lo);
         if (ei == null)
           return(null);
 

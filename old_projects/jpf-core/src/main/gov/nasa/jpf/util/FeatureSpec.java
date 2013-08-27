@@ -19,7 +19,6 @@
 
 package gov.nasa.jpf.util;
 
-import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.jvm.ClassInfo;
 
 /**
@@ -27,11 +26,9 @@ import gov.nasa.jpf.jvm.ClassInfo;
  */
 public abstract class FeatureSpec {
 
-  static JPFLogger logger = JPF.getLogger("gov.nasa.jpf.util");
-
   static class ParseData {
     boolean matchInverted;
-    boolean matchSuperTypes;
+    boolean macthSuperTypes;
     String typeSpec;
     String nameSpec;
   }
@@ -60,11 +57,6 @@ public abstract class FeatureSpec {
     return s;
   }
 
-  protected static String parseType (String s, ParseData d){
-    d.typeSpec = s;
-    return s;
-  }
-  
   protected static String parseTypeAndName (String s, ParseData d){
     int i = s.lastIndexOf('.'); // beginning of name
     if (i >= 0){
@@ -76,7 +68,7 @@ public abstract class FeatureSpec {
 
       d.nameSpec = s.substring(i+1);
       if (d.nameSpec.length() == 0){
-        d.nameSpec = "*";
+        return null;
       }
 
     } else { // no name, all fields
@@ -102,10 +94,7 @@ public abstract class FeatureSpec {
     }
 
     clsSpec = new StringMatcher(cls);
-    
-    if (name != null){
-      nameSpec = new StringMatcher(name);
-    }
+    nameSpec = new StringMatcher(name);
   }
 
   public String getSource() {

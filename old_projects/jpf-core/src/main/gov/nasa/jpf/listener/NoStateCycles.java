@@ -18,14 +18,10 @@
 //
 package gov.nasa.jpf.listener;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.PropertyListenerAdapter;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.search.Search;
-
-import java.util.ArrayList;
-import java.util.HashSet;
+import gov.nasa.jpf.jvm.*;
+import gov.nasa.jpf.*;
+import gov.nasa.jpf.search.*;
+import java.util.*;
 
 
 /**

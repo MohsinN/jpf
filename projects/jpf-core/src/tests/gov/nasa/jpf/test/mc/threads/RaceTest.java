@@ -113,7 +113,8 @@ public class RaceTest extends TestJPF {
   
   @Test
   public void testSymmetricStaticRace(){
-    if (verifyUnhandledExceptionDetails("java.lang.RuntimeException", "got race")) {
+    if (verifyUnhandledExceptionDetails("java.lang.RuntimeException", "got race",
+                                        "+vm.por.shared.class=.vm.GlobalTrackingPolicy")) {
       StaticRacer t1 = new StaticRacer();
       StaticRacer t2 = new StaticRacer();
       t1.start();

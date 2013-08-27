@@ -19,6 +19,7 @@
 
 package gov.nasa.jpf.jvm;
 
+import gov.nasa.jpf.*;
 
 /**
  * a full peer for the AtomicIntegerFieldUpdater
@@ -30,7 +31,7 @@ public class JPF_java_util_concurrent_atomic_AtomicIntegerFieldUpdater extends A
 
     // direct Object subclass, so we don't have to call a super ctor
 
-    ClassInfo ci = env.getReferredClassInfo( tClsObjRef);
+    ClassInfo ci = JPF_java_lang_Class.getReferredClassInfo(env, tClsObjRef);
     String fname = env.getStringObject(fNameRef);
 
     FieldInfo fi = ci.getInstanceField(fname);

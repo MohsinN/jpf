@@ -22,45 +22,37 @@ import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
+import org.apache.bcel.classfile.ConstantPool;
+
 
 /**
  * Increment local variable by constant
  * No change
  */
 public class IINC extends Instruction {
+  protected int index;
+  protected int increment;
 
-	protected int index;
-	protected int increment;
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    index = ((org.apache.bcel.generic.IINC) i).getIndex();
+    increment = ((org.apache.bcel.generic.IINC) i).getIncrement();
+  }
 
-	public IINC(int localVarIndex, int increment){
-		this.index = localVarIndex;
-		this.increment = increment;
-	}
+  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
+    th.setLocalVariable(index, th.getLocalVariable(index) + increment, false);
 
-	public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-		th.setLocalVariable(index, th.getLocalVariable(index) + increment, false);
+    return getNext(th);
+  }
 
-		return getNext(th);
-	}
-
-	public int getLength() {
-		return 3; // opcode, index, const
-	}
-
-	public int getByteCode () {
-		return 0x84; // ?? wide
-	}
-
-	public void accept(InstructionVisitor insVisitor) {
-		insVisitor.visit(this);
-	}
-
-	public int getIndex() {
-		return index;
-	}
-
-	public int getIncrement() {
-		return increment;
-	}
-
+  public int getLength() {
+    return 3; // opcode, index, const
+  }
+  
+  public int getByteCode () {
+    return 0x84; // ?? wide
+  }
+  
+  public void accept(InstructionVisitor insVisitor) {
+	  insVisitor.visit(this);
+  }
 }

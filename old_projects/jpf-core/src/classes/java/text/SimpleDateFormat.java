@@ -19,10 +19,8 @@
 
 package java.text;
 
-import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
-import java.util.TimeZone;
 
 /**
  * (incomplete) model class for java.text.SimpleDate. See Format for details
@@ -38,25 +36,19 @@ public class SimpleDateFormat extends DateFormat {
 
   public SimpleDateFormat () {
     init0();
-    initializeCalendar();
   }
 
   public SimpleDateFormat (String pattern) {
-    if(pattern == null) {
-      throw new NullPointerException();
-    }
     init0(pattern);
-    initializeCalendar();
   }
 
   public SimpleDateFormat (String pattern, Locale locale) {
     // <2do> bluntly ignoring locale for now
-    this(pattern);
+	  init0(pattern);
   }
 
   SimpleDateFormat (int timeStyle, int dateStyle, Locale locale){
     init0(timeStyle, dateStyle);
-    initializeCalendar();
   }
 
   // unfortunately we can't override the DateFormat.format(String) because
@@ -76,12 +68,6 @@ public class SimpleDateFormat extends DateFormat {
   public Date parse (String arg0, ParsePosition arg1) {
     // TODO Auto-generated method stub
     return null;
-  }
-
-  private void initializeCalendar() {
-    if (calendar == null) {
-        calendar = Calendar.getInstance(TimeZone.getDefault(), Locale.getDefault());
-    }
   }
 
 }

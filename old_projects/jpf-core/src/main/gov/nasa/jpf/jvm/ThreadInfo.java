@@ -21,26 +21,23 @@ package gov.nasa.jpf.jvm;
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.JPFException;
-import gov.nasa.jpf.jvm.bytecode.EXECUTENATIVE;
 import gov.nasa.jpf.jvm.bytecode.INVOKESTATIC;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
+import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
 import gov.nasa.jpf.jvm.choice.BreakGenerator;
 import gov.nasa.jpf.jvm.choice.ThreadChoiceFromSet;
 import gov.nasa.jpf.util.HashData;
 import gov.nasa.jpf.util.IntVector;
-import gov.nasa.jpf.util.JPFLogger;
-import gov.nasa.jpf.util.ObjectList;
-import gov.nasa.jpf.util.StringSetMatcher;
+import gov.nasa.jpf.util.SparseObjVector;
 
 import java.io.File;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.BitSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -50,17 +47,11 @@ import java.util.logging.Logger;
  * information about the thread, and the stack frames.
  * Race detection and lock order also store some information
  * in this data structure.
- *
- * Note that we preserve identities according to their associated java.lang.Thread object
- * (objRef). This esp. means along the same path, a ThreadInfo reference
- * is kept invariant
- *
- * <2do> remove EXECUTENATIVE,INVOKESTATIC .bytecode dependencies
  */
 public class ThreadInfo
-     implements Iterable<StackFrame>, Comparable<ThreadInfo>, Cloneable, Restorable<ThreadInfo> {
+     implements Iterable<StackFrame>, Comparable<ThreadInfo>, Cloneable {
 
-  static JPFLogger log = JPF.getLogger("gov.nasa.jpf.jvm.ThreadInfo");
+  static Logger log = JPF.getLogger("gov.nasa.jpf.jvm.ThreadInfo");
 
   //--- our internal thread states
   public enum State {
@@ -77,127 +68,48 @@ public class ThreadInfo
     SLEEPING
   };
 
-  static int threadInfoCount; // the number of ThreadInfos created
 
   static final int[] emptyRefArray = new int[0];
 
   static ThreadInfo currentThread;
   static ThreadInfo mainThread;
 
-  static GlobalIdManager gidManager;
-
-  protected class StackIterator implements Iterator<StackFrame> {
-    StackFrame frame = top;
-
-    public boolean hasNext() {
-      return frame != null;
-    }
-
-    public StackFrame next() {
-      if (frame != null){
-        StackFrame ret = frame;
-        frame = frame.getPrevious();
-        return ret;
-
-      } else {
-        throw new NoSuchElementException();
-      }
-    }
-
-    public void remove() {
-      throw new UnsupportedOperationException("can't remove StackFrames");
-    }
-  }
-
-  protected class InvokedStackIterator extends StackIterator implements Iterator<StackFrame> {
-    InvokedStackIterator() {
-      frame = getLastInvokedStackFrame();
-    }
-
-    public StackFrame next() {
-      if (frame != null){
-        StackFrame ret = frame;
-        frame = null;
-        for (StackFrame f=ret.getPrevious(); f != null; f = f.getPrevious()){
-          if (!f.isDirectCallFrame()){
-            frame = f;
-            break;
-          }
-        }
-        return ret;
-
-      } else {
-        throw new NoSuchElementException();
-      }
-    }
-  }
-
-  protected static class UncaughtHandlerFrame extends DirectCallStackFrame {
-
-    ExceptionInfo exceptionInfo;
-    
-    
-    UncaughtHandlerFrame (ExceptionInfo xi, MethodInfo miHandler){
-      // we need three operands: handlerObject, thread and exception object
-      super(miHandler, 3, 0);
-      
-      exceptionInfo = xi;
-    }
-    
-    ExceptionInfo getExceptionInfo(){
-      return exceptionInfo;
-    }
-  }
-    
-  // transient, not state stored
   protected ExceptionInfo pendingException;
 
-  // state managed data that is copy-on-first-write
+  /** backtrack-relevant Information about the thread */
   protected ThreadData threadData;
 
-  
-  //<2do> Hmm, why are these not in ThreadData?
-  // the top stack frame
+  /**
+   * The stack frames of the JVM.
+   * <2do> will be replaced by direct links in StackFrames
+   */
+  protected ArrayList<StackFrame> stack = new ArrayList<StackFrame>();
+
+  /** the top stack frame */
   protected StackFrame top = null;
+  protected int topIdx = -1;
 
-  // the current stack depth (number of frames)
-  protected int stackDepth;
+  /**
+   * Reference of the thread list it is in.
+   * <2do> - bad cross ref (ThreadList should know about ThreadInfo, but not vice versa)
+   */
+  public ThreadList list;
 
-  
-  //--- the invariants
-  
-  // search global id, which is the basis for canonical order of threads
-  protected int gid;
-  
-  protected int objRef; // the java.lang.Thread object reference
-  protected ClassInfo ci; // the classinfo associated with the thread object
-  protected int targetRef; // the associated java.lang.Runnable
-  
+  /** thread list index */
+  public int index;
 
-  // which attributes are stored/restored
-  static final int   ATTR_STORE_MASK = 0x0000ffff;
+  /**
+   * <2do> pcm - BAD, if it doesn't get set after changing ThreadData fields
+   * that result in a new hashvalue, we get terribly out of sync. Move this logic
+   * into ThreadData, where it belongs!
+   */
+  public boolean tdChanged;
 
-  //--- the transient (un(re)stored) attributes
-  static final int ATTR_DATA_CHANGED       = 0x10000;
-  static final int ATTR_STACK_CHANGED      = 0x20000;
-  static final int ATTR_ATTRIBUTE_CHANGED  = 0x80000;
+  /** which stackframes have changed */
+  protected final BitSet hasChanged = new BitSet();
 
-
-  //--- state stored/restored part
-  
-  // this is a typical "orthogonal" thread state we have to remember, but
-  // that should not affect any locking, blocking, notifying or such
-  static final int ATTR_STOPPED = 0x0001;
-
-  //--- change sets
-  static final int ATTR_ANY_CHANGED = (ATTR_DATA_CHANGED | ATTR_STACK_CHANGED | ATTR_ATTRIBUTE_CHANGED);
-
-  static final int ATTR_SET_STOPPED = (ATTR_STOPPED | ATTR_ATTRIBUTE_CHANGED);
-
-  protected int attributes;
-
-  /** counter for executed instructions along current transition */
-  protected int executedInstructions;
+  /** the first insn in the current transition */
+  protected boolean isFirstStepInsn;
 
   /** shall we skip the next insn */
   protected boolean skipInstruction;
@@ -205,9 +117,8 @@ public class ThreadInfo
   /** store the last executed insn in the path */
   protected boolean logInstruction;
 
-
-  /** the last returned direct call frame */
-  protected StackFrame returnedDirectCall;
+  /** the last returned direct call frame (which contains the continuation) */
+  protected DirectCallStackFrame returnedDirectCall;
 
   /** the next insn to execute (null prior to execution) */
   protected Instruction nextPc;
@@ -229,7 +140,7 @@ public class ThreadInfo
   JVM vm;
 
   /**
-   * !! this is a volatile object, i.e. it has to be re-computed explicitly
+   * !! this is a volatile object, i.e. has to be reset and restored
    * !! after each backtrack (we don't want to duplicate state storage)
    * list of lock objects currently held by this thread.
    * unfortunately, we cannot organize this as a stack, since it might get
@@ -243,46 +154,11 @@ public class ThreadInfo
    */
   int lockRef = -1;
 
-
-  Memento<ThreadInfo> cachedMemento; // cache for unchanged ThreadInfos
-
-
-  static class TiMemento implements Memento<ThreadInfo> {
-    // note that we don't have to store the invariants (id, objRef, runnableRef, ci)
-    ThreadInfo ti;
-
-    ThreadData threadData;
-    StackFrame top;
-    int stackDepth;
-    int attributes;
-
-    TiMemento (ThreadInfo ti){
-      this.ti = ti;
-      threadData = ti.threadData;  // no need to clone - it's copy on first write
-      top = ti.top; // likewise
-      stackDepth = ti.stackDepth; // we just copy this for efficiency reasons
-      attributes = (ti.attributes & ATTR_STORE_MASK);
-
-      for (StackFrame frame = top; frame != null && frame.hasChanged(); frame = frame.getPrevious()){
-        frame.setChanged(false);
-      }
-      ti.markUnchanged();
-    }
-
-    public ThreadInfo restore(ThreadInfo ignored) {
-      ti.resetVolatiles();
-
-      ti.threadData = threadData;
-      ti.top = top;
-      ti.stackDepth = stackDepth;
-      ti.attributes = attributes;
-
-      ti.markUnchanged();
-
-      return ti;
-    }
-  }
-
+  /**
+   * this is where we keep ThreadInfos, indexed by their java.lang.Thread objRef, to
+   * enable us to keep ThreadInfo identities across backtracked and restored states
+   */
+  static SparseObjVector<ThreadInfo> threadInfos;
 
   // the following parameters are configurable. Would be nice if we could keep
   // them on a per-instance basis, but there are a few locations
@@ -291,22 +167,10 @@ public class ThreadInfo
   // basis
 
   /** do we halt on each throw, i.e. don't look for an exception handler?
-   * Useful to find empty handler blocks, or misusd exceptionHandlers
+   * Useful to find empty handler blocks, or misusd exceptions
    */
-  static StringSetMatcher haltOnThrow;
+  static String[] haltOnThrow;
 
-  /**
-   * do we delegate to Thread.UncaughtExceptionHandlers (in case there is any
-   * other than the standard ThreadGroup)
-   */
-  static boolean ignoreUncaughtHandlers;
-  
-  /**
-   * do we go on if we return from an UncaughtExceptionHandler, or do we still
-   * regard this as a NoUncaughtExceptionProperty violation
-   */
-  static boolean passUncaughtHandler;
-  
   /** is on-the-fly partial order in effect? */
   static boolean porInEffect;
 
@@ -321,82 +185,30 @@ public class ThreadInfo
    */
   static boolean porSyncDetection;
 
-  /**
-   * break the current transition after this number of instructions.
-   * This is a safeguard against paths that won't break because potentially
-   * shared fields are not yet accessed by a second thread (existence of such
-   * paths is the downside of our access tracking). Note that we only break on
-   * backjumps once this count gets exceeded, to give state matching a better
-   * chance and avoid interference with the IdleLoop listener
-   */
-  static int maxTransitionLength;
-  
-  
+  static int checkBudgetCount;
+
   static boolean init (Config config) {
     currentThread = null;
     mainThread = null;
-    gidManager = new GlobalIdManager();
-    
-    threadInfoCount = 0;
 
-    String[] haltOnThrowSpecs = config.getStringArray("vm.halt_on_throw");
-    if (haltOnThrowSpecs != null){
-      haltOnThrow = new StringSetMatcher(haltOnThrowSpecs);
-    }
-    
-    ignoreUncaughtHandlers = config.getBoolean( "vm.ignore_uncaught_handler", true);
-    passUncaughtHandler = config.getBoolean( "vm.pass_uncaught_handler", true);
+    haltOnThrow = config.getStringArray("vm.halt_on_throw");
     porInEffect = config.getBoolean("vm.por");
     porFieldBoundaries = porInEffect && config.getBoolean("vm.por.field_boundaries");
     porSyncDetection = porInEffect && config.getBoolean("vm.por.sync_detection");
-    
-    maxTransitionLength = config.getInt("vm.max_transition_length", 5000);
-    
+    checkBudgetCount = config.getInt("vm.budget.check_count", 9999);
+
+    threadInfos = new SparseObjVector<ThreadInfo>();
+
     return true;
   }
 
   /**
-   * <2do> this is going to be a configurable factory method
-   */
-  static ThreadInfo createThreadInfo (JVM vm, int objRef, int groupRef, int runnableRef, int nameRef, long stackSize) {
-    return new ThreadInfo(vm, objRef, groupRef, runnableRef, nameRef, stackSize);
-  }
-  
-  /**
    * Creates a new thread info. It is associated with the object
    * passed and sets the target object as well.
    */
-  public ThreadInfo (JVM vm, int objRef, int groupRef, int runnableRef, int nameRef, long stackSize) {
-    threadInfoCount++;
+  public ThreadInfo (JVM vm, int objRef) {
+    init( vm, objRef);
 
-    gid = computeGlobalId(vm.getSystemState());
-    
-    this.objRef = objRef;
-    targetRef = runnableRef;
-    
-    ElementInfo ei = vm.getElementInfo(objRef);
-    ci = ei.getClassInfo();
-
-    this.vm = vm;
-
-    threadData = new ThreadData();
-    threadData.state = State.NEW;
-    threadData.priority = Thread.NORM_PRIORITY;
-    threadData.isDaemon = false;
-    threadData.lockCount = 0;
-    threadData.suspendCount = 0;
-    threadData.name = vm.getElementInfo(nameRef).asString();
-    
-    // this is nasty - 'priority', 'name', 'target' and 'group' are not taken
-    // from the object, but set within the java.lang.Thread ctors
-
-    top = null;
-    stackDepth = 0;
-
-    lockedObjects = new LinkedList<ElementInfo>();
-
-    markUnchanged();
-    attributes |= ATTR_DATA_CHANGED; 
     env = new MJIEnv(this);
     //threadInfos.set(objRef, this); // our ThreadInfo repository
 
@@ -405,36 +217,70 @@ public class ThreadInfo
       mainThread = this;
       currentThread = this;
     }
-        
-    // note that we have to register here so that subsequent native peer calls can use the objRef
-    // to lookup the ThreadInfo. This is a bit premature since the thread is not runnable yet,
-    // but chances are it will be started soon, so we don't waste another data structure to do the mapping
-    vm.registerThread(this);    
-    ei.setIntField("id", gid);
-  }
-
-  
-  public Memento<ThreadInfo> getMemento(MementoFactory factory) {
-    return factory.getMemento(this);
-  }
-
-  public Memento<ThreadInfo> getMemento(){
-    return new TiMemento(this);
-  }
-
-  //--- cached mementos are only supposed to be accessed from the Restorer
-
-  public Memento<ThreadInfo> getCachedMemento(){
-    return cachedMemento;
-  }
-
-  public void setCachedMemento(Memento<ThreadInfo> memento){
-    cachedMemento = memento;
   }
 
   public static ThreadInfo getMainThread () {
     return mainThread;
   }
+
+  private void init (JVM vm, int objRef) {
+
+    DynamicArea da = vm.getDynamicArea();
+    ElementInfo ei = da.get(objRef);
+
+    this.vm = vm;
+
+    threadData = new ThreadData();
+    threadData.state = State.NEW;
+    threadData.ci = ei.getClassInfo();
+    threadData.objref = objRef;
+    threadData.target = MJIEnv.NULL;
+    threadData.lockCount = 0;
+    threadData.suspendCount = 0;
+    // this is nasty - 'priority', 'name', 'target' and 'group' are not taken
+    // from the object, but set within the java.lang.Thread ctors
+
+    stack.clear();
+    top = null;
+    topIdx = -1;
+
+    lockedObjects = new LinkedList<ElementInfo>();
+
+    markUnchanged();
+    tdChanged = true;
+  }
+
+  /**
+   * if we already had a ThreadInfo object for this java.lang.Thread object, make
+   * sure we reset it. It will be restored to proper state afterwards
+   */
+  static ThreadInfo createThreadInfo (JVM vm, int objRef) {
+
+    // <2do> this relies on heap symmetry! fix it
+    ThreadInfo ti = threadInfos.get(objRef);
+
+    if (ti == null) {
+      ti = new ThreadInfo(vm, objRef);
+      threadInfos.set(objRef, ti);
+
+    } else {
+      ti.init(vm, objRef);
+    }
+
+    vm.addThread(ti);
+
+    return ti;
+  }
+
+  /**
+   * just retrieve the ThreadInfo object for this java.lang.Thread object. This method is
+   * only valid after the thread got created
+   */
+  static ThreadInfo getThreadInfo (JVM vm, int objRef) {
+    return threadInfos.get(objRef);
+  }
+
+
 
   public static ThreadInfo getCurrentThread() {
     return currentThread;
@@ -453,29 +299,10 @@ public class ThreadInfo
     return vm;
   }
 
-  /**
-   * answers if is this the first instruction within the current transition.
-   * This is mostly used to tell the top- from the bottom-half of a native method
-   * or Instruction.execute(), so that only one (the top half) registers the CG
-   * 
-   * This can be used in both pre- and post-exec notification listeners, although
-   * the executedInstructions number is incremented before notifying
-   * instructionExecuted()
-   */
   public boolean isFirstStepInsn() {
-    int nInsn = executedInstructions;
-    return ( nInsn == 0 || (nextPc != null && nInsn == 1));
+    return isFirstStepInsn;
   }
 
-  /**
-   * get the number of instructions executed in the current transition. This
-   * gets incremented after calling Instruction.execute(), i.e. before
-   * notifying instructionExecuted() listeners
-   */
-  public int getExecutedInstructions(){
-    return executedInstructions;
-  }
-  
   /**
    * to be used from methods called from listeners, to find out if we are in a
    * pre- or post-exec notification
@@ -496,6 +323,24 @@ public class ThreadInfo
     return porSyncDetection;
   }
 
+  void setListInfo (ThreadList tl, int idx) {
+    list = tl;
+    index = idx;
+  }
+
+  /**
+   * Checks if the thread is waiting to execute a nondeterministic choice
+   * due to an abstraction, i.e. due to a Bandera.choose() call
+   *
+   * <2do> that's probably deprecated
+   */
+  public boolean isAbstractionNonDeterministic () {
+    if (getPC() == null) {
+      return false;
+    }
+
+    return getPC().examineAbstraction(vm.getSystemState(), vm.getKernelState(), this);
+  }
 
   //--- various thread state related methods
 
@@ -518,27 +363,22 @@ public class ThreadInfo
         // nothing. the notifyThreadStarted has to happen from
         // Thread.start(), since the thread could have been blocked
         // at the time with a sync run() method
-       // assert lockRef == -1;
         break;
       case TERMINATED:
         vm.notifyThreadTerminated(this);
         break;
       case BLOCKED:
-        assert lockRef != -1;
         vm.notifyThreadBlocked(this);
         break;
       case UNBLOCKED:
-        assert lockRef == -1;
         break; // nothing to notify
       case WAITING:
-        assert lockRef != -1;
         vm.notifyThreadWaiting(this);
         break;
       case INTERRUPTED:
         vm.notifyThreadInterrupted(this);
         break;
       case NOTIFIED:
-        assert lockRef != -1;
         vm.notifyThreadNotified(this);
         break;
       }
@@ -550,14 +390,11 @@ public class ThreadInfo
     }
   }
 
-  void setBlockedState (int objref) {
-    
+  void setBlockedState () {
     State currentState = threadData.state;
     switch (currentState){
-      case NEW:
       case RUNNING:
       case UNBLOCKED:
-        lockRef = objref;
         setState(State.BLOCKED);
         break;
 
@@ -570,7 +407,6 @@ public class ThreadInfo
     State currentState = threadData.state;
     switch (currentState){
       case BLOCKED:
-      case INTERRUPTED: // too late, we are already interrupted
       case NOTIFIED:
         // can happen in a Thread.join()
         break;
@@ -647,7 +483,7 @@ public class ThreadInfo
       // depends on if we can re-acquire the lock
       //assert lockRef != -1 : "timeout waiting but no blocked object";
       if (lockRef != -1){
-        ElementInfo ei = vm.getElementInfo(lockRef);
+        ElementInfo ei = vm.getDynamicArea().get(lockRef);
         return ei.canLock(this);
       } else {
         return true;
@@ -691,58 +527,6 @@ public class ThreadInfo
     setState(State.RUNNING);
   }
 
-  public void setStopped(int throwableRef){
-    if (isTerminated()){
-      // no need to kill twice
-      return;
-    }
-
-    attributes |= ATTR_SET_STOPPED;
-
-    if (!hasBeenStarted()){
-      // that one is easy - just remember the state so that a subsequent start()
-      // does nothing
-      return;
-    }
-
-    // for all other cases, we need to have a proper stopping Throwable that does not
-    // fall victim to GC, and that does not cause NoUncaughtExcceptionsProperty violations
-    if (throwableRef == MJIEnv.NULL){
-      // if no throwable was provided (the normal case), throw a java.lang.ThreadDeath Error
-      ClassInfo cix = ClassInfo.getInitializedClassInfo("java.lang.ThreadDeath", this);
-      throwableRef = createException(cix, null, MJIEnv.NULL);
-    }
-
-    // now the tricky part - this thread is alive but might be blocked, notified
-    // or waiting. In any case, exception action should not take place before
-    // the thread becomes scheduled again, which
-    // means we are not allowed to fiddle with its state in any way that changes
-    // scheduling/locking behavior. On the other hand, if this is the currently
-    // executing thread, take immediate action
-
-    if (isCurrentThread()){ // we are suicidal
-      if (isInNativeMethod()){
-        // remember the exception to be thrown when we return from the native method
-        env.throwException(throwableRef);
-      } else {
-        Instruction nextPc = throwException(throwableRef);
-        setNextPC(nextPc);
-      }
-
-    } else { // this thread is not currently running, this is an external kill
-
-      // remember there was a pending exception that has to be thrown the next
-      // time this gets scheduled, and make sure the exception object does
-      // not get GCed prematurely
-      ElementInfo eit = getElementInfo(objRef);
-      eit.setReferenceField("stopException", throwableRef);
-    }
-  }
-
-  public boolean isCurrentThread(){
-    return this == currentThread;
-  }
-
   /**
    * An alive thread is anything but TERMINATED or NEW
    */
@@ -783,19 +567,6 @@ public class ThreadInfo
     return (state == State.BLOCKED) || (state == State.NOTIFIED);
   }
 
-  // this is just a state attribute
-  public boolean isStopped() {
-    return (attributes & ATTR_STOPPED) != 0;
-  }
-
-  public boolean isInNativeMethod(){
-    return top != null && top.isNative();
-  }
-
-  public boolean hasBeenStarted(){
-    return (threadData.state != State.NEW);
-  }
-
   public String getStateName () {
     return threadData.getState().name();
   }
@@ -807,6 +578,14 @@ public class ThreadInfo
 
   public boolean getBooleanLocal (int lindex) {
     return Types.intToBoolean(getLocalVariable(lindex));
+  }
+
+  public boolean getBooleanLocal (int fr, String lname) {
+    return Types.intToBoolean(getLocalVariable(fr, lname));
+  }
+
+  public boolean getBooleanLocal (int fr, int lindex) {
+    return Types.intToBoolean(getLocalVariable(fr, lindex));
   }
 
   public boolean getBooleanReturnValue () {
@@ -821,106 +600,36 @@ public class ThreadInfo
     return (byte) getLocalVariable(lindex);
   }
 
+  public byte getByteLocal (int fr, String lname) {
+    return (byte) getLocalVariable(fr, lname);
+  }
+
+  public byte getByteLocal (int fr, int lindex) {
+    return (byte) getLocalVariable(fr, lindex);
+  }
 
   public byte getByteReturnValue () {
     return (byte) peek();
   }
 
-  public Iterator<StackFrame> iterator () {
-    return new StackIterator();
-  }
-
-  public Iterable<StackFrame> invokedStackFrames () {
-    return new Iterable<StackFrame>() {
-      public Iterator<StackFrame> iterator() {
-        return new InvokedStackIterator();
-      }
-    };
-  }
-
-  /**
-   * this returns a copy of the StackFrames in reverse order. Note this is
-   * redundant because the frames are linked explicitly
-   * @deprecated - use Iterable<StackFrame>
-   */
-  @Deprecated
   public List<StackFrame> getStack() {
-    ArrayList<StackFrame> list = new ArrayList<StackFrame>(stackDepth);
-
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      list.add(frame);
-    }
-
-    Collections.reverse(list);
-
-    return list;
-  }
-
-  /**
-   * returns StackFrames which have been entered through a corresponding
-   * invoke instruction (in top first order)
-   */
-  public List<StackFrame> getInvokedStackFrames() {
-    ArrayList<StackFrame> list = new ArrayList<StackFrame>(stackDepth);
-
-    int i = stackDepth-1;
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      if (!frame.isDirectCallFrame()){
-        list.add( frame);
-      }
-    }
-    Collections.reverse(list);
-
-    return list;
-  }
-
-  public List<StackFrame> getChangedStackFrames() {
-    ArrayList<StackFrame> list = new ArrayList<StackFrame>();
-
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      if (!frame.hasChanged()){
-        list.add(frame);
-      }
-    }
-
-    return list;
+    return stack;
   }
 
   public int getStackDepth() {
-    return stackDepth;
+    return stack.size();
   }
 
-  public StackFrame getCallerStackFrame (int offset){
-    int n = offset;
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      if (n < 0){
-        break;
-      } else if (n == 0){
-        return frame;
-      }
-      n--;
-    }
-    return null;
+  public StackFrame getStackFrame(int idx){
+    return stack.get(idx);
   }
 
-  public StackFrame getLastInvokedStackFrame() {
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      if (!frame.isDirectCallFrame()){
-        return frame;
-      }
+  public String getCallStackClass (int i) {
+    if (i < stack.size()) {
+      return frame(i).getClassName();
+    } else {
+      return null;
     }
-
-    return null;
-  }
-
-  public StackFrame getLastNonSyntheticStackFrame (){
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      if (!frame.isSynthetic()){
-        return frame;
-      }
-    }
-
-    return null;
   }
 
   /**
@@ -956,7 +665,7 @@ public class ThreadInfo
 
     InvokeInstruction call = (InvokeInstruction) pc;
 
-    return getCalleeThis(Types.getArgumentsSize(call.getInvokedMethodSignature()) + 1) == r.getObjectRef();
+    return getCalleeThis(Types.getArgumentsSize(call.getInvokedMethodSignature()) + 1) == r.getIndex();
   }
 
   public char getCharLocal (String lname) {
@@ -967,6 +676,14 @@ public class ThreadInfo
     return (char) getLocalVariable(lindex);
   }
 
+  public char getCharLocal (int fr, String lname) {
+    return (char) getLocalVariable(fr, lname);
+  }
+
+  public char getCharLocal (int fr, int lindex) {
+    return (char) getLocalVariable(fr, lindex);
+  }
+
   public char getCharReturnValue () {
     return (char) peek();
   }
@@ -975,7 +692,7 @@ public class ThreadInfo
    * Returns the class information.
    */
   public ClassInfo getClassInfo () {
-    return ci;
+    return threadData.ci;
   }
 
   public double getDoubleLocal (String lname) {
@@ -984,6 +701,14 @@ public class ThreadInfo
 
   public double getDoubleLocal (int lindex) {
     return Types.longToDouble(getLongLocalVariable(lindex));
+  }
+
+  public double getDoubleLocal (int fr, String lname) {
+    return Types.longToDouble(getLongLocalVariable(fr, lname));
+  }
+
+  public double getDoubleLocal (int fr, int lindex) {
+    return Types.longToDouble(getLongLocalVariable(fr, lindex));
   }
 
   public double getDoubleReturnValue () {
@@ -1002,6 +727,14 @@ public class ThreadInfo
     return Types.intToFloat(getLocalVariable(lindex));
   }
 
+  public float getFloatLocal (int fr, String lname) {
+    return Types.intToFloat(getLocalVariable(fr, lname));
+  }
+
+  public float getFloatLocal (int fr, int lindex) {
+    return Types.intToFloat(getLocalVariable(fr, lindex));
+  }
+
   public float getFloatReturnValue () {
     return Types.intToFloat(peek());
   }
@@ -1012,6 +745,14 @@ public class ThreadInfo
 
   public int getIntLocal (int lindex) {
     return getLocalVariable(lindex);
+  }
+
+  public int getIntLocal (int fr, String lname) {
+    return getLocalVariable(fr, lname);
+  }
+
+  public int getIntLocal (int fr, int lindex) {
+    return getLocalVariable(fr, lindex);
   }
 
   public int getIntReturnValue () {
@@ -1030,41 +771,20 @@ public class ThreadInfo
   }
 
   /**
-   * path local unique id for live threads. This is what we use for the
-   * public java.lang.Thread.getId() that can be called from SUT code. It is
-   * NOT what we use for our canonical root set
+   * return our internal thread number (order of creation)
    */
-  public int getId () {
-    return gid;
+  public int getIndex () {
+    return index;
   }
 
-  /**
-   * this is our internal, search global id that is used for the
-   * canonical root set
-   */
-  public int getGlobalId(){
-    return gid;
-  }
-  
-  protected int computeGlobalId (SystemState ss){
-    ThreadInfo tiExec = currentThread;
-    Instruction insn = null;
-    
-    if (tiExec != null){
-      insn = tiExec.getTopFrame().getPC();  
-    }
-        
-    return gidManager.getNewId(ss, currentThread, insn);
-  }
-  
   /**
    * record what this thread is being blocked on.
    */
   void setLockRef (int objref) {
 /**
     assert ((lockRef == -1) || (lockRef == objref)) :
-      "attempt to overwrite lockRef: " + vm.getHeap().get(lockRef) +
-      " with: " + vm.getHeap().get(objref);
+      "attempt to overwrite lockRef: " + vm.getDynamicArea().get(lockRef) +
+      " with: " + vm.getDynamicArea().get(objref);
 **/
     lockRef = objref;
   }
@@ -1077,15 +797,11 @@ public class ThreadInfo
     lockRef = -1;
   }
 
-  public int getLockRef() {
-    return lockRef;
-  }
-
   public ElementInfo getLockObject () {
     if (lockRef == -1) {
       return null;
     } else {
-      return vm.getElementInfo(lockRef);
+      return vm.getDynamicArea().get(lockRef);
     }
   }
 
@@ -1099,11 +815,21 @@ public class ThreadInfo
       return top.getLine();
     }
   }
-  
-  public LocalVarInfo[] getLocalVars() {
-    return top.getLocalVars();
+
+  /**
+   * Returns the line the thread is at.
+   */
+  public int getLine (int idx) {
+    return frame(idx).getLine();
   }
-  
+
+  public String[] getLocalNames () {
+    return top.getLocalVariableNames();
+  }
+
+  public String[] getLocalNames (int fr) {
+    return frame(fr).getLocalVariableNames();
+  }
 
   /**
    * Sets the value of a local variable.
@@ -1113,10 +839,24 @@ public class ThreadInfo
   }
 
   /**
+   * Returns the value of a local variable in a particular frame.
+   */
+  public int getLocalVariable (int fr, int idx) {
+    return frame(fr).getLocalVariable(idx);
+  }
+
+  /**
    * Returns the value of a local variable.
    */
   public int getLocalVariable (int idx) {
     return top.getLocalVariable(idx);
+  }
+
+  /**
+   * Gets the value of a local variable from its name and frame.
+   */
+  public int getLocalVariable (int fr, String name) {
+    return frame(fr).getLocalVariable(name);
   }
 
   /**
@@ -1133,6 +873,12 @@ public class ThreadInfo
     return top.isLocalVariableRef(idx);
   }
 
+  /**
+   * Gets the type associated with a local variable.
+   */
+  public String getLocalVariableType (int fr, String name) {
+    return frame(fr).getLocalVariableType(name);
+  }
 
   /**
    * Gets the type associated with a local variable.
@@ -1141,37 +887,6 @@ public class ThreadInfo
     return top.getLocalVariableType(name);
   }
 
-  
-  //--- suspend/resume modeling
-  // modeling this with a count is an approximation. In reality it behaves
-  // rather like a race that /sometimes/ causes the resume to fail, but its
-  // Ok if we overapproximate on the safe side, since suspend/resume is such
-  // an inherently unsafe thing. What we *do* want to preserve faithfully is 
-  // that locks held by the suspended thread are not released
-  
-  /**
-   * set suspension status
-   * @return true if thread was not suspended
-   */
-  public boolean suspend() {
-    return threadDataClone().suspendCount++ == 0;
-  }
-
-  /**
-   * unset suspension status
-   * @return true if thread was suspended
-   */
-  public boolean resume() {
-    return (threadData.suspendCount > 0) && (--threadDataClone().suspendCount == 0);
-  }
-  
-  public boolean isSuspended() {
-    return threadData.suspendCount > 0;
-  }
-
-
-  //--- locks
-  
   /**
    * Sets the number of locks held at the time of a wait.
    */
@@ -1187,8 +902,24 @@ public class ThreadInfo
   public int getLockCount () {
     return threadData.lockCount;
   }
-  
-  public List<ElementInfo> getLockedObjects () {
+
+  /**
+    * Increments the suspend counter.
+    * @return true if the suspend counter was 0 before this call (e.g. the thread was just suspended)
+    */
+  public boolean suspend() {
+    return threadDataClone().suspendCount++ == 0;
+  }
+
+  /**
+    * Decrements the suspend counter if > 0.
+    * @return true if the suspend counter was 1 before the call (e.g. the thread was just resumed)
+    */
+  public boolean resume() {
+    return (threadData.suspendCount > 0) && (--threadDataClone().suspendCount == 0);
+  }
+
+  public LinkedList<ElementInfo> getLockedObjects () {
     return lockedObjects;
   }
 
@@ -1198,7 +929,7 @@ public class ThreadInfo
       int[] a = new int[lockedObjects.size()];
       int i = 0;
       for (ElementInfo e : lockedObjects) {
-        a[i++] = e.getObjectRef();
+        a[i++] = e.getIndex();
       }
       return a;
 
@@ -1215,6 +946,14 @@ public class ThreadInfo
     return getLongLocalVariable(lindex);
   }
 
+  public long getLongLocal (int fr, String lname) {
+    return getLongLocalVariable(fr, lname);
+  }
+
+  public long getLongLocal (int fr, int lindex) {
+    return getLongLocalVariable(fr, lindex);
+  }
+
   /**
    * Sets the value of a long local variable.
    */
@@ -1225,8 +964,22 @@ public class ThreadInfo
   /**
    * Returns the value of a long local variable.
    */
+  public long getLongLocalVariable (int fr, int idx) {
+    return frame(fr).getLongLocalVariable(idx);
+  }
+
+  /**
+   * Returns the value of a long local variable.
+   */
   public long getLongLocalVariable (int idx) {
     return top.getLongLocalVariable(idx);
+  }
+
+  /**
+   * Gets the value of a long local variable from its name.
+   */
+  public long getLongLocalVariable (int fr, String name) {
+    return frame(fr).getLongLocalVariable(name);
   }
 
   /**
@@ -1241,26 +994,13 @@ public class ThreadInfo
   }
 
   /**
-   * returns the current method in the top stack frame, which is always a
-   * bytecode method (executed by JPF)
+   * Returns the current method in the top stack frame.
    */
-  public MethodInfo getTopMethod () {
+  public MethodInfo getMethod () {
     if (top != null) {
       return top.getMethodInfo();
     } else {
       return null;
-    }
-  }
-
-  /**
-   * returns the currently executing MethodInfo, which can be a native/MJI method
-   */
-  public MethodInfo getMethod() {
-    MethodInfo mi = vm.getLastMethodInfo();
-    if (mi != null){
-      return mi;
-    } else {
-      return getTopMethod();
     }
   }
 
@@ -1276,7 +1016,8 @@ public class ThreadInfo
   }
 
   public boolean isCtorOnStack (int objRef){
-    for (StackFrame f = top; f != null; f = f.getPrevious()){
+    for (int i = topIdx; i>= 0; i--){
+      StackFrame f = stack.get(i);
       if (f.getThis() == objRef && f.getMethodInfo().isCtor()){
         return true;
       }
@@ -1286,7 +1027,8 @@ public class ThreadInfo
   }
 
   public boolean isClinitOnStack (ClassInfo ci){
-    for (StackFrame f = top; f != null; f = f.getPrevious()){
+    for (int i = topIdx; i>= 0; i--){
+      StackFrame f = stack.get(i);
       MethodInfo mi = f.getMethodInfo();
       if (mi.isClinit(ci)){
         return true;
@@ -1296,6 +1038,17 @@ public class ThreadInfo
     return false;
   }
 
+  /**
+   * Returns the method info of a specific stack frame.
+   */
+  public MethodInfo getMethod (int idx) {
+    StackFrame sf = frame(idx);
+    if (sf != null) {
+      return sf.getMethodInfo();
+    } else {
+      return null;
+    }
+  }
 
   public String getName () {
     return threadData.name;
@@ -1303,312 +1056,102 @@ public class ThreadInfo
 
 
   public ElementInfo getObjectLocal (String lname) {
-    return vm.getElementInfo(getLocalVariable(lname));
+    return list.ks.da.get(getLocalVariable(lname));
   }
 
   public ElementInfo getObjectLocal (int lindex) {
-    return vm.getElementInfo(getLocalVariable(lindex));
+    return list.ks.da.get(getLocalVariable(lindex));
+  }
+
+  public ElementInfo getObjectLocal (int fr, String lname) {
+    return list.ks.da.get(getLocalVariable(fr, lname));
+  }
+
+  public ElementInfo getObjectLocal (int fr, int lindex) {
+    return list.ks.da.get(getLocalVariable(fr, lindex));
   }
 
   /**
    * Returns the object reference.
    */
   public int getThreadObjectRef () {
-    return objRef;
-  }
-
-  public ElementInfo getThreadObject(){
-    return getElementInfo(objRef);
+    return threadData.objref;
   }
 
   public ElementInfo getObjectReturnValue () {
-    return vm.getElementInfo(peek());
+    return list.ks.da.get(peek());
   }
 
-  //------------------- attribute accessors
-  
-  //--- top single-slot operand attr accessors
-  
-  public boolean hasOperandAttr(){
-    return top.hasOperandAttr();
-  }  
-  public boolean hasOperandAttr(Class<?> type){
-    return top.hasOperandAttr(type);
-  }
-  
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */
+  // might return composite
   public Object getOperandAttr () {
     return top.getOperandAttr();
   }
-  
+  public <T> T getOperandAttr (Class<T> attrType){
+    return top.getOperandAttr(attrType);
+  }
+
+  // might return composite
+  public Object getLongOperandAttr () {
+    return top.getLongOperandAttr();
+  }
+  public <T> T getLongOperandAttr (Class<T> attrType){
+    return top.getLongOperandAttr(attrType);
+  }
+
+
+
+  // might return composite
+  public Object getOperandAttr (int opStackOffset) {
+    return top.getOperandAttr(opStackOffset);
+  }
+  public <T> T getOperandAttr( Class<T> attrType, int opStackOffset){
+    return top.getOperandAttr(attrType,opStackOffset);
+  }
+
+  // setting operand attributes assumes the operand is already on the stack
+
   /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
+   * use this version if only the attr has changed, but not the value
+   * (otherwise state management won't work)
    */
   public void setOperandAttr (Object attr) {
     topClone().setOperandAttr(attr);
   }
+
+  public void setLongOperandAttr (Object attr) {
+    topClone().setLongOperandAttr(attr);
+  }
+
+
+  /**
+   * use this version if the value is also changed, which means we don't
+   * have to clone here
+   */
   public void setOperandAttrNoClone (Object attr) {
     top.setOperandAttr(attr);
   }
 
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getOperandAttr (Class<T> attrType){
-    return top.getOperandAttr(attrType);
-  }
-  public <T> T getNextOperandAttr (Class<T> attrType, Object prev){
-    return top.getNextOperandAttr(attrType, prev);
-  }
-  public Iterator operandAttrIterator (){
-    return top.operandAttrIterator();
-  }
-  public <T> Iterator<T> operandAttrIterator (Class<T> attrType){
-    return top.operandAttrIterator(attrType);
-  }
-    
-  public void addOperandAttr (Object attr) {
-    topClone().addOperandAttr(attr);
-  }
-  public void addOperandAttrNoClone (Object attr) {
-    top.addOperandAttr(attr);
-  }
-
-  public void removeOperandAttr (Object attr) {
-    topClone().removeOperandAttr(attr);
-  }
-  public void removeOperandAttrNoClone (Object attr) {
-    top.removeOperandAttr(attr);
-  }
-  
-  public void replaceOperandAttr (Object oldAttr, Object newAttr) {
-    topClone().replaceOperandAttr(oldAttr, newAttr);
-  }
-  public void replaceOperandAttrNoClone (Object oldAttr, Object newAttr) {
-    top.replaceOperandAttr(oldAttr, newAttr);
-  }
-  
-
-  //--- offset operand attr accessors
-  
-  public boolean hasOperandAttr(int opStackOffset){
-    return top.hasOperandAttr(opStackOffset);
-  }  
-  public boolean hasOperandAttr(int opStackOffset, Class<?> type){
-    return top.hasOperandAttr(opStackOffset, type);
-  }
-  
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */
-  public Object getOperandAttr (int opStackOffset) {
-    return top.getOperandAttr(opStackOffset);
-  }
-  
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setOperandAttr (int opStackOffset, Object attr) {
-    topClone().setOperandAttr(opStackOffset, attr);
-  }
-  public void setOperandAttrNoClone (int opStackOffset, Object attr) {
-    top.setOperandAttr(opStackOffset, attr);
-  }
-
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getOperandAttr( int opStackOffset, Class<T> attrType){
-    return top.getOperandAttr( opStackOffset, attrType);
-  }
-  public <T> T getNextOperandAttr( int opStackOffset, Class<T> attrType, Object prev){
-    return top.getNextOperandAttr( opStackOffset, attrType, prev);
-  }
-  
-  public ObjectList.Iterator operandAttrIterator (int opStackOffset){
-    return top.operandAttrIterator(opStackOffset);
-  }
-  public <T> ObjectList.TypedIterator<T> operandAttrIterator (int opStackOffset, Class<T> attrType){
-    return top.operandAttrIterator(opStackOffset, attrType);
-  }
-    
-  public void addOperandAttr (int opStackOffset, Object attr) {
-    topClone().addOperandAttr(opStackOffset,attr);
-  }
-  public void addOperandAttrNoClone (int opStackOffset, Object attr) {
-    top.addOperandAttr(opStackOffset,attr);
-  }
-
-  public void removeOperandAttr (int opStackOffset, Object attr) {
-    topClone().removeOperandAttr(opStackOffset,attr);
-  }
-  public void removeOperandAttrNoClone (int opStackOffset, Object attr) {
-    top.removeOperandAttr(opStackOffset,attr);
-  }
-  
-  public void replaceOperandAttr (int opStackOffset, Object oldAttr, Object newAttr) {
-    topClone().replaceOperandAttr(opStackOffset,oldAttr, newAttr);
-  }
-  public void replaceOperandAttrNoClone (int opStackOffset, Object oldAttr, Object newAttr) {
-    top.replaceOperandAttr(opStackOffset,oldAttr, newAttr);
-  }
-  
-  
-  //--- top double-slot operand attr accessors
-
-  public boolean hasLongOperandAttr(){
-    return top.hasLongOperandAttr();
-  }  
-  public boolean hasLongOperandAttr(Class<?> type){
-    return top.hasLongOperandAttr(type);
-  }
-  
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */  
-  public Object getLongOperandAttr () {
-    return top.getLongOperandAttr();
-  }
-  
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setLongOperandAttr (Object attr) {
-    topClone().setLongOperandAttr(attr);
-  }
   public void setLongOperandAttrNoClone (Object attr) {
     top.setLongOperandAttr(attr);
   }
-  
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getLongOperandAttr (Class<T> attrType){
-    return top.getLongOperandAttr(attrType);
-  }
-  public <T> T getNextLongOperandAttr (Class<T> attrType, Object prev){
-    return top.getNextLongOperandAttr(attrType, prev);
+
+
+  public void setLocalAttr (int localIndex, Object attr){
+    topClone().setLocalAttr(localIndex, attr);
   }
 
-  public ObjectList.Iterator longOperandAttrIterator (){
-    return top.longOperandAttrIterator();
-  }
-  public <T> ObjectList.TypedIterator<T> longOperandAttrIterator (Class<T> attrType){
-    return top.longOperandAttrIterator(attrType);
-  }
-    
-  public void addLongOperandAttr (Object attr) {
-    topClone().addLongOperandAttr(attr);
-  }
-  public void addLongOperandAttrNoClone (Object attr) {
-    top.addLongOperandAttr(attr);
+  public void setLocalAttrNoClone (int localIndex, Object attr){
+    top.setLocalAttr(localIndex, attr);
   }
 
-  public void removeLongOperandAttr (Object attr) {
-    topClone().removeLongOperandAttr(attr);
-  }
-  public void removeLongOperandAttrNoClone (Object attr) {
-    top.removeLongOperandAttr(attr);
-  }
-  
-  public void replaceLongOperandAttr (Object oldAttr, Object newAttr) {
-    topClone().replaceLongOperandAttr(oldAttr, newAttr);
-  }
-  public void replaceLongOperandAttrNoClone (Object oldAttr, Object newAttr) {
-    top.replaceLongOperandAttr(oldAttr, newAttr);
-  }
-  
-  
-  //--- local var attribute accessors
-
-  public boolean hasLocalAttr(int localIndex){
-    return top.hasLocalAttr(localIndex);
-  }
-  public boolean hasLocalAttr(int localIndex, Class<?> type){
-    return top.hasLocalAttr(localIndex, type);
-  }
-  
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */  
-  public Object getLocalAttr (int localIndex) {
+  // might return composite
+  public Object getLocalAttr (int localIndex){
     return top.getLocalAttr(localIndex);
   }
-  
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setLocalAttr (int localIndex, Object a){
-    topClone().setLocalAttr(localIndex, a);
-  }
-  public void setLocalAttrNoClone (int localIndex, Object a){
-    top.setLocalAttr(localIndex, a);
-  }
-  
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getLocalAttr( int localIndex, Class<T> attrType){
-    return top.getLocalAttr( localIndex, attrType);
-  }
-  public <T> T getNextLocalAttr( int localIndex, Class<T> attrType, Object prev){
-    return top.getNextLocalAttr( localIndex, attrType, prev);
-  }
-  
-  public ObjectList.Iterator localAttrIterator (int localIndex){
-    return top.localAttrIterator(localIndex);
-  }
-  public <T> ObjectList.TypedIterator<T> localAttrIterator (int localIndex, Class<T> attrType){
-    return top.localAttrIterator(localIndex, attrType);
-  }
-    
-  public void addLocalAttr (int localIndex, Object attr) {
-    topClone().addLocalAttr(localIndex,attr);
-  }
-  public void addLocalAttrNoClone (int localIndex, Object attr) {
-    top.addLocalAttr(localIndex,attr);
+  public <T> T getLocalAttr (Class<T> attrType, int localIndex){
+    return top.getLocalAttr(attrType, localIndex);
   }
 
-  public void removeLocalAttr (int localIndex, Object attr) {
-    topClone().removeLocalAttr(localIndex,attr);
-  }
-  public void removeLocalAttrNoClone (int localIndex, Object attr) {
-    top.removeLocalAttr(localIndex,attr);
-  }
-  
-  public void replaceLocalAttr (int localIndex, Object oldAttr, Object newAttr) {
-    topClone().replaceLocalAttr(localIndex,oldAttr, newAttr);
-  }
-  public void replaceLocalAttrNoClone (int localIndex, Object oldAttr, Object newAttr) {
-    top.replaceLocalAttr(localIndex,oldAttr, newAttr);
-  }
-  
-
-  // -- end attribute accessors --
-  
-  
   /**
    * Checks if the top operand is a reference.
    */
@@ -1635,6 +1178,13 @@ public class ThreadInfo
   }
 
   /**
+   * Returns the program counter of a stack frame.
+   */
+  public Instruction getPC (int i) {
+    return frame(i).getPC();
+  }
+
+  /**
    * Returns the program counter of the top stack frame.
    */
   public Instruction getPC () {
@@ -1657,6 +1207,14 @@ public class ThreadInfo
     return (short) getLocalVariable(lindex);
   }
 
+  public short getShortLocal (int fr, String lname) {
+    return (short) getLocalVariable(fr, lname);
+  }
+
+  public short getShortLocal (int fr, int lindex) {
+    return (short) getLocalVariable(fr, lindex);
+  }
+
   public short getShortReturnValue () {
     return (short) peek();
   }
@@ -1665,13 +1223,14 @@ public class ThreadInfo
    * get the current stack trace of this thread
    * this is called during creation of a Throwable, hence we should skip
    * all throwable ctors in here
-   * <2do> this is only a partial solution,since we don't catch exceptionHandlers
+   * <2do> this is only a partial solution,since we don't catch exceptions
    * in Throwable ctors yet
    */
   public String getStackTrace () {
     StringBuilder sb = new StringBuilder(256);
 
-    for (StackFrame sf = top; sf != null; sf = sf.getPrevious()){
+    for (int i = topIdx; i >= 0; i--) {
+      StackFrame sf = stack.get(i);
       MethodInfo mi = sf.getMethodInfo();
 
       if (mi.isCtor()){
@@ -1682,7 +1241,7 @@ public class ThreadInfo
       }
 
       sb.append("\tat ");
-      sb.append(sf.getStackTraceInfo());
+      sb.append(stack.get(i).getStackTraceInfo());
       sb.append('\n');
     }
 
@@ -1698,26 +1257,43 @@ public class ThreadInfo
    * by the executing method
    */
   public void dumpStoringData (IntVector v) {
-    v = null;  // Get rid of IDE warnings
+
   }
 
   public String getStringLocal (String lname) {
-    return vm.getElementInfo(getLocalVariable(lname)).asString();
+    return list.ks.da.get(getLocalVariable(lname)).asString();
   }
 
   public String getStringLocal (int lindex) {
-    return vm.getElementInfo(getLocalVariable(lindex)).asString();
+    return list.ks.da.get(getLocalVariable(lindex)).asString();
+  }
+
+  public String getStringLocal (int fr, String lname) {
+    return list.ks.da.get(getLocalVariable(fr, lname)).asString();
+  }
+
+  public String getStringLocal (int fr, int lindex) {
+    return list.ks.da.get(getLocalVariable(fr, lindex)).asString();
   }
 
   public String getStringReturnValue () {
-    return vm.getElementInfo(peek()).asString();
+    return list.ks.da.get(peek()).asString();
+  }
+
+  /**
+   * Sets the target of the thread.
+   */
+  public void setTarget (int t) {
+    if (threadData.target != t) {
+      threadDataClone().target = t;
+    }
   }
 
   /**
    * Returns the object reference of the target.
    */
-  public int getRunnableRef () {
-    return targetRef;
+  public int getTarget () {
+    return threadData.target;
   }
 
   /**
@@ -1741,11 +1317,11 @@ public class ThreadInfo
     }
 
     return getMethod().isStatic()
-      ? false : r.getObjectRef() == getLocalVariable(0);
+      ? false : r.getIndex() == getLocalVariable(0);
   }
 
   public boolean atMethod (String mname) {
-    return top != null && getMethod().getFullName().equals(mname);
+    return top != null && getMethod().getCompleteName().equals(mname);
   }
 
   public boolean atPosition (int position) {
@@ -1797,6 +1373,14 @@ public class ThreadInfo
     vm.notifyObjectUnlocked(this, ei);
   }
 
+
+  /**
+   * Pops a set of values from the caller stack frame.
+   */
+  public void callerPop (int n) {
+    frameClone(-1).pop(n);
+  }
+
   /**
    * Clears the operand stack of all value.
    */
@@ -1806,9 +1390,17 @@ public class ThreadInfo
 
   public Object clone() {
     try {
-      // threadData and top StackFrame are copy-on-write, so we should not have to clone them
-      // lockedObjects are state-volatile and restored explicitly after a backtrack
-      return super.clone();
+      ThreadInfo other = (ThreadInfo) super.clone();
+
+      // the threadData is pooled, so we should not have to clone it
+
+      // but the StackFrames will change, deep copy them
+      other.stack = cloneStack();
+
+      // and so do the lockedObjects
+      other.lockedObjects = cloneLockedObjects();
+
+      return other;
 
     } catch (CloneNotSupportedException cnsx) {
       return null;
@@ -1825,37 +1417,72 @@ public class ThreadInfo
     return lo;
   }
 
+  ArrayList<StackFrame> cloneStack() {
+    ArrayList<StackFrame> sf = new ArrayList<StackFrame>(stack.size());
+
+    for (StackFrame f : stack) {
+      sf.add(f.clone());
+    }
+
+    return sf;
+  }
+
+  public StackFrame[] dumpStack() {
+    return stack.toArray(new StackFrame[stack.size()]);
+  }
 
   /**
    * Returns the number of stack frames.
    */
   public int countStackFrames () {
-    return stackDepth;
+    return stack.size();
   }
+
+  int countVisibleStackFrames() {
+    int n = 0;
+    int len = stack.size();
+    for (int i = 0; i < len; i++) {
+      if (!stack.get(i).isDirectCallFrame()) {
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /****
+   * <2do> the whole snapshot business looks a bit convoluted - streamline
+   ****/
 
   /**
    * get a stack snapshot that consists of an array of {mthId,pc} pairs.
-   * strip stackframes that execute instance methods of the exception object
    */
   public int[] getSnapshot (int xObjRef) {
-    StackFrame frame = top;
-    int n = stackDepth;
-    
+    int[] snap;
+    int n = stack.size();
+
     if (xObjRef != MJIEnv.NULL){ // filter out exception method frames
-      for (;frame != null; frame = frame.getPrevious()){
-        if (frame.getThis() != xObjRef){
-          break;
-        }
+      for (int i=n-1; i>=0 && (stack.get(i).getThis() == xObjRef); i--){
         n--;
       }
     }
 
+    // check if we are in a native method (other than fillInStackTrace()
+    // called from an exception ctor), which isn't on the stack
+    // (but we want to see it anyways).
     int j=0;
-    int[] snap = new int[n*2];
+    MethodInfo nativeMth = env.getMethodInfo();
+    if ((nativeMth != null) && (n == stack.size())){
+      snap = new int[n*2 + 2];
+      snap[j++] = nativeMth.getGlobalId();
+      snap[j++] = -1;
+    } else {
+      snap = new int[n*2];
+    }
 
-    for (; frame != null; frame = frame.getPrevious()){
+    for (int i=n-1; i>=0; i--){
+      StackFrame frame = stack.get(i);
       snap[j++] = frame.getMethodInfo().getGlobalId();
-      snap[j++] = frame.getPC().getInstructionIndex();
+      snap[j++] = frame.getPC().getOffset();
     }
 
     return snap;
@@ -1878,12 +1505,12 @@ public class ThreadInfo
       }
     }
 
-    Heap heap = vm.getHeap();
-    int aref = heap.newArray("Ljava/lang/StackTraceElement;", nVisible, this);
-    ElementInfo aei = heap.get(aref);
+    DynamicArea da = DynamicArea.getHeap();
+    int aref = da.newArray("Ljava/lang/StackTraceElement;", nVisible, this);
+    ElementInfo aei = da.get(aref);
     for (int i=0; i<nVisible; i++){
       int eref = list[i].createJPFStackTraceElement();
-      aei.setReferenceElement( i, eref);
+      aei.setElement( i, eref);
     }
 
     return aref;
@@ -1965,36 +1592,36 @@ public class ThreadInfo
 
 
     StackTraceElement (int methodId, int pcOffset) {
-      if (methodId == MethodInfo.REFLECTION_CALL) {
-        clsName = "java.lang.reflect.Method";
-        mthName = "invoke";
-        fileName = "Native Method";
-        line = -1;
+      if (methodId == MethodInfo.REFLECTION_CALL){
+          clsName = "java.lang.reflect.Method";
+          mthName = "invoke";
+          fileName = "Native Method";
+          line    = -1;
 
-      } else if (methodId == MethodInfo.DIRECT_CALL) {
-        ignore = true;
+      } else if (methodId == MethodInfo.DIRECT_CALL){
+          ignore = true;
 
       } else {
         MethodInfo mi = MethodInfo.getMethodInfo(methodId);
-        if (mi != null) {
-          clsName = mi.getClassName();
-          mthName = mi.getName();
+        if (mi != null){
+        clsName = mi.getClassName();
+        mthName = mi.getName();
 
-          fileName = mi.getStackTraceSource();
-          if (pcOffset < 0){
-            // See ThreadStopTest.threadDeathWhileRunstart
-            // <2do> remove when RUNSTART is gone
-            pcOffset = 0;
-          }
+        if (mi.isMJI()){
+          fileName = "Native Method";
+          line = -1;
+        } else {
+          fileName = mi.getSourceFileName();
           line = mi.getLineNumber(mi.getInstruction(pcOffset));
+        }
 
         } else { // this sounds like a bug
           clsName = "?";
           mthName = "?";
           fileName = "?";
           line = -1;
-        }
       }
+    }
     }
 
     StackTraceElement (int sRef){
@@ -2008,15 +1635,15 @@ public class ThreadInfo
       if (ignore) {
         return MJIEnv.NULL;
       } else {
-        Heap heap = vm.getHeap();
+        DynamicArea da = DynamicArea.getHeap();
 
         ClassInfo ci = ClassInfo.getResolvedClassInfo("java.lang.StackTraceElement");
-        int sRef = heap.newObject(ci, ThreadInfo.this);
+        int sRef = da.newObject(ci, ThreadInfo.this);
 
-        ElementInfo  sei = heap.get(sRef);
-        sei.setReferenceField("clsName", heap.newString(clsName, ThreadInfo.this));
-        sei.setReferenceField("mthName", heap.newString(mthName, ThreadInfo.this));
-        sei.setReferenceField("fileName", heap.newString(fileName, ThreadInfo.this));
+        ElementInfo  sei = da.get(sRef);
+        sei.setReferenceField("clsName", da.newString(clsName, ThreadInfo.this));
+        sei.setReferenceField("mthName", da.newString(mthName, ThreadInfo.this));
+        sei.setReferenceField("fileName", da.newString(fileName, ThreadInfo.this));
         sei.setIntField("line", line);
 
         return sRef;
@@ -2062,20 +1689,20 @@ public class ThreadInfo
   /**
    * <2do> pcm - this is not correct! We have to call a proper ctor
    * for the Throwable (for now, we just explicitly set the details)
-   * but since this is not used with user defined exceptionHandlers (it's only
-   * called from within the VM, i.e. with standard exceptionHandlers), we for
+   * but since this is not used with user defined exceptions (it's only
+   * called from within the VM, i.e. with standard exceptions), we for
    * now skip the hassle of doing direct calls that would change the
    * call stack
    */
   int createException (ClassInfo ci, String details, int causeRef){
-    Heap heap = vm.getHeap();
-    int objref = heap.newObject(ci, this);
-    int msgref = -1;
+    DynamicArea da = DynamicArea.getHeap();
+    int         objref = da.newObject(ci, this);
+    int         msgref = -1;
 
-    ElementInfo ei = heap.get(objref);
+    ElementInfo ei = da.get(objref);
 
     if (details != null) {
-      msgref = heap.newString(details, this);
+      msgref = da.newString(details, this);
       ei.setReferenceField("detailMessage", msgref);
     }
 
@@ -2099,7 +1726,7 @@ public class ThreadInfo
     }
 
     if (!ci.isInitialized()){
-      if (ci.initializeClass(this)) {
+      if (ci.initializeClass(this, getPC())) {
         return getPC();
       }
     }
@@ -2174,46 +1801,36 @@ public class ThreadInfo
   }
 
   /**
-   * execute instructions until there is none left or somebody breaks
-   * the transition (e.g. by registering a CG)
+   * execute a step using on-the-fly partial order reduction
    */
-  protected void executeTransition (SystemState ss) throws JPFException {
+  protected boolean executeStep (SystemState ss) throws JPFException {
     Instruction pc = getPC();
     Instruction nextPc = null;
 
     currentThread = this;
-    executedInstructions = 0;
 
-    if (isStopped()){
-      pc = throwStopException();
-      setPC(pc);
-    }
-    
     // this constitutes the main transition loop. It gobbles up
-    // insns until someone registered a ChoiceGenerator, there are no insns left,
-    // the transition was explicitly marked as ignored, or we have reached a
-    // max insn count and preempt the thread upon the next available backjump
-    while (pc != null) {
+    // insns until there either is none left anymore in this thread,
+    // or it didn't execute (which indicates the insn registered a CG for
+    // subsequent invocation)
+    int nExec = 0;
+    isFirstStepInsn = true; // so that potential CG generators know
+    do {
       nextPc = executeInstruction();
-      
+
       if (ss.breakTransition()) {
+        // shortcut break if there was no progress (a ChoiceGenerator was created)
+        // or if the state is explicitly set as ignored
         break;
-        
       } else {
-        if (executedInstructions >= maxTransitionLength){ // try to preempt the current thread
-          //if (vm.getStateId() > 0){
-            if (pc.isBackJump() && (pc != nextPc) && (top != null && !top.isNative())) {
-              if (yield()) {
-                log.info("max transition length exceeded, breaking transition on ", nextPc);
-                break;
-              }
-            }
-          //}
-        }
-        
         pc = nextPc;
       }
-    }
+
+      isFirstStepInsn = false;
+
+    } while (pc != null);
+
+    return true;
   }
 
 
@@ -2233,7 +1850,7 @@ public class ThreadInfo
     nextPc = null;
 
     if (log.isLoggable(Level.FINER)) {
-      log.fine( pc.getMethodInfo().getFullName() + " " + pc.getPosition() + " : " + pc);
+      log.fine( pc.getMethodInfo().getCompleteName() + " " + pc.getPosition() + " : " + pc);
     }
 
     // this is the pre-execution notification, during which a listener can perform
@@ -2245,30 +1862,20 @@ public class ThreadInfo
       nextPc = pc.execute(ss, ks, this);
     }
 
-    // we also count the skipped ones
-    executedInstructions++;
-    
     if (logInstruction) {
       ss.recordExecutionStep(pc);
     }
 
     // here we have our post exec bytecode exec observation point
     vm.notifyInstructionExecuted(this, pc, nextPc);
-    
-    // clean up whatever might have been stored by execute
-    pc.cleanupTransients();
 
-    // set+return the next insn to execute if we did not return from the last stack frame.
-    // Note that 'nextPc' might have been set by a listener, and/or 'top' might have
-    // been changed by executing an invoke, return or throw (handler), or by
-    // pushing overlay calls on the stack
+    // set the next insn to execute if we did not return from the last frame stack
+    // (note that nextPc might have been set by a listener)
     if (top != null) {
-      // <2do> this is where we would have to handle general insn repeat
       setPC(nextPc);
-      return nextPc;
-    } else {
-      return null;
     }
+
+    return nextPc;
   }
 
   /**
@@ -2280,10 +1887,8 @@ public class ThreadInfo
     SystemState ss = vm.getSystemState();
     KernelState ks = vm.getKernelState();
 
-    nextPc = null; // reset in case pc.execute blows (this could be behind an exception firewall)
-
     if (log.isLoggable(Level.FINE)) {
-      log.fine( pc.getMethodInfo().getFullName() + " " + pc.getPosition() + " : " + pc);
+      log.fine( pc.getMethodInfo().getCompleteName() + " " + pc.getPosition() + " : " + pc);
     }
 
     nextPc = pc.execute(ss, ks, this);
@@ -2295,6 +1900,7 @@ public class ThreadInfo
 
     return nextPc;
   }
+
 
   /**
    * is this after calling Instruction.execute()
@@ -2314,23 +1920,10 @@ public class ThreadInfo
 
   /**
    * skip the next bytecode. To be used by listeners to on-the-fly replace
-   * instructions
+   * instructions. Note that you have to explicitly call setNextPc() in this case
    */
-  public void skipInstruction (Instruction nextInsn) {
+  public void skipInstruction () {
     skipInstruction = true;
-    
-    assert nextInsn != null;
-    nextPc = nextInsn;
-  }
-
-  /**
-   * skip and continue with the following instruction. This is deprecated because
-   * callers should explicitly provide the next instruction (depending on the
-   * skipped insn)
-   */
-  @Deprecated
-  public void skipInstruction(){
-    skipInstruction(getPC().getNext());
   }
 
   public boolean isInstructionSkipped() {
@@ -2343,11 +1936,7 @@ public class ThreadInfo
 
   /**
    * explicitly set the next insn to execute. To be used by listeners that
-   * replace bytecode exec (during 'executeInstruction' notification
-   *
-   * Note this is dangerous because you have to make sure the operand stack is
-   * in a consistent state. This also will fail if someone already ordered
-   * reexecution of the current instruction
+   * replace bytecode exec (during 'executeInstruction' notification)
    */
   public void setNextPC (Instruction insn) {
     nextPc = insn;
@@ -2363,19 +1952,17 @@ public class ThreadInfo
    * Instructions executed by this method are still fully observable and stored in
    * the path
    */
-  public void executeMethodAtomic (StackFrame frame) {
+  public void executeMethodAtomic (DirectCallStackFrame frame) {
 
     pushFrame(frame);
     int    depth = countStackFrames();
     Instruction pc = frame.getPC();
-    SystemState ss = vm.getSystemState();
 
-    ss.incAtomic(); // to shut off avoidable context switches (MONITOR_ENTER and wait() can still block)
-
+    vm.getSystemState().incAtomic(); // to shut off avoidable context switches (MONITOR_ENTER and wait() can still block)
     while (depth <= countStackFrames()) {
       Instruction nextPC = executeInstruction();
 
-      if (ss.getNextChoiceGenerator() != null) {
+      if (nextPC == pc) {
         // BANG - we can't have CG's here
         // should be rather an ordinary exception
         // createAndThrowException("java.lang.AssertionError", "choice point in sync executed method: " + frame);
@@ -2384,10 +1971,7 @@ public class ThreadInfo
         pc = nextPC;
       }
     }
-
     vm.getSystemState().decAtomic();
-
-    nextPc = null;
 
     // the frame was already removed by the RETURN insn of the frame's method
   }
@@ -2408,15 +1992,13 @@ public class ThreadInfo
    * any silently executed code fall back into the visible path (for
    * no observable reason)
    */
-  public void executeMethodHidden (StackFrame frame) {
+  public void executeMethodHidden (DirectCallStackFrame frame) {
 
     pushFrame(frame);
-    
-    int depth = countStackFrames(); // this includes the DirectCallStackFrame
+    int    depth = countStackFrames();
     Instruction pc = frame.getPC();
 
     vm.getSystemState().incAtomic(); // to shut off avoidable context switches (MONITOR_ENTER and wait() can still block)
-
     while (depth <= countStackFrames()) {
       Instruction nextPC = executeInstructionHidden();
 
@@ -2433,117 +2015,48 @@ public class ThreadInfo
         }
       }
     }
-
     vm.getSystemState().decAtomic();
-
-    nextPc = null;
 
     // the frame was already removed by the RETURN insn of the frame's method
   }
 
-  public Heap getHeap () {
-    return vm.getHeap();
-  }
 
   public ElementInfo getElementInfo (int ref) {
-    Heap heap = vm.getHeap();
-    return heap.get(ref);
+    DynamicArea da = vm.getDynamicArea();
+    return da.get(ref);
   }
 
+  // we get our last stackframe popped, so it's time to close down
+  // NOTE: it's the callers responsibility to do the notification on the thread object
+  public void finish () {
+    setState(State.TERMINATED);
 
-  /**
-   * this should only be called from the top half of the last DIRECTCALLRETURN of
-   * a thread.
-   * @return true - if the thread is done, false - if instruction has to be re-executed
-   */
-  public boolean exit(){
-    int objref = getThreadObjectRef();
+    int     objref = getThreadObjectRef();
     ElementInfo ei = getElementInfo(objref);
-    SystemState ss = vm.getSystemState();
-    ThreadList tl = vm.getThreadList();
-    
-    // beware - this notifies all waiters for this thread (e.g. in a join())
-    // hence it has to be able to acquire the lock
-    if (!ei.canLock(this)) {
-      // block first, so that we don't get this thread in the list of CGs
-      ei.block(this);
+    cleanupThreadObject(ei);
 
-      // if we can't acquire the lock, it means there needs to be another thread alive,
-      // but it might not be runnable (deadlock) and we don't want to mask that error
-      ChoiceGenerator<ThreadInfo> cg = ss.getSchedulerFactory().createMonitorEnterCG(ei, this);
-      ss.setMandatoryNextChoiceGenerator(cg, "blocking thread termination without CG: ");
-
-      return false; // come back once we can obtain the lock to notify our waiters
-
-    } else { // Ok, we can get the lock, time to die
-      
-      // if this is the last non-daemon and there are only daemons left (which
-      // would be killed by our termination) we have to give them a chance to
-      // run BEFORE we terminate, to catch errors in those daemons we might have
-      // triggered in our last transition. In a way, this simulates preemption on
-      // non-CG insns within our last transition
-      if (tl.hasOnlyDaemonRunnablesOtherThan(this)){
-        if (yield()){
-          return false;
-        }
-      }
-      
-      //--- now we get into the termination spin
-      
-      // notify waiters on thread termination
-      if (!holdsLock(ei)) {
-        // we only need to increase the lockcount if we don't own the lock yet,
-        // as is the case for synchronized run() in anonymous threads (otherwise
-        // we have a lockcount > 1 and hence do not unlock upon return)
-        ei.lock(this);
-      }
-
-      ei.notifiesAll(); // watch out, this might change the runnable count
-      ei.unlock(this);
-
-      setState(State.TERMINATED);
-      
-      // we don't unregister this thread yet, this happens when the corresponding
-      // thread object is collected
-
-      ss.clearAtomic();
-      cleanupThreadObject(ei);
-      vm.activateGC();  // stack is gone, so reachability might change
-
-      if (tl.hasOtherNonDaemonRunnablesThan(this)){
-        ChoiceGenerator<ThreadInfo> cg = ss.getSchedulerFactory().createThreadTerminateCG(this);
-        ss.setMandatoryNextChoiceGenerator(cg, "thread terminated without CG: ");
-      }
-
-      popFrame(); // we need to do this *after* setting the CG (so that we still have a CG insn)
-      
-      return true;
-    }
+    // stack is gone, so reachability might change
+    vm.activateGC();
   }
 
-
-  /**
-   * this is called upon ThreadInfo.exit(), i.e. the Thread object can be still
-   * around for a while
-   */
   void cleanupThreadObject (ElementInfo ei) {
     // ideally, this should be done by calling Thread.exit(), but this
     // does a ThreadGroup.remove(), which does a lot of sync stuff on the shared
     // ThreadGroup object, which might create lots of states. So we just nullify
     // the Thread fields and remove it from the ThreadGroup from here
+
     int grpRef = ei.getReferenceField("group");
-    cleanupThreadGroup(grpRef, ei.getObjectRef());
+    cleanupThreadGroup(grpRef, ei.getIndex());
 
     ei.setReferenceField("group", MJIEnv.NULL);
     ei.setReferenceField("threadLocals", MJIEnv.NULL);
     ei.setReferenceField("inheritableThreadLocals", MJIEnv.NULL);
-    ei.setReferenceField("uncaughtExceptionHandler", MJIEnv.NULL);
   }
 
-  
   void cleanupThreadGroup (int grpRef, int threadRef) {
     if (grpRef != MJIEnv.NULL) {
       ElementInfo eiGrp = getElementInfo(grpRef);
+
       int threadsRef = eiGrp.getReferenceField("threads");
       if (threadsRef != MJIEnv.NULL) {
         ElementInfo eiThreads = getElementInfo(threadsRef);
@@ -2551,14 +2064,14 @@ public class ThreadInfo
           int nthreads = eiGrp.getIntField("nthreads");
 
           for (int i=0; i<nthreads; i++) {
-            int tref = eiThreads.getReferenceElement(i);
+            int tref = eiThreads.getElement(i);
 
             if (tref == threadRef) { // compact the threads array
               int n1 = nthreads-1;
               for (int j=i; j<n1; j++) {
-                eiThreads.setReferenceElement(j, eiThreads.getReferenceElement(j+1));
+                eiThreads.setElement(j, eiThreads.getElement(j+1));
               }
-              eiThreads.setReferenceElement(n1, MJIEnv.NULL);
+              eiThreads.setElement(n1, MJIEnv.NULL);
 
               eiGrp.setIntField("nthreads", n1);
               if (n1 == 0) {
@@ -2580,12 +2093,13 @@ public class ThreadInfo
   public void hash (HashData hd) {
     threadData.hash(hd);
 
-    for (StackFrame f = top; f != null; f = f.getPrevious()){
-      f.hash(hd);
+    for (int i = 0, l = stack.size(); i < l; i++) {
+      stack.get(i).hash(hd);
     }
   }
 
   public void interrupt () {
+
     ElementInfo eiThread = getElementInfo(getThreadObjectRef());
 
     State status = getState();
@@ -2609,18 +2123,9 @@ public class ThreadInfo
       // have to check if the waiter goes directly to UNBLOCKED
       ElementInfo eiLock = getElementInfo(lockRef);
       if (eiLock.canLock(this)) {
-        resetLockRef();
         setState(State.UNBLOCKED);
-        
-        // we cannot yet remove this thread from the Monitor lock contender list
-        // since it still has to re-acquire the lock before becoming runnable again
-        
-        // NOTE: this can lead to attempts to reenter the same thread to the 
-        // lock contender list if the interrupt handler of the interrupted thread
-        // tries to wait/block/park again
-        //eiLock.setMonitorWithoutLocked(this);
+        eiLock.setMonitorWithoutLocked(this);
       }
-      
       break;
 
     case NEW:
@@ -2666,37 +2171,41 @@ public class ThreadInfo
    * root set (Thread object, Runnable, stack)
    * @aspects: gc
    */
-  void markRoots (Heap heap) {
+  void markRoots () {
+    DynamicArea        heap = DynamicArea.getHeap();
 
     // 1. mark the Thread object itself
-    heap.markThreadRoot(objRef, gid);
+    heap.markThreadRoot(threadData.objref, index);
 
     // 2. and its runnable
-    if (targetRef != MJIEnv.NULL) {
-      heap.markThreadRoot(targetRef,gid);
+    if (threadData.target != -1) {
+      heap.markThreadRoot(threadData.target,index);
     }
 
     // 3. now all references on the stack
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      frame.markThreadRoots(heap, gid);
+    for (int i = 0, l = stack.size(); i < l; i++) {
+      stack.get(i).markThreadRoots(index);
     }
   }
 
+  /**
+   * Adds a new stack frame for a new called method.
+   */
+  public void pushFrame (StackFrame frame) {
+    topIdx = stack.size();
+    stack.add(frame);
+    top = frame;
+    markChanged(topIdx);
+  }
 
   /**
    * replace the top frame - this is a dangerous method that should only
-   * be used from Restoreres and to restore operators and locals in post-execution notifications
+   * be used to restore operators and locals in post-execution notifications
    * to their pre-execution contents
    */
-  public void setTopFrame (StackFrame frame) {
+  public void swapTopFrame (StackFrame frame) {
+    stack.set(topIdx, frame);
     top = frame;
-
-    // since we have swapped the top frame, the stackDepth might have changed
-    int n = 0;
-    for (StackFrame f = frame; f != null; f = f.getPrevious()){
-      n++;
-    }
-    stackDepth = n;
   }
 
   /**
@@ -2745,108 +2254,94 @@ public class ThreadInfo
     }
   }
 
-
   /**
-   * Adds a new stack frame for a new called method.
+   * Removes a stack frame.
    */
-  public void pushFrame (StackFrame frame) {
-
-    frame.setPrevious(top);
-
-    top = frame;
-    stackDepth++;
-
-    // a new frame cannot have been stored yet, so we don't need to clone on the next mod
-    // note this depends on not pushing a frame in the top half of a CG method
-    markTfChanged(top);
-
-    returnedDirectCall = null;
+  public boolean popFrame() {
+    return popFrame(true);  
   }
+     
+  public boolean popFrame (boolean modifyReturnedDirectCall) {
+    //if (getMethod().isAtomic()) {
+      //list.ks.clearAtomic();
+    //}
 
-  /**
-   * Removes a stack frame
-   */
-  public StackFrame popFrame() {
-    StackFrame frame = top;
-
-    //--- do our housekeeping
-    if (frame.hasAnyRef()) {
+    if (top.hasAnyRef()) {
       vm.getSystemState().activateGC();
     }
 
-    // there always is one since we start all threads through directcalls
-    top = frame.getPrevious();
-    stackDepth--;
-    
-    return top;
+    if (modifyReturnedDirectCall) {
+      if (top instanceof DirectCallStackFrame) {
+        returnedDirectCall = (DirectCallStackFrame) top;
+      } else {
+        returnedDirectCall = null;
+      }
+    }
+
+    stack.remove(topIdx);
+
+    markChanged(topIdx);
+
+    topIdx--;
+
+    if (topIdx >= 0) {
+      top = stack.get(topIdx);
+      return true;
+    } else {
+      top = null;
+      return false;
+    }
   }
 
   /**
-   * removing DirectCallStackFrames is a bit different (only happens from
-   * DIRECTCALLRETURN insns)
+   * NOTE - this has to be called *after* the returning frame was popped
    */
-  public StackFrame popDirectCallFrame() {
-    assert top instanceof DirectCallStackFrame;
-
-    returnedDirectCall = top;
-
-    if (top instanceof UncaughtHandlerFrame){
-      return popUncaughtHandlerFrame();
+  public Instruction getReturnFollowOnPC () {
+    if (returnedDirectCall != null) {
+      Instruction next = returnedDirectCall.getNextPC();
+      if (next != null) {
+        return next;
+      } else {
+        return top.getPC();
+      }
+    } else {
+      return top.getPC().getNext();
     }
-    
-    top = top.getPrevious();
-    stackDepth--;
-    
-    return top;
   }
 
-  
-  public boolean hasReturnedFromDirectCall () {
-    // this is reset each time we push a new frame
-    return (returnedDirectCall != null);
+  public boolean isResumedInstruction (Instruction insn) {
+    return (returnedDirectCall != null) && (returnedDirectCall.getNextPC() == insn);
   }
 
-  public boolean hasReturnedFromDirectCall(String directCallId){
-    return (returnedDirectCall != null &&
-            returnedDirectCall.getMethodName().equals(directCallId));
-  }
-
-  public StackFrame getReturnedDirectCall () {
+  public DirectCallStackFrame getReturnedDirectCall () {
     return returnedDirectCall;
   }
 
 
   public String getStateDescription () {
-    StringBuilder sb = new StringBuilder("thread ");
-    sb.append(getThreadObjectClassInfo().getName());
-    sb.append(":{id:");
-    sb.append(gid);
+    StringBuilder sb = new StringBuilder("thread index=");
+    sb.append(index);
     sb.append(',');
     sb.append(threadData.getFieldValues());
-    sb.append('}');
-    
+
     return sb.toString();
   }
 
-  public ClassInfo getThreadObjectClassInfo() {
-    return getThreadObject().getClassInfo();
-  }
-  
   /**
-   * Prints the content of the stack
+   * Prints the content of the stack.
    */
   public void printStackContent () {
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      frame.printStackContent();
+    for (int i = topIdx; i >= 0; i--) {
+      stack.get(i).printStackContent();
     }
   }
 
   /**
-   * Prints current stacktrace information
+   * Prints the trace of the stack.
    */
   public void printStackTrace () {
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()){
-      frame.printStackTrace();
+    for (int i = topIdx; i >= 0; i--) {
+      stack.get(i).printStackTrace();
     }
   }
 
@@ -2899,51 +2394,36 @@ public class ThreadInfo
   }
 
   boolean haltOnThrow (String exceptionClassName){
-    if ((haltOnThrow != null) && (haltOnThrow.matchesAny(exceptionClassName))){
-      return true;
+    if ((haltOnThrow != null) && (haltOnThrow.length > 0)){
+      for (String s : haltOnThrow) {
+        if (s.equalsIgnoreCase("any") ||
+            exceptionClassName.startsWith(s)){
+          return true;
+        }
+      }
     }
 
     return false;
-  }
-
-  Instruction throwStopException (){
-
-    // <2do> maybe we should do a little sanity check first
-    ElementInfo ei = getThreadObject();
-
-    int xRef = ei.getReferenceField("stopException");
-    ei.setReferenceField("stopException", MJIEnv.NULL);
-
-    Instruction insn = getPC();
-    if (insn instanceof EXECUTENATIVE){
-      // we only get here if there was a CG in a native method and we might
-      // have to reacquire a lock to go on
-
-      // <2do> it would be better if we could avoid to execute the native method
-      // since it might have side effects like overwriting the exception or
-      // doing roundtrips in its bottom half, but we don't know which lock that
-      // is (lockRef might be already reset)
-
-      env.throwException(xRef);
-      return insn;
-    }
-
-    return throwException(xRef);
   }
 
   /**
    * unwind stack frames until we find a matching handler for the exception object
    */
   public Instruction throwException (int exceptionObjRef) {
-    Heap heap = vm.getHeap();
-    ElementInfo ei = heap.get(exceptionObjRef);
+    DynamicArea da = DynamicArea.getHeap();
+    ElementInfo ei = da.get(exceptionObjRef);
     ClassInfo ci = ei.getClassInfo();
     String cname = ci.getName();
-    StackFrame handlerFrame = null; // the stackframe that has a matching handler (if any)
-    ExceptionHandler matchingHandler = null; // the matching handler we found (if any)
+    MethodInfo mi;
+    Instruction insn;
+    int nFrames = countStackFrames();
+    int i, j;
 
-    // first, give the VM a chance to intercept (we do this before changing anything)
-    Instruction insn = vm.handleException(this, exceptionObjRef);
+//System.out.println("## ---- got: " + ci.getName());
+
+    // first, give the VM a chance to intercept
+    // (we do this before changing anything)
+    insn = vm.handleException(this, exceptionObjRef);
     if (insn != null){
       return insn;
     }
@@ -2954,263 +2434,93 @@ public class ThreadInfo
 
     vm.notifyExceptionThrown(this, ei);
 
-    if (haltOnThrow(cname)) {
-      // shortcut - we don't try to find a handler for this one but bail immediately
-      NoUncaughtExceptionsProperty.setExceptionInfo(pendingException);
-      throw new UncaughtException(this, exceptionObjRef);
-    }
+    if (!haltOnThrow(cname)) {
+      for (j=0; j<nFrames; j++) {
+        mi = getMethod();
+        insn = getPC();
 
-    // check if we find a matching handler, and if we do store it. Leave the
-    // stack untouched so that listeners can still inspect it
-    for (StackFrame frame = top; (frame != null) && (handlerFrame == null); frame = frame.getPrevious()) {
-      MethodInfo mi = frame.getMethodInfo();
+        // that means we have to turn the exception into an InvocationTargetException
+        if (mi.isReflectionCallStub()) {
+          String details = ci.getName(); // <2do> should also include the cause details
+          ci = ClassInfo.getResolvedClassInfo("java.lang.reflect.InvocationTargetException");
+          exceptionObjRef = createException(ci, details, exceptionObjRef);
+        }
 
-      // that means we have to turn the exception into an InvocationTargetException
-      if (mi.isReflectionCallStub()) {
-        ci               = ClassInfo.getInitializedClassInfo("java.lang.reflect.InvocationTargetException", this);
-        exceptionObjRef  = createException(ci, cname, exceptionObjRef);
-        cname            = ci.getName();
-        ei               = heap.get(exceptionObjRef);
-        pendingException = new ExceptionInfo(this, ei);
-      }
+//System.out.println("## unwinding to: " + mi.getResolvedClassInfo().getName() + "." + mi.getUniqueName());
 
-      insn = frame.getPC();
-      int position = insn.getPosition();
+        ExceptionHandler[] exceptions = mi.getExceptions();
+        if (exceptions != null) {
+          int p = insn.getPosition();
 
-      ExceptionHandler[] exceptions = mi.getExceptions();
-      if (exceptions != null) {
-        // checks the exceptionHandlers caught (in order of handler definitions)
-        for (ExceptionHandler handler : exceptions){
-          // checks if it falls in the right range
-          if ((position >= handler.getBegin()) && (position < handler.getEnd())) {
-            // checks if this type of exception is caught here (null means 'any')
-            String en = handler.getName();
-            if ((en == null) || ci.isInstanceOf(en)) {
-              handlerFrame = frame;
-              matchingHandler = handler;
-              break;
+          // checks the exception caught in order
+          for (i = 0; i < exceptions.length; i++) {
+            ExceptionHandler eh = exceptions[i];
+
+            // if it falls in the right range
+            if ((p >= eh.getBegin()) && (p < eh.getEnd())) {
+              String en = eh.getName();
+              //System.out.println("## checking: " + ci.getName() + " handler: " + en + " depth: " + stack.size());
+
+              // checks if this type of exception is caught here (null means 'any')
+              if ((en == null) || ci.isInstanceOf(en)) {
+                int handlerOffset = eh.getHandler();
+
+                // according to the VM spec, before transferring control to the handler we have
+                // to reset the operand stack to contain only the exception reference
+                // (4.9.2 - "4. merge the state of the operand stack..")
+                clearOperandStack();
+                push(exceptionObjRef, true);
+
+                // jumps to the exception handler
+                Instruction startOfHandlerBlock = mi.getInstructionAt(handlerOffset);
+                setPC(startOfHandlerBlock); // set! we might be in a isDeterministic / isRunnable
+
+                // notify before we reset the pendingException
+                vm.notifyExceptionHandled(this);
+
+                pendingException = null; // handled, no need to keep it
+
+                return startOfHandlerBlock;
+              }
             }
           }
         }
-      }
 
-      if ((handlerFrame == null) && mi.isFirewall()) {
-        // this method should not let exceptionHandlers pass into lower level stack frames
-        // (e.g. for <clinit>, or hidden direct calls)
-        // <2do> if this is a <clinit>, we should probably turn into an
-        // ExceptionInInitializerError first
-        unwindTo(frame);
-        NoUncaughtExceptionsProperty.setExceptionInfo(pendingException);
-        throw new UncaughtException(this, exceptionObjRef);
-      }
-    }
-
-    if (handlerFrame == null) {
-      // we still have to check if there is a Thread.UncaughtExceptionHandler in effect,
-      // and if we already execute within one, in which case we don't reenter it
-      if (!ignoreUncaughtHandlers && !isUncaughtHandlerOnStack()) {
-        // we use a direct call instead of exception handlers within the run()/main()
-        // direct call methods because we want to preserve the whole stack in case
-        // we treat returned (report-only) handlers as NoUncaughtExceptionProperty
-        // violations (passUncaughtHandler=false)
-        insn = callUncaughtHandler(pendingException);
-        if (insn != null) {
-          // we only do this if there is a UncaughtHandler other than the standard
-          // ThreadGroup, hence we have to check for the return value. If there is
-          // only ThreadGroup.uncaughtException(), we put the system out of its misery
-          return insn;
+        if (mi.isFirewall()) {
+          // this method should not let exceptions pass into lower level stack frames
+          // (e.g. for <clinit>, or hidden direct calls)
+          // <2do> if this is a <clinit>, we should probably turn into an
+          // ExceptionInInitializerError first
+          break;
         }
-      }
 
-      // there was no overridden uncaughtHandler, or we already executed it
-      if ("java.lang.ThreadDeath".equals(cname)) { // gracefully shut down
-        unwindToFirstFrame();
-        pendingException = null;
-        return top.getPC().getNext(); // the final DIRECTCALLRETURN
+        // that takes care of releasing locks
+        // (which interestingly enough seem to be the compilers responsibility now)
+        mi.leave(this);
 
-      } else { // we have a NoUncaughtPropertyViolation
-        NoUncaughtExceptionsProperty.setExceptionInfo(pendingException);
-        throw new UncaughtException(this, exceptionObjRef);
-      }
+        // notify before we pop the frame
+        vm.notifyExceptionBailout(this);
 
-    } else { // we found a matching handler
-
-      unwindTo(handlerFrame);
-
-      // according to the VM spec, before transferring control to the handler we have
-      // to reset the operand stack to contain only the exception reference
-      // (4.9.2 - "4. merge the state of the operand stack..")
-      clearOperandStack();
-      push(exceptionObjRef, true);
-
-      // jump to the exception handler and set pc so that listeners can see it
-      int handlerOffset = matchingHandler.getHandler();
-      insn = handlerFrame.getMethodInfo().getInstructionAt(handlerOffset);
-      setPC(insn);
-
-      // notify before we reset the pendingException
-      vm.notifyExceptionHandled(this);
-
-      pendingException = null; // handled, no need to keep it
-
-      return insn;
-    }
-  }
-
-  
-  /**
-   * this explicitly models the standard ThreadGroup.uncaughtException(), but we want
-   * to save us a roundtrip if that's the only handler we got. If we would use
-   * a handler block in the run()/main() direct call stubs that just delegate to
-   * the standard ThreadGroup.uncaughtException(), we would have trouble mapping
-   * this to NoUncaughtExceptionProperty violations (which is just a normal
-   * printStackTrace() in there).
-   */
-  protected Instruction callUncaughtHandler (ExceptionInfo xi){
-    Instruction insn = null;
-    
-    // 1. check if this thread has its own uncaughtExceptionHandler set. If not,
-    // hand it over to ThreadGroup.uncaughtException()
-    int  hRef = getInstanceUncaughtHandler();
-    if (hRef != MJIEnv.NULL){
-      insn = callUncaughtHandler(xi, hRef, "[threadUncaughtHandler]");
-      
-    } else {
-      // 2. check if any of the ThreadGroup chain has an overridden uncaughtException
-      int grpRef = getThreadGroupRef();
-      hRef = getThreadGroupUncaughtHandler(grpRef);
-      
-      if (hRef != MJIEnv.NULL){
-        insn = callUncaughtHandler(xi, hRef, "[threadGroupUncaughtHandler]");
-      
-      } else {
-        // 3. as a last measure, check if there is a global handler 
-        hRef = getGlobalUncaughtHandler();
-        if (hRef != MJIEnv.NULL){
-          insn = callUncaughtHandler(xi, hRef, "[globalUncaughtHandler]");
-        }    
+        // remove a frame
+        popFrame();
       }
     }
-    
-    return insn;
+
+//System.out.println("## unhandled!");
+
+    // Ok, I finally made my peace with UncaughtException - it can be called from various places,
+    // including the VM (<clinit>, finalizer) and we can't rely on that all these locations check
+    // for pc == null. Even if they would, at this point there is nothing to do anymore, get to the
+    // NoUncaughtProperty reporting as quickly as possible, since chances are we would be even
+    // obfuscating the problem
+    NoUncaughtExceptionsProperty.setExceptionInfo(pendingException);
+    throw new UncaughtException(this, exceptionObjRef);
   }
 
-  public boolean isUncaughtHandler() {
-    return (top instanceof UncaughtHandlerFrame);
-  }
-
-  
-  protected boolean isUncaughtHandlerOnStack(){
-    for (StackFrame frame = top; frame != null; frame = frame.getPrevious()) {
-      if (frame instanceof UncaughtHandlerFrame){
-        return true;
-      }
-    }
-    
-    return false;
-  }
-  
-  protected int getInstanceUncaughtHandler (){
-    ElementInfo ei = getElementInfo(objRef);
-    int handlerRef = ei.getReferenceField("uncaughtExceptionHandler");
-    return handlerRef;
-  }
-  
-  protected int getThreadGroupRef() {
-    ElementInfo ei = getElementInfo(objRef);
-    int groupRef = ei.getReferenceField("group");
-    return groupRef;
-  }
-  
-  protected int getThreadGroupUncaughtHandler (int grpRef){
-
-    // get the first overridden uncaughtException() implementation in the group chain
-    while (grpRef != MJIEnv.NULL){
-      ElementInfo eiGrp = getElementInfo(grpRef);
-      ClassInfo ciGrp = eiGrp.getClassInfo();
-      MethodInfo miHandler = ciGrp.getMethod("uncaughtException(Ljava/lang/Thread;Ljava/lang/Throwable;)V", true);
-      ClassInfo ciHandler = miHandler.getClassInfo();
-      if (!ciHandler.getName().equals("java.lang.ThreadGroup")) {
-        return eiGrp.getObjectRef();
-      }
-
-      grpRef = eiGrp.getReferenceField("parent");
-    }
-    
-    // no overridden uncaughtHandler found
-    return MJIEnv.NULL;
-  }
-  
-  protected int getGlobalUncaughtHandler(){
-    ElementInfo ei = getElementInfo(objRef);
-    ClassInfo ci = ei.getClassInfo();
-    
-    return ci.getStaticElementInfo().getReferenceField("defaultUncaughtExceptionHandler");
-  }
-  
-  protected Instruction callUncaughtHandler(ExceptionInfo xi, int handlerRef, String id){
-    ElementInfo eiHandler = getElementInfo(handlerRef);
-    ClassInfo ciHandler = eiHandler.getClassInfo();
-    MethodInfo miHandler = ciHandler.getMethod("uncaughtException(Ljava/lang/Thread;Ljava/lang/Throwable;)V", true);
-
-    MethodInfo stub = miHandler.createDirectCallStub(id);
-    StackFrame frame = new UncaughtHandlerFrame(xi, stub);
-
-    frame.pushRef(handlerRef);
-    frame.pushRef(objRef);
-    frame.pushRef(xi.getExceptionReference());
-
-    pushFrame(frame);
-    
-    return frame.getPC();
-  }
-  
-  protected StackFrame popUncaughtHandlerFrame(){    
-    // we return from a overridden uncaughtException() direct call, but
-    // its debatable if this counts as 'handled'. For handlers that just do
-    // reporting this is probably false and we want JPF to report the defect.
-    // If this is a fail-safe handler that tries to clean up so that other threads can
-    // take over, we want to be able to go on and properly shut down the 
-    // thread without property violation
-    
-    if (passUncaughtHandler) {
-      // gracefully shutdown this thread
-      unwindToFirstFrame(); // this will take care of notifying
-      pendingException = null;
-      
-      topClone().advancePC();
-      assert top.getPC() instanceof ReturnInstruction : "topframe PC not a ReturnInstruction: " + top.getPC();
-      return top;
-
-    } else {
-      // treat this still as an NoUncaughtExceptionProperty violation
-      pendingException = ((UncaughtHandlerFrame) returnedDirectCall).getExceptionInfo();
-      NoUncaughtExceptionsProperty.setExceptionInfo(pendingException);
-      throw new UncaughtException(this, pendingException.getExceptionReference());
-    }
-  }
-
-  
-  protected void unwindTo (StackFrame newTopFrame){
-    for (StackFrame frame = top; (frame != null) && (frame != newTopFrame); frame = frame.getPrevious()) {
-      MethodInfo mi = frame.getMethodInfo();
-      mi.leave(this); // that takes care of releasing locks
-      vm.notifyExceptionBailout(this); // notify before we pop the frame
-      popFrame();
-    }
-  }
-
-  protected StackFrame unwindToFirstFrame(){
-    StackFrame frame;
-
-    for (frame = top; frame.getPrevious() != null; frame = frame.getPrevious()) {
-      MethodInfo mi = frame.getMethodInfo();
-      mi.leave(this); // that takes care of releasing locks
-      vm.notifyExceptionBailout(this); // notify before we pop the frame
-      popFrame();
-    }
-
-    return frame;
+  public void dropFrame () {
+    MethodInfo mi = getMethod();
+    mi.leave(this);
+    popFrame();
   }
 
   public ExceptionInfo getPendingException () {
@@ -3226,17 +2536,30 @@ public class ThreadInfo
     pendingException = null;
   }
 
+  public void replaceStackFrames(Iterable<StackFrame> iter) {
+    stack.clear();
+    for (StackFrame sf : iter) {
+      stack.add(sf);
+    }
+    topIdx = stack.size() - 1;
+    if (topIdx >= 0) {
+      top = stack.get(topIdx);
+    } else {
+      top = null;
+    }
+  }
+
   /**
    * Returns a clone of the thread data. To be called every time we change some ThreadData field
    * (which unfortunately includes lock counts, hence this should be changed)
    */
   protected ThreadData threadDataClone () {
-    if ((attributes & ATTR_DATA_CHANGED) != 0) {
+    if (tdChanged) {
       // already cloned, so we don't have to clone
     } else {
       // reset, so that next storage request would recompute tdIndex
       markTdChanged();
-      vm.kernelStateChanged();
+      list.ks.changed();
 
       threadData = threadData.clone();
     }
@@ -3263,7 +2586,7 @@ public class ThreadInfo
    * breakTransition(), which will continue with the same thread
    */
   public void reschedule (boolean forceBreak) {
-    ThreadInfo[] runnables = vm.getRunnableThreads();
+    ThreadInfo[] runnables = list.getRunnableThreads();
 
     if (forceBreak || (runnables.length > 1)) {
       ThreadChoiceGenerator cg = new ThreadChoiceFromSet("reschedule",runnables,true);
@@ -3286,27 +2609,13 @@ public class ThreadInfo
     SystemState ss = vm.getSystemState();
 
     if (!ss.isIgnored()){
-      // no need to set a CG if this transition is already marked as ignored
-      // (which will also break executeTransition)
+      // isIgnored is not a normal backtrack, so we shouldn't set a CG
+      // (this is used quite often in conjunction
       BreakGenerator cg = new BreakGenerator( "breakTransition", this, false);
       ss.setNextChoiceGenerator(cg); // this breaks the transition
     }
   }
 
-  public boolean yield() {
-    SystemState ss = vm.getSystemState();
-
-    if (!ss.isIgnored()){
-      ThreadList tl = vm.getThreadList();
-      ThreadInfo[] choices = tl.getRunnableThreads();
-      ThreadChoiceFromSet cg = new ThreadChoiceFromSet( "yield", choices, true);
-        
-      return ss.setNextChoiceGenerator(cg); // this breaks the transition
-    }
-    
-    return false;
-  }  
-  
   /**
    * this breaks the current transition with a CG that forces an end state (i.e.
    * has no choices)
@@ -3324,64 +2633,76 @@ public class ThreadInfo
 
 
   public boolean checkPorFieldBoundary () {
-    return (executedInstructions == 0) && porFieldBoundaries && vm.hasOtherRunnablesThan(this);
+    return isFirstStepInsn && porFieldBoundaries && list.hasOtherRunnablesThan(this);
   }
 
   public boolean hasOtherRunnables () {
-    return vm.hasOtherRunnablesThan(this);
+    return list.hasOtherRunnablesThan(this);
   }
 
-  public boolean hasOtherNonDaemonRunnables() {
-    return vm.hasOtherNonDaemonRunnablesThan(this);
-  }
-  
   protected void markUnchanged() {
-    attributes &= ~ATTR_ANY_CHANGED;
-
-    for (StackFrame f = top; f != null && f.hasChanged(); f = f.getPrevious()){
-      f.setChanged(false);
-    }
+    hasChanged.clear();
+    tdChanged = false;
   }
 
-  protected void markTfChanged(StackFrame frame) {
-    frame.setChanged(true);
-
-    attributes |= ATTR_STACK_CHANGED;
-    vm.kernelStateChanged();
+  protected void markChanged(int idx) {
+    hasChanged.set(idx);
+    list.ks.changed();
   }
 
   protected void markTdChanged() {
-    attributes |= ATTR_DATA_CHANGED;
-    vm.kernelStateChanged();
+    tdChanged = true;
+    list.ks.changed();
+  }
+
+  /**
+   * Returns a specific stack frame.
+   */
+  public StackFrame frame (int idx) {
+    if (idx < 0) {
+      idx += topIdx;
+    }
+
+    return stack.get(idx);
   }
 
   public StackFrame getCallerStackFrame() {
-    if (top != null){
-      return top.getPrevious();
-    } else {
+    if (topIdx <= 0) {
       return null;
+    } else {
+      return stack.get(topIdx-1);
     }
   }
 
-  public boolean hasDataChanged() {
-    return (attributes & ATTR_DATA_CHANGED) != 0;
-  }
+  /**
+   * Returns a clone of a specific stack frame.
+   */
+  protected StackFrame frameClone (int i) {
+    if (i < 0) {
+      i += topIdx;
+    } else if (i == topIdx) {
+      return topClone();
+    }
 
-  public boolean hasStackChanged() {
-    return (attributes & ATTR_STACK_CHANGED) != 0;
-  }
+    if (hasChanged.get(i)) {
+      return stack.get(i);
+    }
+    // else
+    markChanged(i);
 
-  public boolean hasChanged() {
-    return (attributes & ATTR_ANY_CHANGED) != 0;
+    StackFrame clone = stack.get(i).clone();
+    stack.set(i, clone);
+    return clone;
   }
 
   /**
    * Returns a clone of the top stack frame.
    */
   protected StackFrame topClone () {
-    if (!top.hasChanged()) {
+    if (!hasChanged.get(topIdx)) {
+      markChanged(topIdx);
       top = top.clone();
-      markTfChanged(top);
+      stack.set(topIdx, top);
     }
     return top;
   }
@@ -3393,29 +2714,11 @@ public class ThreadInfo
     return top;
   }
 
-  /**
-   * this is going to be used to directly manipulate the Stackframes in lieu
-   * of the various forwarding operations such as dup(), push() etc.
-   */
-  public StackFrame getClonedTopFrame(){
-    if (!top.hasChanged()) {
-      top = top.clone();
-      markTfChanged(top);
-    }
-    return top;    
-  }
-  
   public StackFrame getStackFrameExecuting (Instruction insn, int offset){
-    int n = offset;
-    StackFrame frame = top;
-
-    for (; (n > 0) && frame != null; frame = frame.getPrevious()){
-      n--;
-    }
-
-    for(; frame != null; frame = frame.getPrevious()){
-      if (frame.getPC() == insn){
-        return frame;
+    for (int i=topIdx-offset; i>=0; i--){
+      StackFrame f = stack.get(i);
+      if (f.getPC() == insn){
+        return f;
       }
     }
 
@@ -3423,7 +2726,7 @@ public class ThreadInfo
   }
 
   public String toString() {
-    return "ThreadInfo [name=" + getName() + ",id=" + gid + ",state=" + getStateName() + ']';
+    return "ThreadInfo [name=" + getName() + ",index=" + index + ']';
   }
 
   void setDaemon (boolean isDaemon) {
@@ -3461,92 +2764,33 @@ public class ThreadInfo
     return threadData.priority;
   }
 
+  /**
+   * this is the method that factorizes common Thread object initialization
+   * (get's called by all ctors).
+   * BEWARE - it's hidden magic (undocumented), and should be replaced by our
+   * own Thread impl at some point
+   */
+  void init (int rGroup, int rRunnable, int rName, long stackSize,
+             boolean setPriority) {
+    DynamicArea da = JVM.getVM().getDynamicArea();
+    ElementInfo ei = da.get(rName);
 
+    threadDataClone();
+    threadData.name = ei.asString();
+    threadData.target = rRunnable;
+    //threadData.status = NEW; // should not be neccessary
 
+    // stackSize and setPriority are only used by native subsystems
+  }
+
+  public Iterator<StackFrame> iterator () {
+    return stack.iterator();
+  }
 
   /**
    * Comparison for sorting based on index.
    */
   public int compareTo (ThreadInfo that) {
-    return this.gid - that.gid;
-  }
-  
-  /**
-   * only for debugging purposes
-   */
-  public void checkConsistency(boolean isStore){
-    checkAssertion(threadData != null, "no thread data");
-    
-    // if the thread is runnable, it can't be blocked
-    if (isRunnable()){
-      checkAssertion(lockRef == -1, "runnable thread with non-null lockRef: " + lockRef) ;
-    }
-    
-    // every thread that has been started and is not terminated has to have a stackframe with a next pc
-    if (!isTerminated() && !isNew()){
-      checkAssertion( stackDepth > 0, "empty stack " + getState());
-      checkAssertion( top != null, "no top frame");
-      checkAssertion( top.getPC() != null, "no top PC");
-    }
-    
-    // if we are timedout, the top pc has to be either on a native Object.wait() or Unsafe.park()
-    if (isTimedOut()){
-      Instruction insn = top.getPC();
-      checkAssertion( insn instanceof EXECUTENATIVE, "thread timedout outside of native method");
-      
-      // this is a bit dangerous in case we introduce new timeout points
-      MethodInfo mi = ((EXECUTENATIVE)insn).getExecutedMethod();
-      String mname = mi.getUniqueName();
-      checkAssertion( mname.equals("wait(J") || mname.equals("park(ZJ"), "timedout thread outside timeout method: " + mi.getFullName());
-    }
-    
-    if (lockRef != -1){
-      // object we are blocked on has to exist
-      ElementInfo ei = this.getElementInfo(lockRef);
-      checkAssertion( ei != null, "thread locked on non-existing object: " + lockRef);
-      
-      // we have to be in the lockedThreads list of that objects monitor
-      checkAssertion( ei.isLocking(this), "thread blocked on non-locking object: " + ei);
-      
-      // can't be blocked on a lock we own (but could be in waiting before giving it up)
-      if (!isWaiting() && lockedObjects != null && !lockedObjects.isEmpty()){
-        for (ElementInfo lei : lockedObjects){
-            checkAssertion( lei.getObjectRef() != lockRef, "non-waiting thread blocked on owned lock: " + lei);
-        }
-      }
-      
-      // the state has to be BLOCKED, NOTIFIED, WAITING or TIMEOUT_WAITING
-      checkAssertion( isWaiting() || isBlockedOrNotified(), "locked thread not waiting, blocked or notified");
-      
-    } else { // no lockRef set
-      checkAssertion( !isWaiting() && !isBlockedOrNotified(), "non-locked thread is waiting, blocked or notified");
-    }
-    
-    // if we have locked objects, we have to be the locking thread of each of them
-    if (lockedObjects != null && !lockedObjects.isEmpty()){
-      for (ElementInfo ei : lockedObjects){
-        ThreadInfo lti = ei.getLockingThread();
-        if (lti != null){
-          checkAssertion(lti == this, "not the locking thread for locked object: " + ei + " owned by " + lti);
-        } else {
-          // can happen for a nested monitor lockout
-        }
-      }
-    }
-
-    if (!isStore){
-      // all stack frames have to be set to unchanged
-      for (StackFrame f = top; f != null; f = f.getPrevious()){
-        checkAssertion( !f.hasChanged(), "changed stackframe upon restore: " + f);
-      }
-    }
-  }
-  
-  protected void checkAssertion(boolean cond, String failMsg){
-    if (!cond){
-      System.out.println("!!!!!! failed thread consistency: "  + this + ": " + failMsg);
-      vm.dumpThreadStates();
-      assert false;
-    }
+    return this.index - that.index;
   }
 }

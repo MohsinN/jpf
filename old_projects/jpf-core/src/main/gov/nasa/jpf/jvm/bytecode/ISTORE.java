@@ -27,11 +27,8 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * Store int into local variable
  * ..., value => ...
  */
-public class ISTORE extends LocalVariableInstruction implements StoreInstruction {
-
-  public ISTORE(int localVarIndex){
-    super(localVarIndex);
-  }
+public class ISTORE extends LocalVariableInstruction implements StoreInstruction
+{
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     //th.setLocalVariable(index, th.pop(), false);
@@ -58,8 +55,14 @@ public class ISTORE extends LocalVariableInstruction implements StoreInstruction
     return 0x36; // ?? wide, ISTORE_n
   }
   
-  public String getBaseMnemonic() {
-    return "istore";
+  public String getMnemonic() {
+    String mnemonic = "istore";
+    
+    if (index >=0) {
+      return mnemonic + '_' + index;
+    } else {
+      return mnemonic;
+    }
   }
   
   public void accept(InstructionVisitor insVisitor) {

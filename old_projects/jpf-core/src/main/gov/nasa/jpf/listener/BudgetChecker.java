@@ -18,30 +18,23 @@
 //
 package gov.nasa.jpf.listener;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.JPF;
-import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.annotation.JPFOption;
-import gov.nasa.jpf.annotation.JPFOptions;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.report.Publisher;
-import gov.nasa.jpf.search.Search;
-
+import java.io.PrintWriter;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
 
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.JPF;
+import gov.nasa.jpf.ListenerAdapter;
+import gov.nasa.jpf.jvm.JVM;
+import gov.nasa.jpf.report.ConsolePublisher;
+import gov.nasa.jpf.report.Publisher;
+import gov.nasa.jpf.report.PublisherExtensionAdapter;
+import gov.nasa.jpf.search.Search;
+
 /**
  * Listener that implements various budget constraints
  */
-@JPFOptions({
-  @JPFOption(type = "Long", key = "budget.max_time", defaultValue= "-1", comment = "stop search after specified duration [msec]"),
-  @JPFOption(type = "Long", key = "budget.max_heap", defaultValue = "-1", comment="stop search when VM heapsize reaches specified limit"),
-  @JPFOption(type = "Int", key = "budget.max_depth", defaultValue = "-1", comment = "stop search at specified search depth"),
-  @JPFOption(type = "Long", key = "budget.max_insn", defaultValue = "-1", comment = "stop search after specified number of intstructions"),
-  @JPFOption(type = "Int", key = "budget.max_state", defaultValue = "-1", comment = "stop search when reaching specified number of new states"),
-  @JPFOption(type = "Int", key = "budget.max_new_states", defaultValue = "-1", comment="stop search ater specified number of non-replayed new states")
-})
 public class BudgetChecker extends ListenerAdapter {
 
   static final int CHECK_INTERVAL = 10000;
@@ -63,10 +56,6 @@ public class BudgetChecker extends ListenerAdapter {
   long maxInsn;
   long maxHeap;
   
-  int maxNewStates;
-  
-  int newStates;
-  
   // the message explaining the exceeded budget
   String message;
   
@@ -76,8 +65,6 @@ public class BudgetChecker extends ListenerAdapter {
     maxDepth = conf.getLong("budget.max_depth", -1);
     maxInsn = conf.getLong("budget.max_insn", -1);
     maxState = conf.getLong("budget.max_state", -1);
-    
-    maxNewStates = conf.getInt("budget.max_new_states", -1);
     
     tStart = System.currentTimeMillis();
     
@@ -122,7 +109,7 @@ public class BudgetChecker extends ListenerAdapter {
     if (maxDepth > 0) {
       int d = search.getDepth();
       if (d > maxDepth) {
-        message = "max search depth exceeded: " + maxDepth;
+        message = "max search depth exceeded: " + d + " >= " + maxDepth;
         return true;
       }
     }
@@ -134,7 +121,7 @@ public class BudgetChecker extends ListenerAdapter {
     if (maxState > 0) {
       int stateId = vm.getStateId();
       if (stateId > maxState) {
-        message = "max states exceeded: " + maxState;;
+        message = "max states exceeded: " + stateId + " >= " + maxState;;
         return true;
       }
     }
@@ -145,17 +132,9 @@ public class BudgetChecker extends ListenerAdapter {
   public boolean insnExceeded () {
     if (maxInsn > 0) {
       if (insnCount > maxInsn) {
-        message = "max instruction count exceeded: " + maxInsn;
+        message = "max instruction count exceeded: " + insnCount + " >= " + maxInsn;
         return true;
       }
-    }
-    return false;
-  }
-  
-  public boolean newStatesExceeded(){
-    if (newStates > maxNewStates) {
-      message = "max new state count exceeded: "  + maxNewStates;
-      return true;
     }
     return false;
   }
@@ -164,17 +143,7 @@ public class BudgetChecker extends ListenerAdapter {
     if (timeExceeded() || heapExceeded()) {
       search.notifySearchConstraintHit(message);
       search.terminate();
-    }
-    
-    if (search.isNewState()){
-      if (!vm.isTraceReplay()){
-        newStates++;
-      }
-      if (statesExceeded() || depthExceeded() || newStatesExceeded()){
-        search.notifySearchConstraintHit(message);
-        search.terminate();        
-      }
-    }
+    }    
   }
       
   public void instructionExecuted (JVM vm) {

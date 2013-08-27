@@ -47,7 +47,7 @@ public class RunAnt {
     
     ArrayList<URL> urlList = new ArrayList<URL>();
     addJavac(urlList);
-    addJPFToolJars(args, urlList);
+    addJPFToolJars(args, urlList);  // <2do> - Hmm, what if we boot with jpf.jar?
 
     URL[] urls = urlList.toArray(new URL[urlList.size()]);
     URLClassLoader cl = new URLClassLoader(urls, RunAnt.class.getClassLoader());
@@ -93,6 +93,7 @@ public class RunAnt {
       // to using the JAVA_HOME environment var
       javaHome = System.getenv("JAVA_HOME");
     } else {
+      // <2do> maybe we should also base Unix on JAVA_HOME
       if (javaHome.endsWith(sc + "jre")) {
         javaHome = javaHome.substring(0, javaHome.length()-4);
       }

@@ -27,11 +27,8 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * Store reference into local variable
  * ..., objectref => ...
  */
-public class ASTORE extends LocalVariableInstruction implements StoreInstruction {
-
-  public ASTORE(int index){
-    super(index);
-  }
+public class ASTORE extends LocalVariableInstruction implements StoreInstruction
+{
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     //** warning: an ASTORE should store an object reference. However **//
@@ -65,11 +62,15 @@ public class ASTORE extends LocalVariableInstruction implements StoreInstruction
     return 0x3A;  // ? wide versions ?
   }
   
-  public String getBaseMnemonic() {
-    return "astore";
+  public String getMnemonic() {
+    String mnemonic = "astore";
+    
+    if (index >=0) {
+      return mnemonic + '_' + index;
+    } else {
+      return mnemonic;
+    }
   }
-  
-  
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);

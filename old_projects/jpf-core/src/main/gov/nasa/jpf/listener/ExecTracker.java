@@ -20,20 +20,23 @@ package gov.nasa.jpf.listener;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.annotation.JPFOption;
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
+import gov.nasa.jpf.JPF;
+import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.jvm.bytecode.FieldInstruction;
 import gov.nasa.jpf.jvm.bytecode.InstanceFieldInstruction;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.LockInstruction;
-import gov.nasa.jpf.search.Search;
-
+import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.ElementInfo;
+import gov.nasa.jpf.jvm.MethodInfo;
+import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.Step;
 import java.io.PrintWriter;
+
+import gov.nasa.jpf.util.Left;
 
 /**
  * Listener tool to monitor JPF execution. This class can be used as a drop-in
@@ -41,23 +44,15 @@ import java.io.PrintWriter;
  * ExecTracker is mostly a VMListener of 'instructionExecuted' and
  * a SearchListener of 'stateAdvanced' and 'statehBacktracked'
  */
-
 public class ExecTracker extends ListenerAdapter {
   
-  @JPFOption(type = "Boolean", key = "et.print_insn", defaultValue = "true", comment = "print executed bytecode instructions") 
   boolean printInsn = true;
-  
-  @JPFOption(type = "Boolean", key = "et.print_src", defaultValue = "false", comment = "print source lines")
   boolean printSrc = false;
-  
-  @JPFOption(type = "Boolean", key = "et.print_mth", defaultValue = "false", comment = "print executed method names")
   boolean printMth = false;
-  
-  @JPFOption(type = "Boolean", key = "et.skip_init", defaultValue = "true", comment = "do not log execution before entering main()")
   boolean skipInit = false;
   
   PrintWriter out;
-  String lastLine;
+  Step lastStep;
   MethodInfo lastMi;
   String linePrefix;
   
@@ -65,16 +60,9 @@ public class ExecTracker extends ListenerAdapter {
   MethodInfo miMain; // just to make init skipping more efficient
   
   public ExecTracker (Config config) {
-    /** @jpfoption et.print_insn : boolean - print executed bytecode instructions (default=true). */
     printInsn = config.getBoolean("et.print_insn", true);
-
-    /** @jpfoption et.print_src : boolean - print source lines (default=false). */
-    printSrc = config.getBoolean("et.print_src", false);
-
-    /** @jpfoption et.print_mth : boolean - print executed method names (default=false). */
+    printSrc = config.getBoolean("et.print_src", true);
     printMth = config.getBoolean("et.print_mth", false);
-
-    /** @jpfoption et.skip_init : boolean - do not log execution before entering main() (default=true). */
     skipInit = config.getBoolean("et.skip_init", true);
     
     if (skipInit) {
@@ -120,7 +108,7 @@ public class ExecTracker extends ListenerAdapter {
     
     out.println();
     
-    lastLine = null; // in case we report by source line
+    lastStep = null; // in case we report by source line
     lastMi = null;
     linePrefix = null;
   }
@@ -134,7 +122,7 @@ public class ExecTracker extends ListenerAdapter {
   public void stateBacktracked(Search search) {
     int id = search.getStateId();
 
-    lastLine = null;
+    lastStep = null;
     lastMi = null;
 
     out.println("----------------------------------- [" +
@@ -168,36 +156,38 @@ public class ExecTracker extends ListenerAdapter {
     int nNoSrc = 0;
     
     if (linePrefix == null) {
-      linePrefix = Integer.toString( ti.getId()) + " : ";
+      linePrefix = Integer.toString( ti.getIndex()) + " : ";
     }
     
     // that's pretty redundant to what is done in the ConsolePublisher, but we don't want 
     // presentation functionality in Step anymore
-    Instruction insn = jvm.getLastInstruction();
     if (printSrc) {
-      String line = insn.getSourceLine();
-      if (line != null){
-        if (nNoSrc > 0) {
-          out.println("            [" + nNoSrc + " insn w/o sources]");
+      Step s = jvm.getLastStep(); // might have been skipped
+      if ((s != null) && !s.equals(lastStep)) {
+        String line = s.getLineString();
+        if (line != null) {
+          if (nNoSrc > 0){
+            out.println("      [" + nNoSrc + " insn w/o sources]");
+          }
+          
+          if (!s.sameSourceLocation(lastStep)){
+            out.print("        ");
+            out.print(Left.format(s.getLocationString(),30));
+            out.print(" : ");
+            out.println(line.trim());
+          }
+          nNoSrc = 0;
+          
+        } else { // no source
+          nNoSrc++;
         }
-
-        if (!line.equals(lastLine)) {
-          out.print("            [");
-          out.print(insn.getFileLocation());
-          out.print("] : ");
-          out.println(line.trim());
-        }
-        
-        nNoSrc = 0;
-        
-      } else { // no source
-        nNoSrc++;
       }
-      
-      lastLine = line;
+      lastStep = s;
     }
     
-    if (printInsn) {      
+    if (printInsn) {
+      Instruction insn = jvm.getLastInstruction();
+      
       if (printMth) {
         MethodInfo mi = insn.getMethodInfo();
         if (mi != lastMi){
@@ -215,7 +205,7 @@ public class ExecTracker extends ListenerAdapter {
       out.print( linePrefix);
       
       out.print('[');
-      out.print(insn.getInstructionIndex());
+      out.print(insn.getOffset());
       out.print("] ");
       
       out.print(insn);
@@ -235,11 +225,8 @@ public class ExecTracker extends ListenerAdapter {
           out.print(((FieldInstruction)insn).getVariableId());
         }
       } else if (insn instanceof LockInstruction) {
-        LockInstruction lockInsn = (LockInstruction)insn;
-        int lockRef = lockInsn.getLastLockRef();
-
         out.print(" ");
-        out.print( ti.getElementInfo(lockRef));
+        out.print(((LockInstruction)insn).getLastLockElementInfo());
       }
       out.println();
     }
@@ -248,13 +235,13 @@ public class ExecTracker extends ListenerAdapter {
   public void threadStarted(JVM jvm) {
     ThreadInfo ti = jvm.getLastThreadInfo();
 
-    out.println( "\t\t # thread started: " + ti.getName() + " index: " + ti.getId());
+    out.println( "\t\t # thread started: " + ti.getName() + " index: " + ti.getIndex());
   }
 
   public void threadTerminated(JVM jvm) {
     ThreadInfo ti = jvm.getLastThreadInfo();
     
-    out.println( "\t\t # thread terminated: " + ti.getName() + " index: " + ti.getId());
+    out.println( "\t\t # thread terminated: " + ti.getName() + " index: " + ti.getIndex());
   }
   
   public void notifyExceptionThrown (JVM jvm) {

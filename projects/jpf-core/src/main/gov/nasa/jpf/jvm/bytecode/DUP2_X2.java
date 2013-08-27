@@ -18,21 +18,24 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.JVMInstruction;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
  * Duplicate the top operand stack value and insert two or three values down
  * ... A B C D => ... C D.A B C D
  */
-public class DUP2_X2 extends Instruction {
+public class DUP2_X2 extends JVMInstruction {
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    th.dup2_x2();
+  public Instruction execute (ThreadInfo ti) {
+    StackFrame frame = ti.getModifiableTopFrame();
 
-    return getNext(th);
+    frame.dup2_x2();
+
+    return getNext(ti);
   }
 
   public int getByteCode () {

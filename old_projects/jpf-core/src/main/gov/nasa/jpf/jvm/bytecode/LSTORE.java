@@ -27,11 +27,8 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * Store long into local variable
  * ..., value => ...
  */
-public class LSTORE extends LocalVariableInstruction implements StoreInstruction {
-
-  public LSTORE(int localVarIndex){
-    super(localVarIndex);
-  }
+public class LSTORE extends LocalVariableInstruction implements StoreInstruction
+{
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     //th.setLongLocalVariable(index, th.longPop());
@@ -58,8 +55,14 @@ public class LSTORE extends LocalVariableInstruction implements StoreInstruction
     return 0x37; // ?? wide, LSTORE_n
   }
   
-  public String getBaseMnemonic() {
-    return "lstore";
+  public String getMnemonic() {
+    String mnemonic = "lstore";
+    
+    if (index >=0) {
+      return mnemonic + '_' + index;
+    } else {
+      return mnemonic;
+    }
   }
   
   public void accept(InstructionVisitor insVisitor) {

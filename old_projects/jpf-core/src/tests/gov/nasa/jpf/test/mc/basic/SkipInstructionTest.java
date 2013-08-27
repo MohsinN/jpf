@@ -24,7 +24,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.bytecode.GETFIELD;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 public class SkipInstructionTest extends TestJPF {
@@ -38,16 +37,21 @@ public class SkipInstructionTest extends TestJPF {
       if (pc instanceof GETFIELD) {
         GETFIELD gf = (GETFIELD) pc;
         if (gf.getVariableId().equals(SkipInstructionTest.class.getName() + ".answer")) {
-          System.out.println("now intercepting: " + pc);
+          System.out.println("@@ now intercepting: " + pc);
 
           // simulate the operand stack behavior of the skipped insn
           ti.pop();
           ti.push(42, false);
 
-          ti.skipInstruction(pc.getNext());
+          ti.skipInstruction();
+          ti.setNextPC(pc.getNext());
         }
       }
     }
+  }
+
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
   }
 
   //--- the test methods
@@ -56,7 +60,7 @@ public class SkipInstructionTest extends TestJPF {
   
   @Test public void testGETFIELD () {
 
-    if (verifyNoPropertyViolation("+listener=gov.nasa.jpf.test.mc.basic.SkipInstructionTest$Listener")){
+    if (verifyNoPropertyViolation("+listener=" + Listener.class.getName())){
       int i = answer; // to be intercepted by listener
     
       System.out.println(i);

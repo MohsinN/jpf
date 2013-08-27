@@ -18,6 +18,7 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.JPFException;
 import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.FieldInfo;
@@ -30,12 +31,12 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * Set static field in class
  * ..., value => ...
  */
-public class PUTSTATIC extends StaticFieldInstruction implements StoreInstruction {
+public class PUTSTATIC extends StaticFieldInstruction implements StoreInstruction
+{
+  protected long lastValue;
 
-  public PUTSTATIC() {}
-
-  public PUTSTATIC(String fieldName, String clsDescriptor, String fieldDescriptor){
-    super(fieldName, clsDescriptor, fieldDescriptor);
+  public long getLastValue() {
+    return lastValue;
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
@@ -56,11 +57,11 @@ public class PUTSTATIC extends StaticFieldInstruction implements StoreInstructio
 
     // this tries to avoid endless recursion, but is too restrictive, and
     // causes NPE's with the infamous, synthetic  'class$0' fields
-    if (!mi.isClinit(clsInfo) && requiresClinitExecution(ti, clsInfo)) {
+    if (!mi.isClinit() && requiresClinitCalls(ti, clsInfo)) {
       return ti.getPC();
     }
 
-    ElementInfo ei = ks.statics.get(clsInfo.getName());
+    ElementInfo ei = ks.sa.get(clsInfo.getName());
 
     if (isNewPorFieldBoundary(ti)) {
       if (createAndSetFieldCG(ss, ei, ti)) {
@@ -70,25 +71,30 @@ public class PUTSTATIC extends StaticFieldInstruction implements StoreInstructio
 
     Object attr = null; // attr handling has to be consistent with PUTFIELD
 
-    if (fi.getStorageSize() == 1) {
-      attr = ti.getOperandAttr();
+    switch (fi.getStorageSize()) {
+      case 1:
+        attr = ti.getOperandAttr();
 
-      int ival = ti.pop();
-      lastValue = ival;
+        int ival = ti.pop();
+        lastValue = ival;
 
-      if (fi.isReference()) {
-        ei.setReferenceField(fi, ival);
-      } else {
-        ei.set1SlotField(fi, ival);
-      }
+        if (fi.isReference()) {
+          ei.setReferenceField(fi, ival);
+        } else {
+          ei.setIntField(fi, ival);
+        }
+        break;
 
-    } else {
-      attr = ti.getLongOperandAttr();
+      case 2:
+        attr = ti.getLongOperandAttr();
 
-      long lval = ti.longPop();
-      lastValue = lval;
+        long lval = ti.longPop();
+        lastValue = lval;
 
-      ei.set2SlotField(fi, lval);
+        ei.setLongField(fi, lval);
+        break;
+      default:
+        throw new JPFException("invalid field type");
     }
 
     // this is kind of policy, but it seems more natural to overwrite

@@ -30,7 +30,7 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.Types;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
-
+import java.util.ArrayList;
 import java.util.HashMap;
 
 /**
@@ -369,7 +369,8 @@ public class ExceptionInjector extends ListenerAdapter {
 
     if (e != null){
       Instruction nextInsn = ti.createAndThrowException(e.getExceptionClassInfo(), e.getExceptionDetails());
-      ti.skipInstruction(nextInsn);
+      ti.setNextPC(nextInsn);
+      ti.skipInstruction();
       return;
     }
   }

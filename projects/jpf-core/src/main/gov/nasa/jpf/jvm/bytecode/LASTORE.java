@@ -18,9 +18,10 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ArrayIndexOutOfBoundsExecutiveException;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ArrayIndexOutOfBoundsExecutiveException;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -31,8 +32,8 @@ public class LASTORE extends LongArrayStoreInstruction {
 
   long value;
 
-  protected void popValue(ThreadInfo ti){
-    value = ti.longPop();
+  protected void popValue(StackFrame frame){
+    value = frame.popLong();
   }
 
   protected void setField (ElementInfo ei, int index) throws ArrayIndexOutOfBoundsExecutiveException {

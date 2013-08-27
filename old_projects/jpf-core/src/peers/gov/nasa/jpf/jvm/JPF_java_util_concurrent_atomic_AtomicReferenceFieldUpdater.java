@@ -19,6 +19,7 @@
 
 package gov.nasa.jpf.jvm;
 
+import gov.nasa.jpf.*;
 
 /**
  * a full peer for the AtomicReferenceFieldUpdater
@@ -30,14 +31,14 @@ public class JPF_java_util_concurrent_atomic_AtomicReferenceFieldUpdater extends
 
     // direct Object subclass, so we don't have to call a super ctor
 
-    ClassInfo ci = env.getReferredClassInfo(tClsObjRef);
+    ClassInfo ci = JPF_java_lang_Class.getReferredClassInfo(env,tClsObjRef);
     String fname = env.getStringObject(fNameRef);
     FieldInfo fi = ci.getInstanceField(fname);
 
     try {
       ClassInfo fci = fi.getTypeClassInfo();
 
-      ClassInfo fciCheck = env.getReferredClassInfo( fClsObjRef);
+      ClassInfo fciCheck = JPF_java_lang_Class.getReferredClassInfo(env, fClsObjRef);
       if (!fci.isInstanceOf(fciCheck)) {
         // that's also just an approximation, but we need to check
         env.throwException("java.lang.RuntimeException", "wrong field type");

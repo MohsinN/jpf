@@ -18,27 +18,11 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ArrayIndexOutOfBoundsExecutiveException;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.ThreadInfo;
-
 /**
  * Store into int array
  * ..., arrayref, index, value => ...
  */
 public class IASTORE extends ArrayStoreInstruction {
-
-  int value;
-
-  protected void popValue(ThreadInfo ti){
-    value = ti.pop();
-  }
-
-  protected void setField (ElementInfo ei, int index) throws ArrayIndexOutOfBoundsExecutiveException {
-    ei.checkArrayBounds(index);
-    ei.setIntElement(index, value);
-  }
-
 
   public int getByteCode () {
     return 0x4F;

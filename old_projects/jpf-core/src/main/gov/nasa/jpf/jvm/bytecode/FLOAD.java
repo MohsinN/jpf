@@ -28,12 +28,7 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * ... => ..., value
  */
 public class FLOAD extends LocalVariableInstruction {
-
-  public FLOAD(int localVarIndex){
-    super(localVarIndex);
-  }
-
-
+  
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     //th.push(th.getLocalVariable(index), false);
     th.pushLocal(index);
@@ -60,8 +55,14 @@ public class FLOAD extends LocalVariableInstruction {
     return 0x17; // ?? wide version
   }
   
-  public String getBaseMnemonic() {
-    return "fload";
+  public String getMnemonic() {
+    String mnemonic = "fload";
+    
+    if (index >=0) {
+      return mnemonic + '_' + index;
+    } else {
+      return mnemonic;
+    }
   }
   
   public void accept(InstructionVisitor insVisitor) {

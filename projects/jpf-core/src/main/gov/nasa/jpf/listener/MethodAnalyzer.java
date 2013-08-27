@@ -21,19 +21,19 @@ package gov.nasa.jpf.listener;
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.ListenerAdapter;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.StackFrame;
-import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.bytecode.InstanceInvocation;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
 import gov.nasa.jpf.report.ConsolePublisher;
 import gov.nasa.jpf.report.Publisher;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.StringSetMatcher;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.VM;
+import gov.nasa.jpf.vm.MethodInfo;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 import java.io.PrintWriter;
 import java.util.HashMap;
@@ -53,8 +53,8 @@ public class MethodAnalyzer extends ListenerAdapter {
                 EXECUTE (" - "),              // method entered method after transition break
                 CALL_EXECUTE (">- "),         // call & enter within same transition
                 RETURN ("  <"),               // method returned
-                EXEC_RETURN (" -<"),          // execute & return in consecutive ops
-                CALL_EXEC_RETURN (">-<");     // call & execute & return in consecutive ops
+                EXEC_RETURN (" -<"),          // enter & return in consecutive ops
+                CALL_EXEC_RETURN (">-<");     // call & enter & return in consecutive ops
     String code;
     OpType (String code){ this.code = code; }
   };
@@ -146,7 +146,7 @@ public class MethodAnalyzer extends ListenerAdapter {
 
   // execution environment
 
-  JVM vm;
+  VM vm;
   Search search;
 
   OpType opType;
@@ -182,7 +182,7 @@ public class MethodAnalyzer extends ListenerAdapter {
   }
 
 
-  void addOp (JVM vm, OpType opType, MethodInfo mi, ThreadInfo ti, ElementInfo ei, int stackDepth){
+  void addOp (VM vm, OpType opType, MethodInfo mi, ThreadInfo ti, ElementInfo ei, int stackDepth){
     if (!(skipInit && isFirstTransition)) {
       MethodOp op = new MethodOp(opType, mi, ti, ei, stackDepth);
       if (lastOp == null){
@@ -259,7 +259,7 @@ public class MethodAnalyzer extends ListenerAdapter {
   
   //--- SearchListener interface
   // <2do> this is the same as DeadlockAnalyzer, except of xxOp type -> refactor
-  
+  @Override
   public void stateAdvanced (Search search){
     
     if (search.isNewState() && (lastOp != null)) {
@@ -277,6 +277,7 @@ public class MethodAnalyzer extends ListenerAdapter {
     isFirstTransition = false;
   }
   
+  @Override
   public void stateBacktracked (Search search){
     int stateId = search.getStateId();
     while ((lastTransition != null) && (lastTransition.stateId > stateId)){
@@ -285,12 +286,13 @@ public class MethodAnalyzer extends ListenerAdapter {
     lastOp = null;
   }
   
-  
+  @Override
   public void stateStored (Search search) {
     // always called after stateAdvanced
     storedTransition.put(search.getStateId(), lastTransition);
   }
   
+  @Override
   public void stateRestored (Search search) {
     int stateId = search.getStateId();
     MethodOp op = storedTransition.get(stateId);
@@ -302,16 +304,15 @@ public class MethodAnalyzer extends ListenerAdapter {
 
 
   //--- VMlistener interface
-  
-  public void instructionExecuted (JVM vm) {
-    Instruction insn = vm.getLastInstruction();
+  @Override
+  public void instructionExecuted (VM vm, ThreadInfo thread, Instruction nextInsn, Instruction executedInsn) {
     ThreadInfo ti;
     MethodInfo mi;
     ElementInfo ei = null;
     
-    if (insn instanceof InvokeInstruction) {
-      InvokeInstruction call = (InvokeInstruction)insn;
-      ti = vm.getLastThreadInfo();
+    if (executedInsn instanceof InvokeInstruction) {
+      InvokeInstruction call = (InvokeInstruction)executedInsn;
+      ti = thread;
       mi = call.getInvokedMethod(ti);
             
       if (isAnalyzedMethod(mi)) {
@@ -336,9 +337,9 @@ public class MethodAnalyzer extends ListenerAdapter {
         addOp(vm,type,mi,ti,ei, ti.getStackDepth());
       }
       
-    } else if (insn instanceof ReturnInstruction) {
-      ReturnInstruction ret = (ReturnInstruction)insn;
-      ti = vm.getLastThreadInfo();
+    } else if (executedInsn instanceof ReturnInstruction) {
+      ReturnInstruction ret = (ReturnInstruction)executedInsn;
+      ti = thread;
       StackFrame frame = ret.getReturnFrame();
       mi = frame.getMethodInfo();
 
@@ -356,7 +357,7 @@ public class MethodAnalyzer extends ListenerAdapter {
   }
   
   //--- the PubisherExtension part
-  
+  @Override
   public void publishPropertyViolation (Publisher publisher) {
 
     if (firstOp == null && lastTransition != null){ // do this just once

@@ -23,33 +23,25 @@ import gov.nasa.jpf.JPFException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 
+import org.apache.bcel.Constants;
+
 
 /**
  * various type mangling/demangling routines
- *
- * This reflects the general type id mess in Java. We support the following:
- *
- *  builtin type: byte - T_BOOLEAN and the like
- *  type name: String - according to JLS 6.7 ("int", "x.Y[]")
- *  type signature: String - like JNI ("I", "[Lx/Y;")
- *  type classname: String - e.g. "int", "[I", "x.Y", "[Lx.Y;"
  */
-public class Types {
-
-  // these have the same values as the BCEL Constants since we don't want to break compiled code
-  public static final byte T_NONE      = 0; // illegal type
-  
-  public static final byte T_BOOLEAN   = 4;
-  public static final byte T_BYTE      = 8;
-  public static final byte T_CHAR      = 5;
-  public static final byte T_SHORT     = 9;
-  public static final byte T_INT       = 10;
-  public static final byte T_LONG      = 11;
-  public static final byte T_FLOAT     = 6;
-  public static final byte T_DOUBLE    = 7;
-  public static final byte T_REFERENCE = 14;
-  public static final byte T_ARRAY     = 13;  // <2do> do we need this in addition to T_REFERENCE?
-  public static final byte T_VOID      = 12;
+public class Types {  
+  public static final byte T_ARRAY     = Constants.T_ARRAY;
+  public static final byte T_BOOLEAN   = Constants.T_BOOLEAN;
+  public static final byte T_BYTE      = Constants.T_BYTE;
+  public static final byte T_CHAR      = Constants.T_CHAR;
+  public static final byte T_DOUBLE    = Constants.T_DOUBLE;
+  public static final byte T_FLOAT     = Constants.T_FLOAT;
+  public static final byte T_INT       = Constants.T_INT;
+  public static final byte T_LONG      = Constants.T_LONG;
+  public static final byte T_OBJECT    = Constants.T_OBJECT;
+  public static final byte T_REFERENCE = Constants.T_REFERENCE;
+  public static final byte T_SHORT     = Constants.T_SHORT;
+  public static final byte T_VOID      = Constants.T_VOID;
 
   
   public static byte[] getArgumentTypes (String signature) {
@@ -68,7 +60,7 @@ public class Types {
       String arg = signature.substring(i, end);
       i = end;
 
-      args[j] = getBuiltinTypeFromSignature(arg);
+      args[j] = getBaseType(arg);
     }
 
     return args;
@@ -131,14 +123,14 @@ public class Types {
 
   public static String getArrayElementType (String type) {
     if (type.charAt(0) != '[') {
-      throw new JPFException("not an array type: " + type);
+      throw new JPFException("not an array type");
     }
 
     return type.substring(1);
   }
 
-  public static byte getBuiltinTypeFromSignature (String signature) {
-    switch (signature.charAt(0)) {
+  public static byte getBaseType (String type) {
+    switch (type.charAt(0)) {
     case 'B':
       return T_BYTE;
 
@@ -158,7 +150,7 @@ public class Types {
       return T_LONG;
 
     case 'L':
-      return T_REFERENCE;
+      return T_OBJECT; // T_REFERENCE is deprecated
 
     case 'S':
       return T_SHORT;
@@ -173,7 +165,7 @@ public class Types {
       return T_ARRAY;
     }
 
-    throw new JPFException("invalid type string: " + signature);
+    throw new JPFException("invalid type string: " + type);
   }
 
   /**
@@ -343,80 +335,57 @@ public class Types {
     }
   }
 
-  /**
-   * type is supposed to be Class.getName conforming, i.e.
-   * 
-   * int    -> int
-   * int[]  -> [I
-   * String -> java.lang.String
-   * String[] -> [Ljava.lang.String;
-   * String[][] -> [[Ljava.lang.String;
-   * 
-   * <2do> this is really not very efficient
-   */
   public static String getJNITypeCode (String type) {
     StringBuilder sb = new StringBuilder(32);
-    int l = type.length() - 1;
-    int i;
+    int           l = type.length() - 1;
 
-    // Class.getName arrays "[...type"
-    for ( i=0; type.charAt(i) == '['; i++){
-      sb.append("_3");
-    }
-    
-    // conventional arrays "type[]..."
     for (; type.charAt(l) == ']'; l -= 2) {
       sb.append("_3");
     }
 
-    type = type.substring(i, l + 1);
+    type = type.substring(0, l + 1);
 
-    if (type.equals("int") || type.equals("I")) {
+    if (type.equals("int")) {
       sb.append('I');
-    } else if (type.equals("long") || type.equals("J")) {
+    } else if (type.equals("long")) {
       sb.append('J');
-    } else if (type.equals("boolean") || type.equals("Z")) {
+    } else if (type.equals("boolean")) {
       sb.append('Z');
-    } else if (type.equals("char") || type.equals("C")) {
+    } else if (type.equals("char")) {
       sb.append('C');
-    } else if (type.equals("byte")  || type.equals("B")) {
+    } else if (type.equals("byte")) {
       sb.append('B');
-    } else if (type.equals("short") || type.equals("S")) {
+    } else if (type.equals("short")) {
       sb.append('S');
-    } else if (type.equals("double") || type.equals("D")) {
+    } else if (type.equals("double")) {
       sb.append('D');
-    } else if (type.equals("float") || type.equals("F")) {
+    } else if (type.equals("float")) {
       sb.append('F');
-    } else if (type.equals("void") || type.equals("V")) {  // for return types
+    } else if (type.equals("void")) {  // for return types
       sb.append('V');
-    } else { // reference type
-      if (type.charAt(0) != 'L'){
-        sb.append('L');
-      }
+    } else {
+      sb.append('L');
 
-      l = type.length();
-      for (i=0; i < l; i++) {
+      for (int i = 0; i < type.length(); i++) {
         char c = type.charAt(i);
 
         switch (c) {
         case '.':
           sb.append('_');
+
           break;
 
         case '_':
           sb.append("_1");
+
           break;
-          
-        case ';':
-          break;
-          
+
         default:
           sb.append(c);
         }
       }
 
       sb.append("_2");
-      
     }
 
     return sb.toString();
@@ -435,13 +404,13 @@ public class Types {
         n = 0;
         break;
       case 'L':   // reference = 1 slot
-        i = signature.indexOf(';', i);
+        do i++; while (signature.charAt(i) != ';');
         n++;
         break;
       case '[':
         do i++; while (signature.charAt(i) == '[');
         if (signature.charAt(i) == 'L') {
-          i = signature.indexOf(';', i);
+          do i++; while (signature.charAt(i) != ';');
         }
         n++;
         break;
@@ -454,7 +423,11 @@ public class Types {
       }
     }
     
-    return Math.max(n, nArgSlots);
+    if (n > nArgSlots) {
+      return n;
+    } else {
+      return nArgSlots;
+    }
   }
   
   public static int getNumberOfArguments (String signature) {
@@ -487,25 +460,16 @@ public class Types {
     return n; // that would be a malformed signature
   }
 
-  public static boolean isReferenceSignature(String signature){
-    return signature.charAt(signature.length()-1) == ';';
-  }
-
   public static boolean isReference (String type) {
-    int t = getBuiltinTypeFromSignature(type);
+    int t = getBaseType(type);
 
     return (t == T_ARRAY) || (t == T_REFERENCE);
   }
 
-  public static byte getReturnBuiltinType (String signature) {
+  public static byte getReturnType (String signature) {
     int i = signature.indexOf(')');
 
-    return getBuiltinTypeFromSignature(signature.substring(i + 1));
-  }
-
-  public static String getReturnTypeSignature(String signature){
-    int i = signature.indexOf(')');
-    return signature.substring(i + 1);
+    return getBaseType(signature.substring(i + 1));
   }
 
   public static String getReturnTypeName (String signature){
@@ -513,15 +477,14 @@ public class Types {
     return getTypeName(signature.substring(i+1));
   }
   
-  public static String getTypeSignature (String type, boolean asDotNotation) {
+  public static String getTypeCode (String type, boolean dotNotation) {
     String  t = null;
     int arrayDim = 0;
     
-    type = asDotNotation ? type.replace('/', '.') : type.replace('.', '/');
+    type = dotNotation ? type.replace('/', '.') : type.replace('.', '/');
     
     if ((type.charAt(0) == '[') || (type.endsWith(";"))) {  // [[[L...;
       t = type;
-      
     } else {
       
       while (type.endsWith("[]")) { // type[][][]
@@ -549,95 +512,18 @@ public class Types {
         t = "V";
       } else if (type.endsWith(";")) {
         t = type;
-        
-      } else {
-        t = "L" + type + ';';
       }
       
       while (arrayDim-- > 0) {
         t = "[" + t;
       }
+      
+      if (t == null) {
+        t = "L" + type + ';';
+      }
     }
 
     return t;
-  }
-
-  public static byte getBuiltinType(String typeName){
-      if (typeName.equals("byte")) {
-        return T_BYTE;
-      } else if (typeName.equals("char")) {
-        return T_CHAR;
-      } else if (typeName.equals("short")) {
-        return T_SHORT;
-      } else if (typeName.equals("int")) {
-        return T_INT;
-      } else if (typeName.equals("float")) {
-        return T_FLOAT;
-      } else if (typeName.equals("long")) {
-        return T_LONG;
-      } else if (typeName.equals("double")) {
-        return T_DOUBLE;
-      } else if (typeName.equals("boolean")) {
-        return T_BOOLEAN;
-      } else if (typeName.equals("void")) {
-        return T_VOID;
-      } else {
-        if (typeName.charAt(typeName.length()-1) == ']'){
-          return T_ARRAY;
-        } else {
-          return T_REFERENCE;
-        }
-      }
-  }
-
-  public static byte getUnboxedType (String typeName){
-    if (typeName.startsWith("java.lang.")){
-      typeName = typeName.substring(10);
-      if (typeName.equals("Boolean")){
-        return T_BOOLEAN;
-      } else if (typeName.equals("Byte")){
-        return T_BYTE;
-      } else if (typeName.equals("Character")){
-        return T_CHAR;
-      } else if (typeName.equals("Short")){
-        return T_SHORT;
-      } else if (typeName.equals("Integer")){
-        return T_INT;
-      } else if (typeName.equals("Long")){
-        return T_LONG;
-      } else if (typeName.equals("Float")){
-        return T_FLOAT;
-      } else if (typeName.equals("Double")){
-        return T_DOUBLE;
-      }
-    }
-    
-    // everything else can't be a box type
-    if (typeName.charAt(0) == '[' || typeName.charAt(typeName.length()-1) == ']'){
-      return T_ARRAY;
-    } else {
-      return T_REFERENCE;
-    }
-  }
-  
-  public static String getClassNameFromSignature (String signature){
-    if (signature.charAt(signature.length()-1) == ';'){ // reference
-      return signature.replace('/', '.');
-
-    } else { // builtin
-      switch (signature.charAt(0)){
-        case 'Z': return "boolean";
-        case 'B': return "byte";
-        case 'C': return "char";
-        case 'S': return "short";
-        case 'I': return "int";
-        case 'J': return "long";
-        case 'F': return "float";
-        case 'D': return "double";
-        default:
-          throw new JPFException("illegal type signature: " + signature);
-      }
-    }
   }
 
   /**
@@ -651,7 +537,7 @@ public class Types {
    *  
    * no idea what's the logic behind this, but let's implement it
    */
-  public static String getClassNameFromTypeName (String typeName) {
+  public static String getCanonicalTypeName (String typeName) {
     typeName = typeName.replace('/','.');
     int n = typeName.length()-1;
     
@@ -675,7 +561,7 @@ public class Types {
       
       typeName = typeName.substring(0,i);
       if (isBasicType(typeName)){
-        sb.append( getTypeSignature(typeName, true));
+        sb.append( getTypeCode(typeName, true));
       } else {
         sb.append('L');
         sb.append(typeName);
@@ -723,55 +609,10 @@ public class Types {
         "short".equals(typeName) ||
         "float".equals(typeName));
   }
-
-  public static byte getTypeCode (String signature){
-    char c = signature.charAt(0);
-
-    switch (c) {
-      case 'B':
-        return T_BYTE;
-
-      case 'C':
-        return T_CHAR;
-
-      case 'D':
-        return T_DOUBLE;
-
-      case 'F':
-        return T_FLOAT;
-
-      case 'I':
-        return T_INT;
-
-      case 'J':
-        return T_LONG;
-
-      case 'L':
-        return T_REFERENCE;
-
-      case 'S':
-        return T_SHORT;
-
-      case 'V':
-        return T_VOID;
-
-      case 'Z':
-        return T_BOOLEAN;
-
-      case '[':
-        return T_ARRAY;
-
-      default:
-        throw new JPFException("unknow typecode: " + signature);
-    }
-  }
   
-  /**
-   * return the qualified signature name according to JLS 6.7 (e.g. "int", "x.Y[]")
-   */
-  public static String getTypeName (String signature) {
-    int  len = signature.length();
-    char c = signature.charAt(0);
+  public static String getTypeName (String type) {
+    int  len = type.length();
+    char c = type.charAt(0);
 
     if (len == 1) {
       switch (c) {
@@ -805,38 +646,22 @@ public class Types {
     }
 
     if (c == '[') {
-      return getTypeName(signature.substring(1)) + "[]";
+      return getTypeName(type.substring(1)) + "[]";
     }
 
-    int len1 = len-1;
-    if (signature.charAt(len1) == ';') {
-      return signature.substring(1, len1).replace('/', '.');
+    if (type.charAt(len - 1) == ';') {
+      return type.substring(1, type.indexOf(';')).replace('/', '.');
     }
 
-    throw new JPFException("invalid type string: " + signature);
-  }
-
-  /** thoses are according to the arrayType codes of the newarray JVMS definition */
-  public static String getElementDescriptorOfType (int arrayType){
-    switch (arrayType){
-      case 4: return "Z";
-      case 5: return "C";
-      case 6: return "F";
-      case 7: return "D";
-      case 8: return "B";
-      case 9: return "S";
-      case 10: return "I";
-      case 11: return "J";
-    }
-    return null;
+    throw new JPFException("invalid type string: " + type);
   }
 
   /**
    * what would be the info size in bytes, not words
    * (we ignore 64bit machines for now)
    */
-  public static int getTypeSizeInBytes (String signature) {
-    switch (signature.charAt(0)) {
+  public static int getTypeSizeInBytes (String type) {
+    switch (type.charAt(0)) {
       case 'V':
         return 0;
         
@@ -859,11 +684,11 @@ public class Types {
         return 8;
     }
 
-    throw new JPFException("invalid type string: " + signature);
+    throw new JPFException("invalid type string: " + type);
   }
   
-  public static int getTypeSize (String signature) {
-    switch (signature.charAt(0)) {
+  public static int getTypeSize (String typeCode) {
+    switch (typeCode.charAt(0)) {
     case 'V':
       return 0;
 
@@ -882,11 +707,11 @@ public class Types {
       return 2;
     }
 
-    throw new JPFException("invalid type string: " + signature);
+    throw new JPFException("invalid type string: " + typeCode);
   }
 
-  public static int getTypeSize (byte typeCategory){
-    if (typeCategory == T_LONG || typeCategory == T_DOUBLE){
+  public static int getTypeSize (byte typeCode){
+    if (typeCode == T_LONG || typeCode == T_DOUBLE){
       return 2;
     } else {
       return 1;
@@ -922,13 +747,13 @@ public class Types {
   }
 
   public static boolean instanceOf (String type, String ofType) {
-    int bType = getBuiltinTypeFromSignature(type);
+    int bType = getBaseType(type);
 
     if ((bType == T_ARRAY) && ofType.equals("Ljava.lang.Object;")) {
       return true;
     }
 
-    int bOfType = getBuiltinTypeFromSignature(ofType);
+    int bOfType = getBaseType(ofType);
 
     if (bType != bOfType) {
       return false;
@@ -1027,7 +852,7 @@ public class Types {
         sb.append(a[a.length-1]);
 
         if (a.length > 1){
-          retType = getTypeSignature(a[a.length-2], false);
+          retType = getTypeCode(a[a.length-2], false);
         }
       }
 
@@ -1039,7 +864,7 @@ public class Types {
           if (!type.isEmpty()){
             type = type.trim();
             if (!type.isEmpty()){
-              sb.append( getTypeSignature(type,false));
+              sb.append( getTypeCode(type,false));
             }
           }
         }

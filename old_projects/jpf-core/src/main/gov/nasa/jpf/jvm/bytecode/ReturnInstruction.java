@@ -25,13 +25,11 @@ import gov.nasa.jpf.jvm.StackFrame;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
-import java.util.Iterator;
-
 
 /**
  * abstraction for the various return instructions
  */
-public abstract class ReturnInstruction extends Instruction implements gov.nasa.jpf.jvm.ReturnInstruction {
+public abstract class ReturnInstruction extends Instruction {
 
   // to store where we came from
   protected StackFrame returnFrame;
@@ -51,115 +49,96 @@ public abstract class ReturnInstruction extends Instruction implements gov.nasa.
     returnFrame = frame;
   }
 
-  /**
-   * this is important since keeping the StackFrame alive would be a major
-   * memory leak
-   */
-  @Override
-  public void cleanupTransients(){
-    returnFrame = null;
-  }
-  
-  //--- attribute accessors
-  
-  // the accessors are here to save the client some effort regarding the
-  // return type (slot size)
-  
-  public boolean hasReturnAttr (ThreadInfo ti){
-    return ti.hasOperandAttr();
-  }
-  public boolean hasReturnAttr (ThreadInfo ti, Class<?> type){
-    return ti.hasOperandAttr(type);
-  }
-  
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   * 
-   * obviously, this only makes sense from an instructionExecuted(), since
-   * the value is pushed during the execute(). Use ObjectList to access values
-   */
-  public Object getReturnAttr (ThreadInfo ti){
+  // override if this is a void or double word return
+  public Object getReturnAttr (ThreadInfo ti) {
     return ti.getOperandAttr();
   }
 
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   * 
-   * we don't clone since pushing a return value already changed the caller frame
-   */
-  public void setReturnAttr (ThreadInfo ti, Object a){
-    ti.setOperandAttrNoClone(a);
-  }
-  
-  public void addReturnAttr (ThreadInfo ti, Object attr){
-    ti.addOperandAttrNoClone(attr);
+  public void setReturnAttr (ThreadInfo ti, Object attr){
+    if (attr != null){
+      ti.setOperandAttrNoClone(attr);
+    }
   }
 
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getReturnAttr (ThreadInfo ti, Class<T> type){
-    return ti.getOperandAttr(type);
-  }
-  public <T> T getNextReturnAttr (ThreadInfo ti, Class<T> type, Object prev){
-    return ti.getNextOperandAttr(type, prev);
-  }
-  public Iterator returnAttrIterator (ThreadInfo ti){
-    return ti.operandAttrIterator();
-  }
-  public <T> Iterator<T> returnAttrIterator (ThreadInfo ti, Class<T> type){
-    return ti.operandAttrIterator(type);
-  }
-  
-  // -- end attribute accessors --
-  
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
 
     if (!ti.isFirstStepInsn()) {
       mi.leave(ti);  // takes care of unlocking before potentially creating a CG
 
       if (mi.isSynchronized()) {
-        int objref = mi.isStatic() ? mi.getClassInfo().getClassObjectRef() : ti.getThis();
-        ElementInfo ei = ti.getElementInfo(objref);
+        int objref = ti.getThis();
+        ElementInfo ei = ks.da.get(objref);
 
-        if (ei.getLockCount() == 0){
-          if (ei.checkUpdatedSharedness(ti)) {
-            ChoiceGenerator<ThreadInfo> cg = ss.getSchedulerFactory().createSyncMethodExitCG(ei, ti);
-            if (cg != null) {
-              if (ss.setNextChoiceGenerator(cg)) {
-                ti.skipInstructionLogging();
-                return this; // re-execute
-              }
-            }
-          }
+        ChoiceGenerator<ThreadInfo> cg = ss.getSchedulerFactory().createSyncMethodExitCG(ei, ti);
+        if (cg != null) {
+          ss.setNextChoiceGenerator(cg);
+          ti.skipInstructionLogging();
+          return this; // re-execute
         }
       }
     }
 
-    returnFrame = ti.getTopFrame();
-    Object attr = getReturnAttr(ti); // do this before we pop
+    Object attr = getReturnAttr(ti);
     storeReturnValue(ti);
+    returnFrame = ti.getTopFrame();
 
-    
-    // note that this is never the first frame, since we start all threads (incl. main)
-    // through a direct call
-    StackFrame top = ti.popFrame();
+    if (ti.getStackDepth() == 1) { // done - last stackframe in this thread
+      int objref = ti.getThreadObjectRef();
+      ElementInfo ei = ks.da.get(objref);
 
-    // remove args, push return value and continue with next insn
-    // (DirectCallStackFrames don't use this)
-    ti.removeArguments(mi);
-    pushReturnValue(ti);
+      // beware - this notifies all waiters on this thread (e.g. in a join())
+      // hence it has to be able to acquire the lock
+      if (!ei.canLock(ti)) {
+        // block first, so that we don't get this thread in the list of CGs
+        ei.block(ti);
 
-    if (attr != null) {
-      setReturnAttr(ti, attr);
+        ChoiceGenerator<ThreadInfo> cg = ss.getSchedulerFactory().createMonitorEnterCG(ei, ti);
+        if (cg != null) { // Ok, break here
+          ss.setNextChoiceGenerator(cg);
+        }
+        return this; // we have to come back later, when we can acquire the lock
+
+      } else { // Ok, we can get the lock, time to die
+        // notify waiters on thread termination
+
+        if (!ti.holdsLock(ei)){
+          // we only need to increase the lockcount if we don't own the lock yet,
+          // as is the case for synchronized run() in anonymous threads (otherwise
+          // we have a lockcount > 1 and hence do not unlock upon return)
+          ei.lock(ti);
+        }
+
+        ei.notifiesAll();
+        ei.unlock(ti);
+
+        ti.finish(); // cleanup
+
+        ChoiceGenerator<ThreadInfo> cg = ss.getSchedulerFactory().createThreadTerminateCG(ti);
+        if (cg != null) {
+          ss.clearAtomic();  // no carry over of atomic levels between threads
+          ss.setNextChoiceGenerator(cg);
+        }
+
+        ti.popFrame(); // we need to do this *after* setting the CG (so that we still have a CG insn)
+        return null;
+      }
+
+    } else { // there are still frames on the stack
+      ti.popFrame(); // do this *before* we push the return value
+      Instruction nextPC = ti.getReturnFollowOnPC();
+
+      if (nextPC != ti.getPC()) {
+        // don't remove or push args if we repeat this insn!
+        ti.removeArguments(mi);
+        pushReturnValue(ti);
+
+        if (attr != null){
+          setReturnAttr(ti, attr);
+        }
+      }
+
+      return nextPC;
     }
-
-    return top.getPC().getNext();
   }
   
   public void accept(InstructionVisitor insVisitor) {

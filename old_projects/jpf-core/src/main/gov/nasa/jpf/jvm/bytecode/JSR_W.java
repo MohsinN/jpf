@@ -22,22 +22,24 @@ import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
+import org.apache.bcel.classfile.ConstantPool;
+
 
 /**
- * Jump subroutine (wide insnIndex)
+ * Jump subroutine (wide index)
  * ... => ..., address
  */
 public class JSR_W extends Instruction {
   private int target;
 
-  public JSR_W(int targetPc){
-    target = targetPc;
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    target = ((org.apache.bcel.generic.JSR_W) i).getTarget().getPosition();
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
     th.push(getNext(th).getPosition(), false);
 
-    return mi.getInstructionAt(target);
+    return th.getMethod().getInstructionAt(target);
   }
 
   public int getLength() {
@@ -51,9 +53,4 @@ public class JSR_W extends Instruction {
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
   }
- 
-  public int getTarget() {
-	return target;
-  }
-
 }

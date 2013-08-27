@@ -26,6 +26,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.logging.Logger;
+import java.util.zip.ZipEntry;
 
 
 /**
@@ -63,10 +65,6 @@ public class Source {
     }
 
     InputStream getInputStream (String fname) {
-      if (File.separatorChar != '/'){
-        fname = fname.replace('/', File.separatorChar);
-      }
-
       File f = new File(path, fname);
       if (f.exists()) {
         try {
@@ -246,29 +244,26 @@ public class Source {
     }
   }
 
-  public static Source getSource (String relPathName) {
-    if (relPathName == null){
-      return null;
-    }
-    
-    Source s = sources.get(relPathName);
+  public static Source getSource (String fname) {
+    Source s = sources.get(fname);
+
     if (s == noSource) {
        return null;
     }
 
     if (s == null) {
       for (SourceRoot root : sourceRoots) {
-        InputStream is = root.getInputStream(relPathName);
+        InputStream is = root.getInputStream(fname);
         if (is != null) {
           try {
-          s = new Source(root,relPathName);
+          s = new Source(root,fname);
           s.loadLines(is);
           is.close();
 
-          sources.put(relPathName, s);
+          sources.put(fname, s);
           return s;
           } catch (IOException iox) {
-            logger.warning("error reading " + relPathName + " from" + root);
+            logger.warning("error reading " + fname + " from" + root);
             return null;
           }
         }
@@ -277,7 +272,8 @@ public class Source {
       return s;
     }
 
-    sources.put(relPathName, noSource);
+    sources.put(fname, noSource);
+
     return null;
   }
 

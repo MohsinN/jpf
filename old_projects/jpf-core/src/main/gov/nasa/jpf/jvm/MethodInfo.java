@@ -18,37 +18,48 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.Config;
-import gov.nasa.jpf.JPF;
-import gov.nasa.jpf.JPFException;
-import gov.nasa.jpf.classfile.ClassFile;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.util.JPFLogger;
-import gov.nasa.jpf.util.LocationSpec;
-import gov.nasa.jpf.util.ObjectList;
-
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.JPFException;
+import gov.nasa.jpf.jvm.bytecode.Instruction;
+import gov.nasa.jpf.util.Debug;
+
+import org.apache.bcel.Constants;
+import org.apache.bcel.classfile.Code;
+import org.apache.bcel.classfile.CodeException;
+import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.classfile.LineNumberTable;
+import org.apache.bcel.classfile.LocalVariable;
+import org.apache.bcel.classfile.LocalVariableTable;
+import org.apache.bcel.classfile.Method;
+import org.apache.bcel.generic.InstructionHandle;
+import org.apache.bcel.generic.InstructionList;
+
+import gov.nasa.jpf.jvm.bytecode.*;
+import org.apache.bcel.classfile.AnnotationEntry;
+import org.apache.bcel.classfile.Attribute;
+import org.apache.bcel.classfile.ExceptionTable;
+import org.apache.bcel.classfile.ParameterAnnotationEntry;
+import org.apache.bcel.classfile.ParameterAnnotations;
+import org.apache.bcel.classfile.RuntimeVisibleParameterAnnotations;
 
 
 /**
  * information associated with a method. Each method in JPF
  * is represented by a MethodInfo object
  */
-public class MethodInfo extends InfoObject implements Cloneable, GenericSignatureHolder  {
-
-  static JPFLogger logger = JPF.getLogger("gov.nasa.jpf.jvm.MethodInfo");
+public class MethodInfo extends InfoObject implements Cloneable {
 
   static final int INIT_MTH_SIZE = 4096;
-  protected static final ArrayList<MethodInfo> mthTable = new ArrayList<MethodInfo>(INIT_MTH_SIZE);
+  private static ArrayList<MethodInfo> mthTable;
   
   // special globalIds
   static final int DIRECT_CALL = -1;
   static final int REFLECTION_CALL = -2;
 
-  static final LocalVarInfo[] EMPTY = new LocalVarInfo[0];
-  
-  static final int[] EMPTY_INT = new int[0];
+  static final String[] EMPTY = new String[0];
   
   /**
    * Used to warn about local variable information.
@@ -56,31 +67,48 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   protected static boolean warnedLocalInfo = false;
   
   //--- various JPF method attributes
+  static final int  MJI_NONE    = 0;
+  static final int  MJI_NATIVE  = 0x1;
+  
   static final int  EXEC_ATOMIC = 0x10000; // method executed atomically
   static final int  EXEC_HIDDEN = 0x20000; // method hidden from path
-  static final int  FIREWALL    = 0x40000; // firewall any unhandled exceptionHandlers
+  static final int  FIREWALL    = 0x40000; // firewall any unhandled exceptions
                                            // (turn into UnhandledException throws)
   static final int  IS_CLINIT   = 0x80000;
   static final int  IS_INIT     = 0x100000;
   
 
-  /** a unique int assigned to this method */
-  protected int globalId = -1;
+  public class CodeBuilder {
+    ArrayList<Instruction> insns = new ArrayList<Instruction>();
 
-  /**
-   * this is a lazy evaluated mangled name consisting of the name and
-   * arg type signature
-   */
-  protected String uniqueName;
+    // running code location
+    int off;
+    int pos;
+
+    public int append(Instruction insn) {
+
+      insns.add(insn);
+
+      insn.setMethodInfo(MethodInfo.this);
+      insn.setLocation(off, pos);
+
+      off++;
+      pos += insn.getLength();
+
+      return off;
+    }
+
+    public void setCode() {
+      code = insns.toArray(new Instruction[insns.size()]);
+    }
+  }
+
 
   /** Name of the method */
   protected String name;
 
   /** Signature of the method */
   protected String signature;
-
-  /** Generic signature of the method */
-  protected String genericSignature;
 
   /** Class the method belongs to */
   protected ClassInfo ci;
@@ -89,22 +117,19 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   protected Instruction[] code;
 
   /** JPFConfigException handlers */
-  protected ExceptionHandler[] exceptionHandlers;
+  protected ExceptionHandler[] exceptions;
 
-  /** classnames of checked exception thrown by the method */
+  /** classnames of checked exceptions thrown by the method */
   protected String[] thrownExceptionClassNames;
 
-  /** Table used for line numbers 
-   * this assigns a line number to every instruction index, instead of 
-   * using an array of ranges. Assuming we have 2-3 insns per line on average,
-   * this should still require less memory than a reference array with associated
-   * range objects, and allows faster access of instruction line numbers, which
-   * we might need for location specs
-   */
+  /** Table used for line numbers */
   protected int[] lineNumbers;
-  
-  /** Local variable information */
-  protected LocalVarInfo localVars[] = null;
+
+  /** Local variables names */
+  protected String[] localVariableNames;
+
+  /** Local variables types */
+  protected String[] localVariableTypes;
 
   /** Maximum number of local variables */
   protected int maxLocals;
@@ -115,48 +140,94 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   /** null if we don't have any */
   AnnotationInfo[][] parameterAnnotations;
 
+
   //--- a batch of attributes
   
   /** the standard Java modifier attributes */
-  protected int modifiers;
+  int modifiers;
    
   /** a batch of execution related JPF attributes */
-  protected int attributes;
+  int attrs;
       
 
   //--- all the stuff we need for native methods
   // <2do> pcm - turn this into a derived class
 
   /**  the number of stack slots for the arguments (incl. 'this'), lazy eval */
-  protected int argSize = -1;
+  private int argSize = -1;
 
   /** number of arguments (excl. 'this'), lazy eval */
-  protected int nArgs = -1;
+  private int nArgs = -1;
 
   /** what return type do we have (again, lazy evaluated) */
-  protected byte returnType = -1;
-
-  /** number of stack slots for return value */
-  protected int retSize = -1;
+  private byte returnType = -1;
 
   /** used for native method parameter conversion (lazy evaluated) */
-  protected byte[] argTypes = null;
+  private byte[] argTypes = null;
 
-  
-  /** user defined attributes */
-  protected Object attr;
+
+  /**
+   * this is a lazy evaluated mangled name consisting of the name and
+   * arg type signature
+   */
+  private String uniqueName;
+    
+  /** a unique int assigned to this method */
+  private int globalId = -1;
   
   static InstructionFactory insnFactory;
   
   static boolean init (Config config) {
     insnFactory = config.getEssentialInstance("vm.insn_factory.class", InstructionFactory.class);
     
-    mthTable.clear();
-    
+    mthTable = new ArrayList<MethodInfo>(INIT_MTH_SIZE);
     return true;
   }
+  
+  /**
+   * Creates a new method info.
+   */
+  protected MethodInfo (Method m, ClassInfo c) {
+    name = m.getName();
+    signature = m.getSignature();
+    ci = c;
 
+    code = loadCode(m);
+    exceptions = loadExceptions(m);
+    thrownExceptionClassNames = loadThrownExceptionClassNames(m);
+    lineNumbers = loadLineNumbers(m);
+    maxLocals = getMaxLocals(m);
+    maxStack = getMaxStack(m);
+    localVariableNames = loadLocalVariableNames(m);
+    localVariableTypes = loadLocalVariableTypes(m);
+    
+    modifiers = m.getModifiers();
+        
+    // clinits are automatically synchronized on the class object,
+    // and they don't let unhandled exceptions through
+    if (name.equals("<clinit>")) {
+      modifiers |= Modifier.SYNCHRONIZED;
+      attrs |= IS_CLINIT | FIREWALL;
+    }
+    
+    if (name.equals("<init>")) {
+      attrs |= IS_INIT;
+    }
 
+    if (c.isInterface()){ // all interface methods are public
+      modifiers |= Modifier.PUBLIC;
+    }
+
+    // since that's used to store the method in the ClassInfo, and to
+    // identify it in tne InvokeInstruction, we can set it here
+    uniqueName = getUniqueName(name, signature);
+        
+    globalId = mthTable.size();
+    mthTable.add(this);
+    
+    loadAnnotations(m.getAnnotationEntries());
+    loadParameterAnnotations(m);
+  }
 
   // for explicit construction only (direct calls)
   protected MethodInfo (int id) {
@@ -164,37 +235,24 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
     // we don't want direct call methods in the mthTable (would be a memory leak)
   }
   
-  public MethodInfo (ClassInfo ci, String name, String signature, int maxLocals, int maxStack, int modifiers){
+  public MethodInfo (ClassInfo ci, String name, int maxLocals, int maxStack, int modifiers){
     this.ci = ci;
     this.name = name;
-    this.signature = signature;
-    this.uniqueName = getUniqueName(name, signature);
-    this.genericSignature = "";
+    this.uniqueName = name;
+    this.signature = "()V";
     this.maxLocals = maxLocals;
     this.maxStack = maxStack;
+    this.localVariableNames = EMPTY;
+    this.localVariableTypes = EMPTY;
     this.modifiers = modifiers;
 
     this.lineNumbers = null;
-    this.exceptionHandlers = null;
+    this.exceptions = null;
     this.thrownExceptionClassNames = null;
-
-    // set attributes we can deduce from the name and the ClassInfo
-    if (ci != null){
-      if (name.equals("<init>")) {
-        attributes |= IS_INIT;
-      } else if (name.equals("<clinit>")) {
-        this.modifiers |= Modifier.SYNCHRONIZED;
-        attributes |= IS_CLINIT | FIREWALL;
-      }
-      if (ci.isInterface()) { // all interface methods are public
-        this.modifiers |= Modifier.PUBLIC;
-      }
-    }
-
+        
     this.globalId = mthTable.size();
     mthTable.add(this);
   }
-
   
   public static MethodInfo getMethodInfo (int globalId){
     if (globalId >=0 && globalId <mthTable.size()){
@@ -205,40 +263,47 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   }
   
   public static InstructionFactory getInstructionFactory() {
-    // we clone so that instruction factories could have state
-    return (InstructionFactory) insnFactory.clone();
+    return insnFactory;
   }
   
+  public static void setInstructionFactory (InstructionFactory newFactory){
+    insnFactory = newFactory;
+  }
+
+  protected void loadParameterAnnotations (Method m){
+
+    for (Attribute a : m.getAttributes()){
+      if (a instanceof ParameterAnnotations) {
+        ParameterAnnotationEntry[] paEntries = ((ParameterAnnotations) a).getParameterAnnotationEntries();
+
+        AnnotationInfo[][] paramAnnos = new AnnotationInfo[paEntries.length][];
+
+        for (int i=0; i<paEntries.length; i++) {
+          AnnotationEntry[] ae = paEntries[i].getAnnotationEntries();
+
+          if (ae.length > 0){
+            AnnotationInfo[] annos = new AnnotationInfo[ae.length];
+            for (int j=0; j<ae.length; j++){
+              annos[j] = new AnnotationInfo(ae[j]);
+            }
+            paramAnnos[i] = annos;
+
+          } else {
+            // this paramter doesn't have an AnnotationInfo
+          }
+        }
+
+        parameterAnnotations = paramAnnos;
+      }
+    }
+  }
+
   public boolean hasParameterAnnotations() {
     return (parameterAnnotations != null);
   }
 
-  
-  // since some listeners might call this on every method invocation, we should do a little optimization
-  static AnnotationInfo[][] NO_PARAMETER_ANNOTATIONS_0 = new AnnotationInfo[0][];
-  static AnnotationInfo[][] NO_PARAMETER_ANNOTATIONS_1 = { new AnnotationInfo[0] };
-  static AnnotationInfo[][] NO_PARAMETER_ANNOTATIONS_2 = { new AnnotationInfo[0], new AnnotationInfo[0] };
-  static AnnotationInfo[][] NO_PARAMETER_ANNOTATIONS_3 = { new AnnotationInfo[0], new AnnotationInfo[0], new AnnotationInfo[0] };  
-  
   public AnnotationInfo[][] getParameterAnnotations() {
-    if (parameterAnnotations == null){ // keep this similar to getAnnotations()
-      int n = getNumberOfArguments();
-      switch (n){
-      case 0: return NO_PARAMETER_ANNOTATIONS_0;
-      case 1: return NO_PARAMETER_ANNOTATIONS_1;
-      case 2: return NO_PARAMETER_ANNOTATIONS_2;
-      case 3: return NO_PARAMETER_ANNOTATIONS_3;
-      default:
-        AnnotationInfo[][] pai = new AnnotationInfo[n][];
-        for (int i=0; i<n; i++){
-          pai[i] = new AnnotationInfo[0];
-        }
-        return pai;
-      }
-      
-    } else {
-      return parameterAnnotations;
-    }
+    return parameterAnnotations;
   }
 
   /**
@@ -256,12 +321,8 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
     }
   }
 
-  public void setMaxLocals(int maxLocals){
-    this.maxLocals = maxLocals;
-  }
-
-  public void setMaxStack(int maxStack){
-    this.maxStack = maxStack;
+  public CodeBuilder getCodeBuilder() {
+    return new CodeBuilder();
   }
 
   public void setClassInfo (ClassInfo ci){
@@ -278,45 +339,45 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   public static int getNumberOfLoadedMethods () {
     return mthTable.size();
   }
-
+    
   void setAtomic (boolean isAtomic) {
     if (isAtomic) {
-      attributes |= EXEC_ATOMIC;
+      attrs |= EXEC_ATOMIC;
     } else {
-      attributes &= ~EXEC_ATOMIC;
+      attrs &= ~EXEC_ATOMIC;
     }
   }
   public boolean isAtomic () {
-    return ((attributes & EXEC_ATOMIC) != 0);
+    return ((attrs & EXEC_ATOMIC) != 0);
   }
   
   void setHidden (boolean isHidden) {
     if (isHidden) {
-      attributes |= EXEC_HIDDEN;
+      attrs |= EXEC_HIDDEN;
     } else {
-      attributes &= ~EXEC_HIDDEN;
+      attrs &= ~EXEC_HIDDEN;
     }
   }
   public boolean isHidden () {
-    return ((attributes & EXEC_HIDDEN) != 0);    
+    return ((attrs & EXEC_HIDDEN) != 0);    
   }
   
   /**
-   * turn unhandled exceptionHandlers at the JPF execution level
+   * turn unhandled exceptions at the JPF execution level
    * into UnhandledException throws at the host VM level
    * this is useful to implement firewalls for direct calls
-   * which should not let exceptionHandlers permeate into bytecode/
+   * which should not let exceptions permeate into bytecode/
    * application code
    */
   public void setFirewall (boolean isFirewalled) {
     if (isFirewalled) {
-      attributes |= FIREWALL;
+      attrs |= FIREWALL;
     } else {
-      attributes &= ~FIREWALL;
+      attrs &= ~FIREWALL;
     }
   }
   public boolean isFirewall () {
-    return ((attributes & FIREWALL) != 0);    
+    return ((attrs & FIREWALL) != 0);    
   }
   
   
@@ -336,53 +397,48 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   protected MethodInfo createCallStub (String originator, int id){
     MethodInfo mi = new MethodInfo(id);
     String cname = ci.getName();
+    Instruction insn;
 
-    mi.name = originator; // + name; // + cname; // could maybe also include the called method, but keep it fast
+    mi.name = originator + name; // + cname; // could maybe also include the called method, but keep it fast
     mi.signature = "()V";
-    mi.genericSignature = "";
     mi.maxLocals = isStatic() ? 0 : 1;
     mi.maxStack = getNumberOfCallerStackSlots();  // <2do> cache for optimization
-    mi.localVars = EMPTY;
+    mi.localVariableNames = EMPTY;
+    mi.localVariableTypes = EMPTY;
     mi.lineNumbers = null;
-    mi.exceptionHandlers = null;
+    mi.exceptions = null;
     mi.thrownExceptionClassNames = null;
     mi.uniqueName = mi.name;
 
-    CodeBuilder cb = mi.createCodeBuilder();
+    // createAndInitialize the code
+    CodeBuilder cb = mi.getCodeBuilder();
 
     if (isStatic()){
       mi.modifiers |= Modifier.STATIC;
-
+      
       if (isClinit()) {
-        cb.invokeclinit(ci);
+        insn = insnFactory.create(null, INVOKECLINIT.OPCODE);
       } else {
-        cb.invokestatic(cname, name, signature);
+        insn = insnFactory.create(null, Constants.INVOKESTATIC);
       }
-    } else if (name.equals("<init>") || isPrivate()){
-      cb.invokespecial(cname, name, signature);
+    } else if (name.equals("<init>")){
+      insn = insnFactory.create(null, Constants.INVOKESPECIAL);
     } else {
-      cb.invokevirtual(cname, name, signature);
+      insn = insnFactory.create(null, Constants.INVOKEVIRTUAL);
     }
+    ((InvokeInstruction)insn).setInvokedMethod(cname, name, signature);
+    cb.append(insn);
+    
+    insn = insnFactory.create(null, Constants.RETURN);
+    cb.append(insn);
 
-    cb.directcallreturn();
-    cb.installCode();
+    cb.setCode();
 
     return mi;
   }
-
-  public CodeBuilder createCodeBuilder(){
-    InstructionFactory ifact = getInstructionFactory();
-    return new CodeBuilder(ifact, null, this);
-  }
-
-  public CodeBuilder createCodeBuilder(ClassFile cf){
-    InstructionFactory ifact = getInstructionFactory();
-    return new CodeBuilder(ifact, cf, this);
-  }
-
+  
   /**
-   * NOTE - this only works in conjunction with a special StackFrame,
-   * the caller has to make sure the right operands are pushed for the call arguments!
+   * NOTE - this only works in conjunction with a special StackFrame
    */
   public MethodInfo createDirectCallStub (String originator) {
     return createCallStub(originator, DIRECT_CALL);
@@ -394,27 +450,27 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   public MethodInfo createReflectionCallStub() {
     return createCallStub("[reflection]", REFLECTION_CALL);
   }
-  
-  public boolean isReflectionCallStub() {
+  boolean isReflectionCallStub() {
     return (globalId == REFLECTION_CALL);
   }
+
 
   public boolean isSyncRelevant () {
     return (name.charAt(0) != '<');
   }
   
   public boolean isClinit () {
-    return ((attributes & IS_CLINIT) != 0);
+    return ((attrs & IS_CLINIT) != 0);
   }
 
   public boolean isClinit (ClassInfo ci) {
-    return (((attributes & IS_CLINIT) != 0) && (this.ci == ci));
+    return (((attrs & IS_CLINIT) != 0) && (this.ci == ci));
   }
 
   public boolean isInit() {
-    return ((attributes & IS_INIT) != 0);
+    return ((attrs & IS_INIT) != 0);
   }
-  
+
   /**
    * yet another name - this time with a non-mangled, but abbreviated signature
    * and without return type (e.g. like "main(String[])"
@@ -451,10 +507,6 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
     return (mname + signature);
   }
 
-  public String getStackTraceSource() {
-    return getSourceFileName();
-  }
-
   public byte[] getArgumentTypes () {
     if (argTypes == null) {
       argTypes = Types.getArgumentTypes(signature);
@@ -481,67 +533,6 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
     }
 
     return argSize;
-  }
-  
-  /**
-   * return only the LocalVarInfos for arguments, in order of definition
-   * or null if there are no localVarInfos.
-   * throw a JPFException if there are more immediately in scope vars than args
-   * 
-   * NOTE - it is perfectly legal for a method to have arguments but no LocalVarInfos,
-   * which are code attributes, clients have to check for a non-null return value
-   * even if the method has arguments.
-   * Note also that abstract / interface methods don't have code and hence no
-   * LocalVarInfos
-   */
-  public LocalVarInfo[] getArgumentLocalVars(){
-    if (localVars == null){ // shortcut in case we don't have args or localVars;
-      return null;
-    }
-    
-    int nArgs = getNumberOfStackArguments(); // we want 'this'
-    if (nArgs == 0){
-      return new LocalVarInfo[0]; // rare enough so that we don't use a static
-    }
-
-    LocalVarInfo[] argLvis = new LocalVarInfo[nArgs];
-    int n = 0; // how many args we've got so far
-    
-    for (LocalVarInfo lvi : localVars){
-      // arguments are the only ones that are immediately in scope
-      if (lvi.getStartPC() == 0){
-        if (n == nArgs){ // ARGH - more in-scope vars than args
-          throw new JPFException("inconsistent localVar table for method " + getFullName());
-        }
-        
-        // order with respect to slot index - since this might get called
-        // frequently, we don't use java.util.Arrays.sort() but sort in
-        // on-the-fly. Note that we can have several localVar entries for the
-        // same name, but only one can be immediately in scope
-        int slotIdx = lvi.getSlotIndex();
-
-        int i;
-        for (i = 0; i < n; i++) {
-          if (slotIdx < argLvis[i].getSlotIndex()) {
-            for (int j=n; j>i; j--){
-              argLvis[j] = argLvis[j-1];
-            }
-            argLvis[i] = lvi;
-            n++;
-            break;
-          }
-        }
-        if (i == n) { // append
-          argLvis[n++] = lvi;
-        }
-      }
-    }
-    
-    return argLvis;
-  }
-  
-  public String getReturnType () {
-    return Types.getReturnTypeSignature(signature);
   }
 
   public String getReturnTypeName () {
@@ -572,10 +563,10 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   }
 
   /**
-   * @deprecated - use getFullName
+   * Return the complete name of the method, including the class name.
    */
   public String getCompleteName () {
-    return getFullName();
+    return getClassName() + '.' + name + signature;
   }
 
   /**
@@ -606,35 +597,20 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   }
   
   /**
-   * Returns the full classname (if any) + name + signature.
+   * Returns the full name of the method, name and signature.
    */
   public String getFullName () {
     if (ci != null) {
       return ci.getName() + '.' + getUniqueName();
     } else {
-      return getUniqueName();
+      return (name + signature);
     }
   }
 
   /**
-   * returns stack trace name: classname (if any) + name
-   */
-  public String getStackTraceName(){
-    if (ci != null) {
-      return ci.getName() + '.' + name;
-    } else {
-      return name;
-    }
-  }
-  
-  /**
    * return number of instructions
    */
   public int getNumberOfInstructions() {
-    if (code == null){
-      return 0;
-    }
-    
     return code.length;
   }
   
@@ -676,55 +652,6 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   public Instruction[] getInstructions () {
     return code;
   }
-  
-  public boolean includesLine (int line){
-    int len = code.length;
-    return (code[0].getLineNumber() <= line) && (code[len].getLineNumber() >= line);
-  }
-
-  public Instruction[] getInstructionsForLine (int line){
-    return getInstructionsForLineInterval(line,line);
-  }
-
-  public Instruction[] getInstructionsForLineInterval (int l1, int l2){
-    int len = code.length;
-
-    if ((code[0].getLineNumber() > l2) || (code[len-1].getLineNumber() < l1)){
-      // no overlap
-      return null;
-    }
-
-    int i1 = -1;
-    int i2 = -1;
-    for (int i = 0; i < len; i++) {
-      int l = code[i].getLineNumber();
-      if ((l >= l1) && (l <= l2)) {
-        if (i1 < 0) {
-          i1 = i;
-        }
-        i2 = i;
-      } else if (l > l2) {
-        break;
-      }
-    }
-
-    if (i1 >= 0){
-      Instruction[] a = new Instruction[i2 - i1 + 1];
-      int j = 0;
-      for (int i = i1; i <= i2; i++) {
-        a[j++] = code[i];
-      }
-      return a;
-
-    } else {
-      return null; // no insn found for this line interval
-    }
-  }
-
-  public Instruction[] getMatchingInstructions (LocationSpec lspec){
-    return getInstructionsForLineInterval(lspec.getFromLine(), lspec.getToLine());
-  }
-
 
   /**
    * Returns the line number for a given position.
@@ -736,8 +663,7 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
       else
         return pc.getPosition();
     }
-
-    int idx = pc.getInstructionIndex();
+    int idx = pc.getOffset();
     if (idx < 0) idx = 0;
     return lineNumbers[idx];
   }
@@ -749,95 +675,53 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
     return lineNumbers;
   }
 
-  public boolean containsLineNumber (int n){
-    if (lineNumbers != null){
-      return (lineNumbers[0] <= n) && (lineNumbers[lineNumbers.length-1] <= n);
-    }
-    
-    return false;
-  }
-  
-  public boolean intersectsLineNumbers( int first, int last){
-    if (lineNumbers != null){
-      if ((last < lineNumbers[0]) || (first > lineNumbers[lineNumbers.length-1])){
-        return false;
-      }
-      return true;
-    }
-    
-    return false;
-  }
-  
   public boolean isMJI () {
-    return false;
+    return ((attrs & MJI_NATIVE) != 0);
   }
 
   public int getMaxLocals () {
     return maxLocals;
   }
 
+  public static int getMaxLocals (Method m) {
+    Code c = m.getCode();
+
+    if (c == null) {
+      return 0;
+    }
+
+    return c.getMaxLocals();
+  }
+
   public int getMaxStack () {
     return maxStack;
   }
 
+  public static int getMaxStack (Method m) {
+    Code c = m.getCode();
+
+    if (c == null) {
+      return 0;
+    }
+
+    return c.getMaxStack();
+  }
+
   public ExceptionHandler[] getExceptions () {
-    return exceptionHandlers;
+    return exceptions;
   }
 
   public String[] getThrownExceptionClassNames () {
     return thrownExceptionClassNames;
   }
 
-
-  public LocalVarInfo getLocalVar(String name, int pc){
-    LocalVarInfo[] vars = localVars;
-    if (vars != null){
-      for (int i = 0; i < vars.length; i++) {
-        LocalVarInfo lv = vars[i];
-        if (lv.matches(name, pc)) {
-          return lv;
-        }
-      }
-    }
-
-    return null;
-
+  public String[] getLocalVariableNames () {
+    return localVariableNames;
   }
 
-  public LocalVarInfo getLocalVar (int slotIdx, int pc){
-    LocalVarInfo[] vars = localVars;
-
-    if (vars != null){
-      for (int i = 0; i < vars.length; i++) {
-        LocalVarInfo lv = vars[i];
-        if (lv.matches(slotIdx, pc)) {
-          return lv;
-        }
-      }
-    }
-
-    return null;
+  public String[] getLocalVariableTypes () {
+    return localVariableTypes;
   }
-
-  public LocalVarInfo[] getLocalVars() {
-    return localVars; 
-  }
-
-
-  /**
-   * note that this might contain duplicates for variables with multiple
-   * scope entries
-   */
-  public String[] getLocalVariableNames() {
-    String[] names = new String[localVars.length];
-
-    for (int i=0; i<localVars.length; i++){
-      names[i] = localVars[i].getName();
-    }
-
-    return names;
-  }
-
 
   public MethodInfo getOverriddenMethodInfo(){
     MethodInfo smi = null;
@@ -878,11 +762,6 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
     return ((modifiers & Modifier.ABSTRACT) != 0);
   }
   
-  // overridden by NativeMethodInfo
-  public boolean isUnresolvedNativeMethod(){
-    return ((modifiers & Modifier.NATIVE) != 0);
-  }
-
   public int getNumberOfArguments () {
     if (nArgs < 0) {
       nArgs = Types.getNumberOfArguments(signature);
@@ -904,58 +783,26 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   public int getNumberOfCallerStackSlots () {
     return Types.getNumberOfStackSlots(signature, isStatic()); // includes return type
   }
-
-  public Instruction getLastInsn() {
-    if (code == null){
-      return null;
-    }
-    
-    return code[code.length-1];
-  }
-
+  
   /**
    * do we return Object references?
    */
   public boolean isReferenceReturnType () {
-    int r = getReturnTypeCode();
+    int r = getReturnType();
 
     return ((r == Types.T_REFERENCE) || (r == Types.T_ARRAY));
   }
 
-  public byte getReturnTypeCode () {
+  public byte getReturnType () {
     if (returnType < 0) {
-      returnType = Types.getReturnBuiltinType(signature);
+      returnType = Types.getReturnType(signature);
     }
 
     return returnType;
   }
 
-  /**
-   * what is the slot size of the return value
-   */
-  public int getReturnSize() {
-    if (retSize == -1){
-      switch (getReturnTypeCode()) {
-        case Types.T_VOID:
-          retSize = 0;
-          break;
-
-        case Types.T_LONG:
-        case Types.T_DOUBLE:
-          retSize = 2;
-          break;
-
-        default:
-          retSize = 1;
-          break;
-      }
-    }
-
-    return retSize;
-  }
-
   public Class<? extends ChoiceGenerator<?>> getReturnChoiceGeneratorType (){
-    switch (getReturnTypeCode()){
+    switch (getReturnType()){
       case Types.T_BOOLEAN:
         return BooleanChoiceGenerator.class;
 
@@ -990,14 +837,6 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
     return signature;
   }
 
-  public String getGenericSignature() {
-    return genericSignature;
-  }
-
-  public void setGenericSignature(String sig){
-    genericSignature = sig;
-  }
-
   /**
    * Returns true if the method is static.
    */
@@ -1019,36 +858,13 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   public boolean isProtected() {
     return ((modifiers & Modifier.PROTECTED) != 0);
   }
-
+  
+  
   /**
    * Returns true if the method is synchronized.
    */
   public boolean isSynchronized () {
     return ((modifiers & Modifier.SYNCHRONIZED) != 0);
-  }
-
-  // <2do> these modifiers are still java.lang.reflect internal and not
-  // supported by public Modifier methods, but since we want to keep this 
-  // similar to the Method reflection and we get the modifiers from the
-  // classfile we implement this with explicit values
-  
-  public boolean isSynthetic(){
-    return ((modifiers & 0x00001000) != 0);    
-  } 
-  public boolean isVarargs(){
-    return ((modifiers & 0x00000080) != 0);        
-  }
-  
-  /*
-   * is this from a classfile or was it created by JPF (and hence should not
-   * be visible in stacktraces etc)
-   */
-  public boolean isJPFInternal(){
-    // note this has a different meaning than Method.isSynthetic(), which
-    // is defined in VM spec 4.7.8. What we mean here is that this MethodInfo
-    // is not associated with any class (such as direct call MethodInfos), but
-    // there might be more in the future
-    return (ci == null);
   }
   
   public String getUniqueName () {
@@ -1083,39 +899,27 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
       ei = th.getElementInfo(objref);
 
       assert (ei != null) : ("inconsistent stack, no object or class ref: " +
-                               getFullName() + " (" + objref +")");
+                               getCompleteName() + " (" + objref +")");
     }
 
     return ei;
   }
 
-  // override this if there is a need for a special StackFrame
-  protected StackFrame createStackFrame (ThreadInfo ti){
-    return new StackFrame(this, ti.getTopFrame());
-  }
-
-  /**
-   * locking, stackframe push and enter notification
-   */
-  public void enter (ThreadInfo ti) {
+  private void enter (ThreadInfo ti) {
     if (isSynchronized()) {
       ElementInfo ei = getBlockedObject(ti, true);
       ei.lock(ti);
-
+      
       if (isStatic() && isClinit()) {
         ci.setInitializing(ti);
       }
     }
 
-    // we need to do this after locking
-    ti.pushFrame( createStackFrame(ti));
-
+    StackFrame frame = new StackFrame(this, ti.getTopFrame());
+    ti.pushFrame(frame);
     ti.getVM().notifyMethodEntered(ti, this);
   }
 
-  /**
-   * unlocking and exit notification
-   */
   public void leave (ThreadInfo ti) {
     
     // <2do> - that's not really enough, we might have suspicious bytecode that fails
@@ -1127,9 +931,7 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
     
     if (isSynchronized()) {
       ElementInfo ei = getBlockedObject(ti, false);
-      if (ei.isLocked()){
-        ei.unlock(ti);
-      }
+      ei.unlock(ti);
       
       if (isStatic() && isClinit()) {
         // we just released the lock on the class object, returning from a clinit
@@ -1144,188 +946,252 @@ public class MethodInfo extends InfoObject implements Cloneable, GenericSignatur
   }
   
   /**
-   * execute this method invocation
+   * execute this method, which might be either bytecode or native.
    */
   public Instruction execute (ThreadInfo ti) {
-    enter(ti);
-    return ti.getPC();
+
+    if (((attrs & MJI_NATIVE) != 0) || isNative()) {
+      NativePeer nativePeer = ci.getNativePeer();
+      if (nativePeer != null) {
+        JVM vm = ti.getVM();
+        StackFrame frame = new StackFrame(this, ti.getTopFrame());
+
+        // since there is no enter/leave for native methods, we have to do
+        // the notifications explicitly
+        ti.pushFrame(frame);                      // Make the logic easier in listeners (e.g. vm.getLastMethod() == vm.getCurrentThread().getMethod())
+        vm.notifyMethodEntered(ti, this);
+        ti.popFrame(false);                       // Can't keep the frame for later in this method since nativePeer.executeMethod will do work on the top of the stack
+        // <2do> Allow for the frame to remain on the stack for the duration of the call to nativePeer.executeMethod().
+
+        Instruction nextInsn = nativePeer.executeMethod(ti, this);
+
+        ti.pushFrame(frame); // Make the logic easier in listeners (e.g. vm.getLastMethod() == vm.getCurrentThread().getMethod())
+        vm.notifyMethodExited(ti, this);
+        ti.popFrame(false);                       // Can't keep the frame since we don't want to leak frames.
+        
+        return nextInsn;
+
+      } else {
+        return ti.createAndThrowException("java.lang.UnsatisfiedLinkError",
+                                          ci.getName() + '.' + getUniqueName() + " (no peer)");
+      }
+      
+    } else {
+      enter(ti);
+
+      return ti.getPC();
+    }
   }
 
-  public boolean hasCode(){
-    return (code != null);
+  /**
+   * Loads the code of the method.
+   */
+  protected Instruction[] loadCode (Method m) {
+    Code c = m.getCode();
+
+    if (c == null) {
+      return null;
+    }
+
+    InstructionList     il = new InstructionList(c.getCode());
+    InstructionHandle[] hs = il.getInstructionHandles();
+    int                 length = hs.length;
+    Instruction[]       is = new Instruction[length];
+
+    for (int i = 0; i < length; i++) {
+      is[i] = insnFactory.createAndInitialize(this, hs[i], i, m.getConstantPool());
+
+      if (c.getLineNumberTable() != null) {
+        // annoying bug when BCEL don't seem to find linenumber - pos match
+        // also sometimes linenumber tables are not available
+        is[i].setContext(ci.getName(), name,
+                         c.getLineNumberTable()
+                          .getSourceLine(is[i].getPosition()),
+                         is[i].getPosition());
+      }
+    }
+
+    return is;
+  }
+
+  /**
+   * Returns the exceptions of the method.
+   */
+  protected ExceptionHandler[] loadExceptions (Method m) {
+    Code c = m.getCode();
+
+    if (c == null) {
+      return null;
+    }
+
+    CodeException[] ce = c.getExceptionTable();
+
+    if (ce.length == 0) {
+      return null;
+    }
+
+    int                length = ce.length;
+    ExceptionHandler[] eh = new ExceptionHandler[length];
+
+    ConstantPool       cp = m.getConstantPool();
+
+    for (int i = 0; i < length; i++) {
+      int ct = ce[i].getCatchType();
+      eh[i] = new ExceptionHandler(((ct == 0)
+                                    ? null
+                                    : cp.getConstantString(ct,
+                                                           Constants.CONSTANT_Class)
+                                        .replace('/', '.')), ce[i].getStartPC(),
+                                   ce[i].getEndPC(), ce[i].getHandlerPC());
+    }
+
+    return eh;
+  }
+
+  /**
+   * Returns the classnames of checked exceptions thrown by the method.
+   */
+  protected String[] loadThrownExceptionClassNames(Method m) {
+    ExceptionTable et = m.getExceptionTable();
+    if (et != null){
+      return et.getExceptionNames();
+    } else {
+      return null;
+    }
+  }
+
+  /**
+   * Loads the line numbers for the method.
+   */
+  protected int[] loadLineNumbers (Method m) {
+    Code c = m.getCode();
+
+    if (c == null) {
+      return null;
+    }
+
+    LineNumberTable lnt = c.getLineNumberTable();
+
+    int             length = code.length;
+    int[]           ln = new int[length];
+
+    if (lnt == null) {
+      // no line information
+      return null;
+    } else {
+      for (int i = 0; i < length; i++) {
+        try { //annoying bug when BCEL don't seem to find linenumber - pos match
+          ln[i] = lnt.getSourceLine(code[i].getPosition());
+        } catch (RuntimeException e) {
+          System.out.print("^");
+        }
+      }
+    }
+
+    return ln;
+  }
+
+  /**
+   * Loads the names of the local variables.
+   *
+   * NOTE: BCEL only gives us a list of all *named* locals, which might not
+   * include all local vars (temporaries, like StringBuilder). Note that we have
+   * to fill this with "?" in order to make the returned array correspond with
+   * slot numbers
+   */
+  protected String[] loadLocalVariableNames (Method m) {
+    Code c = m.getCode();
+
+    if (c == null) {
+      return null;
+    }
+
+    LocalVariableTable lvt = c.getLocalVariableTable();
+
+    if (lvt == null) {
+      if (!warnedLocalInfo && !ci.isSystemClass()) {
+        Debug.println(Debug.WARNING);
+        Debug.println(Debug.WARNING, "No local variable information available");
+        Debug.println(Debug.WARNING, "for " + getCompleteName());
+        Debug.println(Debug.WARNING,
+                      "Recompile with -g to include this information");
+        Debug.println(Debug.WARNING);
+        warnedLocalInfo = true;
+      }
+
+      return null;
+    }
+
+    LocalVariable[] lv = lvt.getLocalVariableTable();
+    int             length = lv.length;
+    String[]        v = new String[c.getMaxLocals()];
+
+    for (int i = 0; i < length; i++) {
+      v[lv[i].getIndex()] = lv[i].getName();
+    }
+
+    for (int i=0; i<v.length; i++) {
+      if (v[i] == null) {
+        v[i] = "?";
+      }
+    }
+
+    return v;
+  }
+
+  /**
+   * Loads the types of the local variables.
+   * see loadLocalVariableNames for the problem with temporaries and
+   * why we can't copy the types 1:1
+   */
+  protected String[] loadLocalVariableTypes (Method m) {
+    Code c = m.getCode();
+
+    if (c == null) {
+      return null;
+    }
+
+    LocalVariableTable lvt = c.getLocalVariableTable();
+
+    if (lvt == null) {
+      if (!warnedLocalInfo && !ci.isSystemClass()) {
+        Debug.println(Debug.WARNING, "No local variable information available");
+        Debug.println(Debug.WARNING, "for " + getCompleteName());
+        Debug.println(Debug.WARNING,
+                      "Recompile with -g to include this information");
+        Debug.println(Debug.WARNING);
+        warnedLocalInfo = true;
+      }
+
+      return null;
+    }
+
+    LocalVariable[] lv = lvt.getLocalVariableTable();
+    int             length = lv.length;
+    String[]        v = new String[c.getMaxLocals()];
+
+    for (int i = 0; i < length; i++) {
+      v[lv[i].getIndex()] = lv[i].getSignature();
+    }
+
+    for (int i=0; i<v.length; i++) {
+      if (v[i] == null) {
+        v[i] = "?";
+      }
+    }
+
+    return v;
+  }
+
+  void setMJI (boolean isMJI) {
+    if (isMJI) {
+      attrs |= MJI_NATIVE;
+    } else {
+      attrs &= ~MJI_NATIVE;
+    }
   }
   
-  public boolean hasEmptyBody (){
-    // only instruction is a return
-    return (code.length == 1 && (code[0] instanceof ReturnInstruction));
-  }
-
-
-  //--- parameter annotations
-  protected void startParameterAnnotations(int annotationCount){
-    parameterAnnotations = new AnnotationInfo[annotationCount][];
-  }
-
-  protected void setParameterAnnotations(int index, AnnotationInfo[] ai){
-    parameterAnnotations[index] = ai;
-  }
-
-  protected void finishParameterAnnotations(){
-    // nothing
-  }
-
-  //--- thrown exceptions
-  protected void startTrownExceptions (int exceptionCount){
-    thrownExceptionClassNames = new String[exceptionCount];
-  }
-
-  protected void setException (int index, String exceptionType){
-    thrownExceptionClassNames[index] = Types.getClassNameFromTypeName(exceptionType);
-  }
-
-  protected void finishThrownExceptions(){
-    // nothing
-  }
-
-
-  //--- exception handler table initialization
-  protected void startExceptionHandlerTable (int handlerCount){
-    exceptionHandlers = new ExceptionHandler[handlerCount];
-  }
-
-  protected void setExceptionHandler (int index, int startPc, int endPc, int handlerPc, String catchType){
-    exceptionHandlers[index] = new ExceptionHandler(catchType, startPc, endPc, handlerPc);
-  }
-
-  protected void finishExceptionHandlerTable(){
-    // nothing
-  }
-
-  //--- local var table initialization
-  protected void startLocalVarTable (int localVarCount){
-    localVars = new LocalVarInfo[localVarCount];
-  }
-
-  protected void setLocalVar(int index, String varName, String descriptor, int scopeStartPc, int scopeEndPc, int slotIndex){
-    localVars[index] = new LocalVarInfo(varName, descriptor, "", scopeStartPc, scopeEndPc, slotIndex);
-  }
-
-  protected void finishLocalVarTable(){
-    // nothing to do
-  }
-
-  //--- line number table initialization
-
-  protected void startLineNumberTable(int lineNumberCount){
-    int len = code.length;
-    int[] ln = new int[len];
-
-    lineNumbers = ln;
-  }
-
-  protected void setLineNumber(int index, int lineNumber, int startPc){
-    int len = code.length;
-    int[] ln = lineNumbers;
-
-    for (int i=0; i<len; i++){
-      Instruction insn = code[i];
-      int pc = insn.getPosition();
-
-      if (pc == startPc){ // this is the first insn with this line number
-        ln[i] = lineNumber;
-        return;
-      }
-    }
-  }
-
-  protected void finishLineNumberTable (){
-    int len = code.length;
-    int[] ln = lineNumbers;
-    int lastLine = ln[0];
-
-    for (int i=1; i<len; i++){
-      if (ln[i] == 0){
-        ln[i] = lastLine;
-      } else {
-        lastLine = ln[i];
-      }
-    }
-  }
-
   public String toString() {
     return "MethodInfo[" + getFullName() + ']';
   }
-
-
-  //--- the generic attribute API
-
-  public boolean hasAttr () {
-    return (attr != null);
-  }
-
-  public boolean hasAttr (Class<?> attrType){
-    return ObjectList.containsType(attr, attrType);
-  }
-
-  /**
-   * this returns all of them - use either if you know there will be only
-   * one attribute at a time, or check/process result with ObjectList
-   */
-  public Object getAttr(){
-    return attr;
-  }
-
-  /**
-   * this replaces all of them - use only if you know 
-   *  - there will be only one attribute at a time
-   *  - you obtained the value you set by a previous getXAttr()
-   *  - you constructed a multi value list with ObjectList.createList()
-   */
-  public void setAttr (Object a){
-    attr = a;    
-  }
-
-  public void addAttr (Object a){
-    attr = ObjectList.add(attr, a);
-  }
-
-  public void removeAttr (Object a){
-    attr = ObjectList.remove(attr, a);
-  }
-
-  public void replaceAttr (Object oldAttr, Object newAttr){
-    attr = ObjectList.replace(attr, oldAttr, newAttr);
-  }
-
-  /**
-   * this only returns the first attr of this type, there can be more
-   * if you don't use client private types or the provided type is too general
-   */
-  public <T> T getAttr (Class<T> attrType) {
-    return ObjectList.getFirst(attr, attrType);
-  }
-
-  public <T> T getNextAttr (Class<T> attrType, Object prev) {
-    return ObjectList.getNext(attr, attrType, prev);
-  }
-
-  public ObjectList.Iterator attrIterator(){
-    return ObjectList.iterator(attr);
-  }
-  
-  public <T> ObjectList.TypedIterator<T> attrIterator(Class<T> attrType){
-    return ObjectList.typedIterator(attr, attrType);
-  }
-
-  // -- end attrs --
-
-  
-  // for debugging purposes
-  public void dump(){
-    System.out.println("--- " + this);
-    for (int i = 0; i < code.length; i++) {
-      System.out.printf("%2d [%d]: %s\n", i, code[i].getPosition(), code[i].toString());
-    }
-  }
-
 }

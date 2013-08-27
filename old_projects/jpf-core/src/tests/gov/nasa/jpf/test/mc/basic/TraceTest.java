@@ -21,9 +21,7 @@ package gov.nasa.jpf.test.mc.basic;
 
 import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.io.File;
-
 import org.junit.Test;
 
 public class TraceTest extends TestJPF {
@@ -31,7 +29,7 @@ public class TraceTest extends TestJPF {
   static final String TEST_CLASS = TraceTest.class.getName();
   static final String TRACE = "trace";
 
-  public static void main(String[] args) {    // <2do> Fix this test so that it doesn't require main
+  public static void main(String[] args) {
     runTestsOfThisClass(args);
   }
 

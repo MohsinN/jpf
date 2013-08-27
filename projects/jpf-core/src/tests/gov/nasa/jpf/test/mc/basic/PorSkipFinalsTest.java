@@ -18,8 +18,8 @@
 //
 package gov.nasa.jpf.test.mc.basic;
 
-import gov.nasa.jpf.jvm.Verify;
 import gov.nasa.jpf.util.test.TestJPF;
+import gov.nasa.jpf.vm.Verify;
 
 import org.junit.Test;
 
@@ -39,27 +39,27 @@ public class PorSkipFinalsTest extends TestJPF {
 
     private Leaker() {
       leaker = this;              // Leak the this pointer before member is initialized so that other threads have the opportunity to see member == null.
+      Verify.incrementCounter(2);
+      
       finalMember = new Object();
       nonFinalMember = new Object();
     }
   }
 
   private static void run() {
-    Thread thread;
 
     Verify.resetCounter(1);  // Constructed = 0
+    Verify.resetCounter(2);  // will increment when leaker is set
 
-    thread = new Thread(new Runnable() {
-
+    Thread thread = new Thread(new Runnable() {
       public void run() {
         new Leaker();
         Verify.incrementCounter(1); // Finished = 1
       }
     });
-
     thread.start();
 
-    Verify.ignoreIf(leaker == null);              // This ensures that the other thread has at least finished assigning leaker a value.  This means that any POR breaks between assigning leaker and this point will be made inert.
+    Verify.ignoreIf(Verify.getCounter(2) == 0);   // This ensures that the other thread has at least finished assigning leaker a value.  This means that any POR breaks between assigning leaker and this point will be made inert.
     Verify.ignoreIf(Verify.getCounter(1) != 0);   // This ensures that the other thread hasn't quit yet.  Thus, ensuring that POR breaks can happen.
   }
 

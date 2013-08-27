@@ -20,28 +20,22 @@ package gov.nasa.jpf.jvm.choice;
 
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPFException;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ChoiceGeneratorBase;
 import gov.nasa.jpf.jvm.IntChoiceGenerator;
 
-import java.util.Arrays;
-import java.util.Comparator;
-
 /**
- * Choice Generator that enumerates an interval of int values. Pretty simplistic
+ * Choice Generator that enumerates an interval of int values Pretty simplistic
  * implementation for now, but at least it can count up and down
  *
  * randomizing is handled through RandomOrderIntCG
  */
-public class IntIntervalGenerator extends ChoiceGeneratorBase<Integer> implements IntChoiceGenerator {
+public class IntIntervalGenerator extends IntChoiceGenerator {
 
+  
   protected int min, max;
   protected int next;
   protected int delta;
 
   public void reset () {
-    isDone = false;
-
     if (delta == 0) {
       throw new JPFException("IntIntervalGenerator delta value is 0");
     }
@@ -133,45 +127,7 @@ public class IntIntervalGenerator extends ChoiceGeneratorBase<Integer> implement
       }
     }
   }
-  
-  public boolean isAscending(){
-    return delta > 0;
-  }
 
-  /**
-   *  note this should only be called before the CG is advanced since it resets
-   *  the enumeration state 
-   */
-  public void reverse(){
-    delta = -delta;
-    reset();
-  }
-  
-  
-  public Integer[] getChoices(){
-    int n = getTotalNumberOfChoices();
-    Integer[] vals = new Integer[n];
-    int v = (delta > 0) ? min : max;
-    
-    for (int i=0; i<n; i++){
-      vals[i] = v;
-      v += delta;
-    }
-    
-    return vals;
-  }
-
-  public boolean supportsReordering(){
-    return true;
-  }
-  
-  public ChoiceGenerator<Integer> reorder (Comparator<Integer> comparator){
-    Integer[] vals = getChoices();
-    Arrays.sort(vals, comparator);
-    
-    return new IntChoiceFromList(id, vals);
-  }
-  
   public String toString () {
     StringBuilder sb = new StringBuilder(getClass().getName());
     sb.append("[id=\"");
@@ -195,14 +151,10 @@ public class IntIntervalGenerator extends ChoiceGeneratorBase<Integer> implement
     sb.append(']');
     return sb.toString();
   }
-
-  @Override
-  public Class<Integer> getChoiceType() {
-    return Integer.class;
-  }
-
-  @Override
-  public ChoiceGenerator<Integer> randomize() {
-    return new RandomOrderIntCG(this);
-  }
+  
+  //see comment at top 
+  //public IntIntervalGenerator randomize() {
+  //  // we handle this at creation time
+  //  return this;
+  //}
 }

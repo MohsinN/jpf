@@ -19,13 +19,16 @@
 package gov.nasa.jpf.test.vm.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
  * JPF part of assertion test
  */
 public class AssertTest extends TestJPF {
+
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   @Test public void testAssertionViolation () {
     if (verifyAssertionErrorDetails("oops, assertion failed")){
@@ -35,7 +38,7 @@ public class AssertTest extends TestJPF {
   }
 
   @Test public void testNoAssertionViolation () {
-    if (verifyNoPropertyViolation("+vm.disable_assertions=*AssertTest")){
+    if (verifyNoPropertyViolation("+vm.enable_assertions=")){
       int i = 1;
       assert i == 0 : "oops, assertion failed";
     }

@@ -21,17 +21,20 @@ package gov.nasa.jpf;
 
 import gov.nasa.jpf.util.FileUtils;
 import gov.nasa.jpf.util.JPFSiteUtils;
-
+import gov.nasa.jpf.util.Misc;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
-import java.io.Reader;
-import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -43,6 +46,7 @@ import java.util.Properties;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 
@@ -134,29 +138,27 @@ import java.util.regex.Pattern;
 @SuppressWarnings("serial")
 public class Config extends Properties {
 
-  public static final String TARGET_KEY = "target";
-  public static final String TARGET_ARGS_KEY = "target_args";
+  static final String TARGET_KEY = "target";
+  static final String TARGET_ARGS_KEY = "target_args";
 
   static final char   KEY_PREFIX = '@';
-  public static final String REQUIRES_KEY = "@requires";
-  public static final String INCLUDE_KEY = "@include";
-  public static final String INCLUDE_UNLESS_KEY = "@include_unless";
-  public static final String INCLUDE_IF_KEY = "@include_if";
-  public static final String USING_KEY = "@using";
+  static final String REQUIRES_KEY = "@requires";
+  static final String INCLUDE_KEY = "@include";
+  static final String INCLUDE_UNLESS_KEY = "@include_unless";
+  static final String INCLUDE_IF_KEY = "@include_if";
+  static final String USING_KEY = "@using";
 
   static final String[] EMPTY_STRING_ARRAY = new String[0];
 
   public static final String LIST_SEPARATOR = ",";
-  public static final String PATH_SEPARATOR = ","; // the default for automatic appends
+  static final String PATH_SEPARATOR = ","; // the default for automatic appends
 
-  public static final Class<?>[] CONFIG_ARGTYPES = { Config.class };  
-  public static final Class<?>[] NO_ARGTYPES = new Class<?>[0];
-  public static final Object[] NO_ARGS = new Object[0];
+  static final Class<?>[] CONFIG_ARGTYPES = { Config.class };  
+  static final Class<?>[] NO_ARGTYPES = new Class<?>[0];
+  static final Object[] NO_ARGS = new Object[0];
 
-  public static final String TRUE = "true";
-  public static final String FALSE = "false";
-  
-  static final String MAX = "MAX";
+  static final String TRUE = "true";
+  static final String FALSE = "false";
 
   static final String IGNORE_VALUE = "-";
 
@@ -175,7 +177,7 @@ public class Config extends Properties {
   // where did we initialize from
   ArrayList<Object> sources = new ArrayList<Object>();
   
-  ArrayList<ConfigChangeListener> changeListeners;
+  List<ConfigChangeListener> changeListeners;
   
   // Properties are simple Hashmaps, but we want to maintain the order of entries
   LinkedList<String> entrySequence = new LinkedList<String>();
@@ -183,15 +185,11 @@ public class Config extends Properties {
   // an [optional] hashmap to keep objects we want to be singletons
   HashMap<String,Object> singletons;
   
-  public final Object[] CONFIG_ARGS = { this };
+  final Object[] CONFIG_ARGS = { this };
 
   String[] args; // our original (non-nullified) command line args
 
 
-  /**
-   * the standard Config constructor that processes the whole properties stack
-   * @param args - usually command line args (incl. '+' options) 
-   */
   public Config (String[] args)  {
     this.args = args;
     String[] a = args.clone(); // we might nullify some of them
@@ -214,9 +212,9 @@ public class Config extends Properties {
 
     //--- at last, the (rest of the) command line properties
     loadArgs(a);
-
-    // note that global path collection now happens from initClassLoader(), to
-    // accommodate for deferred project initialization when explicitly setting Config entries
+    
+    // compute the global 'native_classpath', 'classpath', 'sourcepath' and 'peer_packages'
+    collectGlobalPaths();
 
     //printEntries();
   }
@@ -224,23 +222,7 @@ public class Config extends Properties {
   private Config() {
     // just interal, for reloading
   }
-  
-  /**
-   * single source Config constructor (does not process stack)
-   * @param fileName - single properties filename to initialize from 
-   */
-  public Config (String fileName){
-    loadProperties(fileName);
-  }
 
-  public Config (Reader in){
-    try {
-      load(in);
-    } catch (IOException iox){
-      exception("error reading data: " + iox);
-    }
-  }
-  
   public static void enableLogging (boolean enableLogging){
     log = enableLogging;
   }
@@ -260,8 +242,6 @@ public class Config extends Properties {
       // see if the first free arg is a *.jpf
       path = getAppArg(args);
     }
-    
-    put("jpf.app", path);
 
     return path;
   }
@@ -278,14 +258,17 @@ public class Config extends Properties {
       }
 
       if (path == null) {
-        File siteProps = JPFSiteUtils.getStandardSiteProperties();
-        if (siteProps != null){
-          path = siteProps.getAbsolutePath();
+        // fall back to ${user.home}/[.]jpf/site.properties
+        String userHome = System.getProperty("user.home");
+        File f = new File(userHome, "jpf/site.properties");
+        if (!f.isFile()) {
+          f = new File(userHome, ".jpf/site.properties");
+        }
+        if (f.isFile()) {
+          path = f.getAbsolutePath();
         }
       }
     }
-    
-    put("jpf.site", path);
 
     return path;
   }
@@ -332,8 +315,9 @@ public class Config extends Properties {
         if (len > keyLen + 2){
           if (a.charAt(0) == '+' && a.charAt(keyLen+1) == '='){
             if (a.substring(1, keyLen+1).equals(key)){
-              String val = expandString(key, a.substring(keyLen+2));
               args[i] = null; // processed
+              String val = expandString(key, a.substring(keyLen+2));
+              setProperty(key, val);
               return val;
             }
           }
@@ -359,6 +343,7 @@ public class Config extends Properties {
           default:
             if (a.endsWith(".jpf")){
               String val = expandString("jpf.app", a);
+              put("jpf.app", val);
               args[i] = null; // processed
               return val;
             }
@@ -665,12 +650,12 @@ public class Config extends Properties {
     v = v.trim();
     
     // true/false
-    if ("true".equalsIgnoreCase(v)
-        || "yes".equalsIgnoreCase(v)
+    if ("true".equalsIgnoreCase(v) || "t".equalsIgnoreCase(v)
+        || "yes".equalsIgnoreCase(v) || "y".equalsIgnoreCase(v)
         || "on".equalsIgnoreCase(v)) {
       v = TRUE;
-    } else if ("false".equalsIgnoreCase(v)
-        || "no".equalsIgnoreCase(v)
+    } else if ("false".equalsIgnoreCase(v) || "f".equalsIgnoreCase(v)
+        || "no".equalsIgnoreCase(v) || "n".equalsIgnoreCase(v)
         || "off".equalsIgnoreCase(v)) {
       v = FALSE;
     }
@@ -824,8 +809,33 @@ public class Config extends Properties {
     }
 
     if (key.charAt(0) == KEY_PREFIX){
-      processPseudoProperty( key, value);
-      return null; // no value it replaces
+
+      if (REQUIRES_KEY.equals(key)) {
+        // shortcircuit loading of property files - used to enforce order
+        // of properties, e.g. to model dependencies
+        for (String reqKey : split(value)) {
+          if (!containsKey(reqKey)) {
+            throw new MissingRequiredKeyException(reqKey);
+          }
+        }
+        return null;
+        
+      } else if (INCLUDE_KEY.equals(key)) {
+        includePropertyFile(key, value);
+        return null;
+      } else if (INCLUDE_UNLESS_KEY.equals(key)) {
+        includeCondPropertyFile(key, value, false);
+        return null;
+      } else if (INCLUDE_IF_KEY.equals(key)) {
+        includeCondPropertyFile(key, value, true);
+        return null;
+      } else if (USING_KEY.equals(key)){
+        includeProjectPropertyFile(value);
+        return null;
+      } else {
+        throw exception("unknown keyword: " + key);
+      }
+
 
     } else {
       // finally, a real key/value pair to add (or remove) - expand and store
@@ -856,46 +866,7 @@ public class Config extends Properties {
       }
     }
   }
-  
-  protected void processPseudoProperty( String key, String value){
-    if (REQUIRES_KEY.equals(key)) {
-      // shortcircuit loading of property files - used to enforce order
-      // of properties, e.g. to model dependencies
-      for (String reqKey : split(value)) {
-        if (!containsKey(reqKey)) {
-          throw new MissingRequiredKeyException(reqKey);
-        }
-      }
 
-    } else if (INCLUDE_KEY.equals(key)) {
-      includePropertyFile(key, value);
-      
-    } else if (INCLUDE_UNLESS_KEY.equals(key)) {
-      includeCondPropertyFile(key, value, false);
-      
-    } else if (INCLUDE_IF_KEY.equals(key)) {
-      includeCondPropertyFile(key, value, true);
-      
-    } else if (USING_KEY.equals(key)) {
-      // check if corresponding jpf.properties has already been loaded. If yes, skip
-      if (!haveSeenProjectProperty(value)){
-        includeProjectPropertyFile(value);
-      }
-      
-    } else {
-      throw exception("unknown keyword: " + key);
-    }
-  }
-
-  protected boolean haveSeenProjectProperty (String key){
-    String pn = getString(key);
-    if (pn == null){
-      return false;
-    } else {
-      return sources.contains( new File( pn, "jpf.properties"));
-    }
-  }
-  
   private Object setKey (String k, String v){
     Object oldValue = put0(k, v);
     notifyPropertyChangeListeners(k, (String) oldValue, v);
@@ -919,7 +890,7 @@ public class Config extends Properties {
     return super.remove(k);
   }
 
-  public String prepend (String key, String value, String separator) {
+  protected String prepend (String key, String value, String separator) {
     String oldValue = getProperty(key);
     value = normalize( expandString(key, value));
 
@@ -928,7 +899,7 @@ public class Config extends Properties {
     return oldValue;
   }
 
-  public String append (String key, String value, String separator) {
+  protected String append (String key, String value, String separator) {
     String oldValue = getProperty(key);
     value = normalize( expandString(key, value));
 
@@ -991,19 +962,6 @@ public class Config extends Properties {
   public JPFClassLoader initClassLoader( ClassLoader parent) {
     ArrayList<String> list = new ArrayList<String>();
 
-    // we prefer to call this here automatically instead of allowing
-    // explicit collectGlobalPath() calls because (a) this could not preserve
-    // initial path settings, and (b) setting it *after* the JPFClassLoader got
-    // installed won't work (would have to add URLs explicitly, or would have
-    // to create a new JPFClassLoader, which then conflicts with classes already
-    // defined by the previous one)
-    collectGlobalPaths();
-    if (log){
-      log("collected native_classpath=" + get("native_classpath"));
-      log("collected native_libraries=" + get("native_libraries"));
-    }
-
-
     String[] cp = getCompactStringArray("native_classpath");
     cp = FileUtils.expandWildcards(cp);
     for (String e : cp) {
@@ -1013,6 +971,7 @@ public class Config extends Properties {
 
     String[] nativeLibs = getCompactStringArray("native_libraries");
 
+    //URLClassLoader cl = URLClassLoader.newInstance(urls, parent);
     JPFClassLoader cl = new JPFClassLoader( urls, nativeLibs, parent);
 
     //for (URL url : urls) System.out.println("@@ " + url);
@@ -1022,27 +981,6 @@ public class Config extends Properties {
     return cl;
   }
 
-  /**
-   * has to be called if 'native_classpath' gets explicitly changed
-   * USE WITH CARE - if this is messed up, it is hard to debug
-   */
-  public void updateClassLoader (){
-    if (loader != null && loader instanceof JPFClassLoader){
-      JPFClassLoader jpfCl = (JPFClassLoader)loader;
-            
-      ArrayList<String> list = new ArrayList<String>();
-      String[] cp = getCompactStringArray("native_classpath");
-      cp = FileUtils.expandWildcards(cp);
-      for (String e : cp) {
-        URL url = FileUtils.getURL(e);
-        jpfCl.addURL(url); // this does not add if already present
-      }
-
-      String[] nativeLibs = getCompactStringArray("native_libraries");
-      jpfCl.setNativeLibs(nativeLibs);
-    }
-  }
-  
 
   //------------------------------ public methods - the Config API
 
@@ -1074,18 +1012,6 @@ public class Config extends Properties {
     }
   }
   
-  // this shouldn't really be public but only accessible to JPF
-  public void jpfRunTerminated() {
-    if (changeListeners != null) {
-      // note we can't use the standard list iterator here because the sole purpose
-      // of having this notification is to remove the listener from the list during its enumeration
-      // which would give us ConcurrentModificationExceptions
-      ArrayList<ConfigChangeListener> list = (ArrayList<ConfigChangeListener>)changeListeners.clone();
-      for (ConfigChangeListener l : list) {
-        l.jpfRunTerminated(this);
-      }
-    }
-  }
   
   public JPFException exception (String msg) {
     String context = getString("config");
@@ -1197,17 +1123,13 @@ public class Config extends Properties {
     ArrayList<String> list = new ArrayList<String>();
 
     for (Enumeration e = keys(); e.hasMoreElements(); ){
-      String k = e.nextElement().toString();
+      String k = e.toString();
       if (k.startsWith(prefix)){
         list.add(k);
       }
     }
 
     return list.toArray(new String[list.size()]);
-  }
-
-  public String[] getKeyComponents (String key){
-    return key.split("\\.");
   }
 
   public int[] getIntArray (String key) throws JPFConfigException {
@@ -1219,14 +1141,7 @@ public class Config extends Properties {
       int i = 0;
       try {
         for (; i<sa.length; i++) {
-          String s = sa[i];
-          int val;
-          if (s.startsWith("0x")){
-            val = Integer.parseInt(s.substring(2),16); 
-          } else {
-            val = Integer.parseInt(s);
-          }
-          a[i] = val;
+          a[i] = Integer.parseInt(sa[i]);
         }
         return a;
       } catch (NumberFormatException nfx) {
@@ -1234,14 +1149,6 @@ public class Config extends Properties {
       }
     } else {
       return null;
-    }
-  }
-  public int[] getIntArray (String key, int... defaultValues){
-    int[] val = getIntArray(key);
-    if (val == null){
-      return defaultValues;
-    } else {
-      return val;
     }
   }
 
@@ -1262,7 +1169,7 @@ public class Config extends Properties {
             int n = Integer.parseInt(a[i]);
             d += m*n;
           } catch (NumberFormatException nfx) {
-            throw new JPFConfigException("illegal duration element in '" + key + "' = \"" + v + '"');
+            return defValue;
           }
         }
 
@@ -1270,7 +1177,7 @@ public class Config extends Properties {
         try {
           d = Long.parseLong(v);
         } catch (NumberFormatException nfx) {
-          throw new JPFConfigException("illegal duration element in '" + key + "' = \"" + v + '"');
+          return defValue;
         }
       }
 
@@ -1287,14 +1194,10 @@ public class Config extends Properties {
   public int getInt(String key, int defValue) {
     String v = getProperty(key);
     if (v != null) {
-      if (MAX.equals(v)){
-        return Integer.MAX_VALUE;
-      } else {
-        try {
-          return Integer.parseInt(v);
-        } catch (NumberFormatException nfx) {
-          throw new JPFConfigException("illegal int element in '" + key + "' = \"" + v + '"');
-        }
+      try {
+        return Integer.parseInt(v);
+      } catch (NumberFormatException nfx) {
+        return defValue;
       }
     }
 
@@ -1308,14 +1211,10 @@ public class Config extends Properties {
   public long getLong(String key, long defValue) {
     String v = getProperty(key);
     if (v != null) {
-      if (MAX.equals(v)){
-        return Long.MAX_VALUE;
-      } else {
-        try {
-          return Long.parseLong(v);
-        } catch (NumberFormatException nfx) {
-          throw new JPFConfigException("illegal long element in '" + key + "' = \"" + v + '"');
-        }
+      try {
+        return Long.parseLong(v);
+      } catch (NumberFormatException nfx) {
+        return defValue;
       }
     }
 
@@ -1342,61 +1241,7 @@ public class Config extends Properties {
     }
   }
 
-  public long[] getLongArray (String key, long... defaultValues){
-    long[] val = getLongArray(key);
-    if (val != null){
-      return val;
-    } else {
-      return defaultValues;
-    } 
-  }
 
-  public float getFloat (String key) {
-    return getFloat(key, 0.0f);
-  }
-
-  public float getFloat (String key, float defValue) {
-    String v = getProperty(key);
-    if (v != null) {
-      try {
-        return Float.parseFloat(v);
-      } catch (NumberFormatException nfx) {
-        throw new JPFConfigException("illegal float element in '" + key + "' = \"" + v + '"');
-      }
-    }
-
-    return defValue;
-  }
-  
-  public float[] getFloatArray (String key) throws JPFConfigException {
-    String v = getProperty(key);
-
-    if (v != null) {
-      String[] sa = split(v);
-      float[] a = new float[sa.length];
-      int i = 0;
-      try {
-        for (; i<sa.length; i++) {
-          a[i] = Float.parseFloat(sa[i]);
-        }
-        return a;
-      } catch (NumberFormatException nfx) {
-        throw new JPFConfigException("illegal float[] element in " + key + " = " + sa[i]);
-      }
-    } else {
-      return null;
-    }
-  }
-  public float[] getFloatArray (String key, float... defaultValues){
-    float[] v = getFloatArray( key);
-    if (v != null){
-      return v;
-    } else {
-      return defaultValues;
-    }
-  }
-  
-  
   public double getDouble (String key) {
     return getDouble(key, 0.0);
   }
@@ -1407,7 +1252,7 @@ public class Config extends Properties {
       try {
         return Double.parseDouble(v);
       } catch (NumberFormatException nfx) {
-        throw new JPFConfigException("illegal double element in '" + key + "' = \"" + v + '"');
+        return defValue;
       }
     }
 
@@ -1433,14 +1278,6 @@ public class Config extends Properties {
       return null;
     }
   }
-  public double[] getDoubleArray (String key, double... defaultValues){
-    double[] v = getDoubleArray( key);
-    if (v != null){
-      return v;
-    } else {
-      return defaultValues;
-    }
-  }
 
   public <T extends Enum<T>> T getEnum( String key, T[] values, T defValue){
     String v = getProperty(key);
@@ -1451,12 +1288,9 @@ public class Config extends Properties {
           return t;
         }
       }
-      
-      throw new JPFConfigException("unknown enum value for " + key + " = " + v);
-      
-    } else {
-      return defValue;
     }
+
+    return defValue;
   }
 
   public String getString(String key) {
@@ -1495,7 +1329,7 @@ public class Config extends Properties {
         }
 
       } catch (NumberFormatException nfx) {
-        throw new JPFConfigException("illegal memory size element in '" + key + "' = \"" + v + '"');
+        return defValue;
       }
     }
 
@@ -1713,52 +1547,6 @@ public class Config extends Properties {
     }
 
     return null;
-  }
-  
-  /**
-   * this one is used to instantiate objects from a list of keys that share
-   * the same prefix, e.g.
-   * 
-   *  shell.panels = config,site
-   *  shell.panels.site = .shell.panels.SitePanel
-   *  shell.panels.config = .shell.panels.ConfigPanel
-   *  ...
-   * 
-   * note that we specify default class names, not classes, so that the classes
-   * get loaded through our own loader at call time (they might not be visible
-   * to our caller)
-   */
-  public <T> T[] getGroupInstances (String keyPrefix, String keyPostfix, Class<T> type, 
-          String... defaultClsNames) throws JPFConfigException {
-    
-    String[] ids = getCompactTrimmedStringArray(keyPrefix);
-    
-    if (ids.length > 0){
-      keyPrefix = keyPrefix + '.';
-      T[] arr = (T[]) Array.newInstance(type, ids.length);
-      
-      for(int i = 0; i < ids.length; i++){
-        String key = keyPrefix + ids[i];
-        if (keyPostfix != null){
-          key = key + keyPostfix;
-        }
-        arr[i] = getEssentialInstance(key, type);
-      }
-      
-      return arr;
-      
-    } else {
-      T[] arr = (T[]) Array.newInstance(type, defaultClsNames.length);
-              
-      for (int i=0; i<arr.length; i++){
-        arr[i] = getInstance((String)null, defaultClsNames[i], type);
-        if (arr[i] == null){
-          exception("cannot instantiate default type " + defaultClsNames[i]);
-        }
-      }
-      
-      return arr;
-    }
   }
   
   // <2do> - that's kind of kludged together, not very efficient
@@ -1999,7 +1787,7 @@ public class Config extends Properties {
     return type.cast(o); // safe according to above
   }
 
-  public String getMethodSignature(Constructor<?> ctor) {
+  String getMethodSignature(Constructor<?> ctor) {
     StringBuilder sb = new StringBuilder(ctor.getName());
     sb.append('(');
     Class<?>[] argTypes = ctor.getParameterTypes();
@@ -2153,62 +1941,12 @@ public class Config extends Properties {
     return elements.toArray(new String[elements.size()]);
   }
 
-  static final String UNINITIALIZED = "uninitialized";
-  // this is where we store the initial values in case we have to recollect
-  String initialNativeClasspath = UNINITIALIZED, 
-          initialClasspath = UNINITIALIZED, 
-          initialSourcepath = UNINITIALIZED, 
-          initialPeerPackages = UNINITIALIZED,
-          initialNativeLibraries = UNINITIALIZED;
-  
-
-  /**
-   * this resets to what was explicitly set in the config files
-   */
-  public void resetGlobalPaths() {
-    if (initialNativeClasspath == UNINITIALIZED){
-      initialNativeClasspath = getString("native_classpath");
-    } else {
-      put0( "native_classpath", initialNativeClasspath);
-    }
-
-    if (initialClasspath == UNINITIALIZED){
-      initialClasspath = getString("classpath");
-    } else {
-      put0( "classpath", initialClasspath);
-    }
-    
-    if (initialSourcepath == UNINITIALIZED){
-      initialSourcepath = getString("sourcepath");
-    } else {
-      put0( "sourcepath", initialSourcepath);
-    }
-
-    if (initialPeerPackages == UNINITIALIZED){
-      initialPeerPackages = getString("peer_packages");
-    } else {
-      put0( "peer_packages", initialPeerPackages);
-    }
-
-    if (initialNativeLibraries == UNINITIALIZED){
-      initialNativeLibraries = getString("native_libraries");
-    } else {
-      put0( "native_libraries", initialNativeLibraries);
-    }
-  }
 
   /**
    * collect all the <project>.{native_classpath,classpath,sourcepath,peer_packages,native_libraries}
    * and append them to the global settings
-   *
-   * NOTE - this is now called from within initClassLoader, which should only happen once and
-   * is the first time we really need the global paths.
-   *
-   * <2do> this is Ok for native_classpath and native_libraries, but we should probably do
-   * classpath, sourcepath and peer_packages separately (they can be collected later)
    */
-  public void collectGlobalPaths() {
-        
+  void collectGlobalPaths() {
     // note - this is in the order of entry, i.e. reflects priorities
     // we have to process this in reverse order so that later entries are prioritized
     String[] keys = getEntrySequence();
@@ -2220,23 +1958,18 @@ public class Config extends Properties {
       String k = keys[i];
       if (k.endsWith(".native_classpath")){
         appendPath("native_classpath", k);
-        
       } else if (k.endsWith(".classpath")){
         appendPath("classpath", k);
-        
-      } else if (k.endsWith(".sourcepath")){        
+      } else if (k.endsWith(".sourcepath")){
         appendPath("sourcepath", k);
-        
       } else if (k.endsWith("peer_packages")){
         append("peer_packages", getString(k), ",");
-        
       } else if (k.endsWith(nativeLibKey)){
         appendPath("native_libraries", k);
       }
     }
   }
 
-  
   static Pattern absPath = Pattern.compile("(?:[a-zA-Z]:)?[/\\\\].*");
 
   void appendPath (String pathKey, String key){
@@ -2291,10 +2024,7 @@ public class Config extends Properties {
    */
   public void promotePropertyCategory (String keyPrefix){
     int prefixLen = keyPrefix.length();
-    
-    // HashTable does not support adding elements while iterating over the entrySet 
-    ArrayList<Map.Entry<Object,Object>> promoted = null;
-    
+
     for (Map.Entry<Object,Object> e : entrySet()){
       Object k = e.getKey();
       if (k instanceof String){
@@ -2302,21 +2032,10 @@ public class Config extends Properties {
         if (key.startsWith(keyPrefix)){
           Object v = e.getValue();
           if (! IGNORE_VALUE.equals(v)){
-            if (promoted == null){
-              promoted = new ArrayList<Map.Entry<Object,Object>>();
-            }
-            promoted.add(e);
+            String keySuffix = key.substring(prefixLen);
+            put(keySuffix, v);
           }
         }
-      }
-    }
-    
-    if (promoted != null){
-      for (Map.Entry<Object, Object> e : promoted) {
-        String key = (String) e.getKey();
-        key = key.substring(prefixLen);
-
-        put(key, e.getValue());
       }
     }
   }
@@ -2366,8 +2085,6 @@ public class Config extends Properties {
     map.putAll(this);
     return map;
   }
-  
-  //--- various debugging methods
 
   public void print (PrintWriter pw) {
     pw.println("----------- Config contents");
@@ -2391,13 +2108,9 @@ public class Config extends Properties {
     pw.flush();
   }
 
-  public void printSources (PrintWriter pw) {
-    pw.println("----------- Config sources");
-    for (Object src : sources){
-      pw.println(src);
-    }    
-  }
-  
+  /*
+   * for debugging purposes
+   */
   public void printEntries() {
     PrintWriter pw = new PrintWriter(System.out);
     print(pw);

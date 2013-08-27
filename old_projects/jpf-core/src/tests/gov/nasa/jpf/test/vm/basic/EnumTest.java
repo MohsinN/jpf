@@ -1,9 +1,6 @@
 package gov.nasa.jpf.test.vm.basic;
 
-import java.util.EnumSet;
-
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 public class EnumTest extends TestJPF {
@@ -15,15 +12,17 @@ public class EnumTest extends TestJPF {
   }
 
   
-  @Test
-  public void testValueOf () {
+  public static void main (String[] args) {
+    runTestsOfThisClass( args);
+  }
+
+  @Test public void testValueOf () {
     if (verifyNoPropertyViolation()) {
       assert A.valueOf("ONE") == A.ONE;
     }
   }
 
-  @Test
-  public void testEnumerate () {
+  @Test public void testEnumerate () {
     if (verifyNoPropertyViolation()){
       boolean[] seen = new boolean[2];
 
@@ -47,24 +46,5 @@ public class EnumTest extends TestJPF {
     }
   }
 
-  enum Option {
-    A
-  }
-
-  @Test
-  public void testEnumSet() {
-    
-    if (verifyNoPropertyViolation()){
-      //Option o = Option.A; // <2do> init missing
-      
-      EnumSet<Option> options = EnumSet.allOf(Option.class);
-
-      for (Option option : options) {
-        System.out.println(option);
-        assert option != null;
-      }
-    }
-  }
-  
 }
 

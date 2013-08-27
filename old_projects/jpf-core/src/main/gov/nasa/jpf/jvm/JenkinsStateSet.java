@@ -25,7 +25,7 @@ package gov.nasa.jpf.jvm;
 // Modified by Peter C. Dillinger working under Mission Critical Technologies
 //
 
-//import gov.nasa.jpf.util.LongVector;
+import gov.nasa.jpf.util.LongVector;
 
 /**
  * Implements StateSet based on Jenkins hashes.
@@ -37,8 +37,7 @@ public class JenkinsStateSet extends SerializingStateSet {
   
   int lastStateId = -1;
 
-  //LongVector fingerprints;
-  long[] fingerprints;
+  LongVector fingerprints;
 
   int[] hashtable;
 
@@ -48,25 +47,21 @@ public class JenkinsStateSet extends SerializingStateSet {
     lastStateId = -1;
     hashtable = new int[INIT_SIZE];
     nextRehash = (int) (MAX_LOAD * INIT_SIZE);
-    
-    //fingerprints = new LongVector(nextRehash / 2);
-    fingerprints = new long[nextRehash/2];
-    
+    fingerprints = new LongVector(nextRehash / 2);
   }
   
   public int size () {
     return lastStateId + 1;
   }
  
-  public static long longLookup3Hash(int[] val) {
+  static long longLookup3Hash(int[] val) {
     // Jenkins' LOOKUP3 hash  (May 2006)
     int a = 0x510fb60d;
     int b = 0xa4cb30d9 + (val.length);
     int c = 0x9e3779b9;
 
     int i;
-    int max = val.length - 2;
-    for (i = 0; i < max; i += 3) {
+    for (i = 0; i < val.length - 2; i += 3) {
       a += val[i];
       b += val[i + 1];
       c += val[i + 2];
@@ -97,9 +92,8 @@ public class JenkinsStateSet extends SerializingStateSet {
     return ((long)c << 32) ^ b ^ a;
   }
   
-  
   public int add (int[] val) {
-    long hash = longLookup3Hash(val); // this is the expensive part
+    long hash = longLookup3Hash(val);
     int i;
     
     // hash table lookup & add; open-addressed, double hashing
@@ -110,8 +104,7 @@ public class JenkinsStateSet extends SerializingStateSet {
 
     while (hashtable[idx] != 0) {
       int id = hashtable[idx] - 1; // in table, 1 higher
-      //if (fingerprints.get(id) == hash) {
-      if (fingerprints[id] == hash){
+      if (fingerprints.get(id) == hash) {
         return id;
       }
       idx = (idx + delta) & mask;
@@ -127,8 +120,7 @@ public class JenkinsStateSet extends SerializingStateSet {
       nextRehash = (int) (MAX_LOAD * mask);
 
       for (i = 0; i <= lastStateId; i++) {
-        //long h = fingerprints.get(i);
-        long h = fingerprints[i];
+        long h = fingerprints.get(i);
         idx = (int)(h >> 32) & mask;
         delta = (int)h | 1;
         while (hashtable[idx] != 0) { // we know enough slots exist
@@ -147,32 +139,13 @@ public class JenkinsStateSet extends SerializingStateSet {
       // idx already pointing to empty slot
     }
 
-    //--- only reached if state is new
-    
     lastStateId++;
     hashtable[idx] = lastStateId + 1; // in table, add 1
 
-    //fingerprints.set(lastStateId, hash);
-    try { // this happens rarely enough to save on nominal branch instructions
-      fingerprints[lastStateId] = hash;
-    } catch (ArrayIndexOutOfBoundsException ix){
-      growFingerprint(lastStateId);
-      fingerprints[lastStateId] = hash;      
-    }
+    fingerprints.set(lastStateId, hash);
 
+    // only reached if state is new
     return lastStateId;
-  }
-  
-  void growFingerprint (int minSize){
-    // we don't try to be fancy here
-    int newSize = fingerprints.length *2;
-    if (newSize < minSize) {
-      newSize = minSize;
-    }
-    
-    long[] newFingerprints = new long[newSize];
-    System.arraycopy( fingerprints, 0, newFingerprints, 0, fingerprints.length);
-    fingerprints = newFingerprints;
   }
   
   /**
@@ -195,8 +168,6 @@ public class JenkinsStateSet extends SerializingStateSet {
       }
       
       JenkinsStateSet set = new JenkinsStateSet();
-      
-      long t1 = System.currentTimeMillis();
       for (i = 0; i < adds; i++) {
         v[0] = i * 3;
         set.add(v);
@@ -208,10 +179,6 @@ public class JenkinsStateSet extends SerializingStateSet {
         set.add(v);
         assert set.size() == adds;
       }
-      long t2 = System.currentTimeMillis();
-      System.out.println("duration: " + (t2 - t1));
-      
-      
     } catch (RuntimeException re) {
       re.printStackTrace();
       System.err.println("args:  vector_length  #adds  #queries");

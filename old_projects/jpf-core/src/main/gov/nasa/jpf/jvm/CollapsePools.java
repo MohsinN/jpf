@@ -1,8 +1,8 @@
 package gov.nasa.jpf.jvm;
 
 import gov.nasa.jpf.util.HashPool;
-import gov.nasa.jpf.util.IntTable.Entry;
 import gov.nasa.jpf.util.WeakPool;
+import gov.nasa.jpf.util.IntTable.Entry;
 
 abstract class CollapsePools {
   static class AllWeak {
@@ -19,27 +19,19 @@ abstract class CollapsePools {
     private WeakPool<Monitor>    monitorPool    = new WeakPool<Monitor>   (8);
 
     public StackFrame poolStackFrame(StackFrame o) {
-      StackFrame p = stackFramePool.pool(o);
-      if (JVM.CHECK_CONSISTENCY) assert p.equals(o);
-      return p;
+      return stackFramePool.pool(o);
     }
 
     public Fields poolFields(Fields o) {
-      Fields p = fieldsPool.pool(o);
-      if (JVM.CHECK_CONSISTENCY) assert p.equals(o);
-      return p;
+      return fieldsPool.pool(o);
     }
 
     public ThreadData poolThreadData(ThreadData o) {
-      ThreadData p = threadDataPool.pool(o);
-      if (JVM.CHECK_CONSISTENCY) assert p.equals(o);
-      return p;
+      return threadDataPool.pool(o);
     }
 
     public Monitor poolMonitor(Monitor o) {
-      Monitor p = monitorPool.pool(o);
-      if (JVM.CHECK_CONSISTENCY) assert p.equals(o);
-      return p;
+      return monitorPool.pool(o);
     }
   }
   
@@ -57,9 +49,7 @@ abstract class CollapsePools {
     private HashPool<Fields>     fieldsPool     = new HashPool<Fields>    (11).addNull();
     
     public StackFrame poolStackFrame(StackFrame o) {
-      StackFrame p = stackFramePool.get(o);
-      if (JVM.CHECK_CONSISTENCY) assert p.equals(o);
-      return p;
+      return stackFramePool.get(o);
     }
 
     public Fields poolFields(Fields o) {

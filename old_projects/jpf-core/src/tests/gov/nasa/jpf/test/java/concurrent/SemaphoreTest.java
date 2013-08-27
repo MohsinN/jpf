@@ -19,15 +19,17 @@
 package gov.nasa.jpf.test.java.concurrent;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.util.concurrent.Semaphore;
-
 import org.junit.Test;
 
 /**
  * simple test for Java 1.5 java.util.concurrent support
  */
 public class SemaphoreTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   //--- test methods
 

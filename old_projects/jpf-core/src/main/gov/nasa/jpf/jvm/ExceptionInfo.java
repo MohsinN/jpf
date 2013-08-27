@@ -32,12 +32,8 @@ public class ExceptionInfo {
     ei = xEi;
   }
   
-  public ElementInfo getException() {
-    return ei;
-  }
-  
   public int getExceptionReference () {
-    return ei.getObjectRef();
+    return ei.getIndex();
   }
   
   public String getExceptionClassname() {
@@ -50,7 +46,7 @@ public class ExceptionInfo {
     
     int msgRef = ei.getReferenceField("detailMessage");
     if (msgRef != -1){
-      ElementInfo eiMsg = ti.getElementInfo(msgRef);
+      ElementInfo eiMsg = DynamicArea.getHeap().get(msgRef);
       sb.append(" : ");
       sb.append(eiMsg.asString());
     }
@@ -61,7 +57,7 @@ public class ExceptionInfo {
   public String getCauseClassname() {
     int causeRef = ei.getReferenceField("cause");
     if (causeRef != -1){
-      ElementInfo eiCause = ti.getElementInfo(causeRef);
+      ElementInfo eiCause = DynamicArea.getHeap().get(causeRef);
       return eiCause.getClassInfo().getName();
     }
     
@@ -70,10 +66,10 @@ public class ExceptionInfo {
   public String getCauseDetails() {
     int causeRef = ei.getReferenceField("cause");
     if (causeRef != -1){
-      ElementInfo eiCause = ti.getElementInfo(causeRef);
+      ElementInfo eiCause = DynamicArea.getHeap().get(causeRef);
       int msgRef = eiCause.getReferenceField("detailMessage");
       if (msgRef != -1){
-        ElementInfo eiMsg = ti.getElementInfo(msgRef);
+        ElementInfo eiMsg = DynamicArea.getHeap().get(msgRef);
         return eiMsg.asString();
       }
     }
@@ -87,6 +83,6 @@ public class ExceptionInfo {
   }
   
   public void printOn (PrintWriter pw){
-    ti.printStackTrace(pw, ei.getObjectRef());
+    ti.printStackTrace(pw, ei.getIndex());
   }
 }

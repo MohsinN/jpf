@@ -19,18 +19,17 @@
 
 package gov.nasa.jpf.jvm.choice;
 
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ChoiceGeneratorBase;
-import gov.nasa.jpf.util.Invocation;
-
 import java.io.PrintWriter;
 import java.util.List;
 import java.util.ListIterator;
 
+import gov.nasa.jpf.jvm.ChoiceGenerator;
+import gov.nasa.jpf.util.Invocation;
+
 /**
  * ChoiceGenerator that represents method calls
  */
-public class InvocationCG extends ChoiceGeneratorBase<Invocation> {
+public class InvocationCG extends ChoiceGenerator<Invocation> {
 
   protected List<Invocation> invokes;
   protected Invocation cur;
@@ -75,7 +74,7 @@ public class InvocationCG extends ChoiceGeneratorBase<Invocation> {
   }
 
   @Override
-  public ChoiceGenerator<Invocation> randomize () {
+  public ChoiceGenerator randomize () {
     // <2do>
     return this;
   }
@@ -105,8 +104,6 @@ public class InvocationCG extends ChoiceGeneratorBase<Invocation> {
   public void reset () {
     cur = null;
     it = invokes.listIterator();
-
-    isDone = false;
   }
 
 }

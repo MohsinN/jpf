@@ -20,6 +20,7 @@ package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.JPFException;
 import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.FieldInfo;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.StaticElementInfo;
@@ -32,10 +33,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * ..., => ..., value 
  */
 public class GETSTATIC extends StaticFieldInstruction {
-
-  public GETSTATIC(String fieldName, String clsDescriptor, String fieldDescriptor){
-    super(fieldName, clsDescriptor, fieldDescriptor);
-  }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
 
@@ -53,7 +50,7 @@ public class GETSTATIC extends StaticFieldInstruction {
     // this can be actually different (can be a base)
     clsInfo = fieldInfo.getClassInfo();
 
-    if (!mi.isClinit(clsInfo) && requiresClinitExecution(ti, clsInfo)) {
+    if (!mi.isClinit(clsInfo) && requiresClinitCalls(ti, clsInfo)) {
       return ti.getPC();
     }
 
@@ -69,29 +66,24 @@ public class GETSTATIC extends StaticFieldInstruction {
       }
     }
    
-    Object attr = ei.getFieldAttr(fieldInfo);
-
-    if (size == 1) {
-      int ival = ei.get1SlotField(fieldInfo);
-      lastValue = ival;
-
-      ti.push(ival, fieldInfo.isReference());
-      
-      if (attr != null) {
-        ti.setOperandAttrNoClone(attr);
-      }
-
-    } else {
-      long lval = ei.get2SlotField(fieldInfo);
-      lastValue = lval;
-      
-      ti.longPush(lval);
-      
-      if (attr != null) {
-        ti.setLongOperandAttrNoClone(attr);
-      }
+    switch (size) {
+      case 1:
+        int ival = ei.getIntField(fieldInfo);
+        ti.push(ival, fieldInfo.isReference());
+        break;
+      case 2:
+        long lval = ei.getLongField(fieldInfo);
+        ti.longPush(lval);
+        break;
+      default:
+        throw new JPFException("invalid field type");
     }
-        
+    
+    Object attr = ei.getFieldAttr(fieldInfo);
+    if (attr != null){
+      ti.setOperandAttrNoClone(attr);
+    }
+    
     return getNext(ti);
   }
   

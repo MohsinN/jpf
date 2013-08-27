@@ -21,6 +21,9 @@ package gov.nasa.jpf.jvm.bytecode;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.classfile.ConstantPool;
 
 
 /**
@@ -30,11 +33,9 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public class FCONST extends Instruction {
   private int value;
 
-
-  public FCONST(){} // this is going away
-
-  public FCONST(float f){
-    value = Float.floatToIntBits(f);
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    value = Types.floatToInt(((org.apache.bcel.generic.FCONST) i).getValue()
+                                                               .floatValue());
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
@@ -43,10 +44,6 @@ public class FCONST extends Instruction {
     return getNext(th);
   }
 
-  public int getValue(){
-	  return value;
-  }
-  
   public int getByteCode () {
     return 0x0B; // ?? FCONST_0, _1, _2
   }

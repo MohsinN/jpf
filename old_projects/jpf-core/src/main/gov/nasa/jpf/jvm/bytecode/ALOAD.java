@@ -29,10 +29,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  */
 public class ALOAD extends LocalVariableInstruction {
 
-  public ALOAD(int index){
-    super(index);
-  }
-
   /**
    * for explicit construction
    */
@@ -66,8 +62,14 @@ public class ALOAD extends LocalVariableInstruction {
     return 0x19;  // ? wide versions
   }
   
-  public String getBaseMnemonic() {
-    return "aload";
+  public String getMnemonic() {
+    String mnemonic = "aload";
+    
+    if (index >=0) {
+      return mnemonic + '_' + index;
+    } else {
+      return mnemonic;
+    }
   }
   
   public void accept(InstructionVisitor insVisitor) {

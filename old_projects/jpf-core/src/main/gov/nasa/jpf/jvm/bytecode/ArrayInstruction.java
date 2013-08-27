@@ -18,10 +18,13 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.jvm.ArrayAccess;
 import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.ElementInfo;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
+
+import org.apache.bcel.classfile.ConstantPool;
 
 
 /**
@@ -33,6 +36,11 @@ public abstract class ArrayInstruction extends Instruction {
   int index;
 
   public ArrayInstruction () {
+  }
+
+  /* define this here since none of the array instructions need to set a
+   * peer. */
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
   }
 
 
@@ -52,13 +60,15 @@ public abstract class ArrayInstruction extends Instruction {
     // GET_FIELD already was a scheduling point (i.e. we can't cache it)
     
     ChoiceGenerator cg = ss.getSchedulerFactory().createSharedArrayAccessCG(ei, ti);
-    if (ss.setNextChoiceGenerator(cg)){
+    if (cg != null) {
+
       // we need to set the array access info (ref, index) before it is
       // lost from the insn cache (insn might get reexecuted later-on
       // on non-shared object
       //ArrayAccess aac = new ArrayAccess(aref,idx,isRead);
       //cg.setAttr(aac);
 
+      ss.setNextChoiceGenerator(cg);
       ti.skipInstructionLogging();
       return true;
     }
@@ -75,7 +85,7 @@ public abstract class ArrayInstruction extends Instruction {
     //return false;
 
     // ei is the array object
-    return (!ti.checkPorFieldBoundary() && ei.checkUpdatedSharedness(ti));
+    return (!ti.checkPorFieldBoundary() && ei.isSchedulingRelevant());
   }
 
   /**

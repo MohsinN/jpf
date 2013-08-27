@@ -86,8 +86,11 @@ public abstract class ArrayLoadInstruction extends ArrayInstruction {
     return ti.peek();
   }
 
-  protected abstract void push (ThreadInfo th, ElementInfo e, int index)
-                throws ArrayIndexOutOfBoundsExecutiveException;
+  protected void push (ThreadInfo th, ElementInfo e, int index)
+                throws ArrayIndexOutOfBoundsExecutiveException {
+    e.checkArrayBounds(index);
+    th.push(e.getElement(index), isReference());
+  }
 
   public boolean isRead() {
     return true;

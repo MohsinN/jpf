@@ -18,34 +18,24 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.JPFException;
-
+import org.apache.bcel.classfile.*;
 
 
 /**
  * type, name, modifier info of float fields
  */
-public class FloatFieldInfo extends SingleSlotFieldInfo {
+public class FloatFieldInfo extends FieldInfo {
   float init;
 
+  public FloatFieldInfo (String name, String type, int modifiers,
+                         ConstantValue cv, ClassInfo ci, int idx, int off) {
+    super(name, type, modifiers, cv, ci, idx, off);
 
-  public FloatFieldInfo (String name, int modifiers,
-                         ClassInfo ci, int idx, int off) {
-    super(name, "F", modifiers, ci, idx, off);
-  }
-
-  public void setConstantValue(Object constValue){
-    if (constValue instanceof Float){
-      cv = constValue;
-      init = (Float)constValue;
-
-    } else {
-      throw new JPFException("illegal float ConstValue=" + constValue);
-    }
+    init = (cv != null) ? Float.parseFloat(cv.toString()) : 0.0f;
   }
 
   public void initialize (ElementInfo ei) {
-    ei.getFields().setFloatValue(storageOffset, init);
+    ei.getFields().setFloatValue(ei, storageOffset, init);
   }
 
   public Class<? extends ChoiceGenerator<?>> getChoiceGeneratorType() {
@@ -60,17 +50,5 @@ public class FloatFieldInfo extends SingleSlotFieldInfo {
   public Object getValueObject (Fields f){
     float v = f.getFloatValue(storageOffset);
     return new Float(v);
-  }
-
-  public boolean isFloatField(){
-    return true;
-  }
-
-  public boolean isNumericField(){
-    return true;
-  }
-
-  public boolean isFloatingPointField(){
-    return true;
   }
 }

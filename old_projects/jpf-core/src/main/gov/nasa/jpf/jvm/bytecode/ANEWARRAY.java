@@ -18,32 +18,31 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.Heap;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+import gov.nasa.jpf.jvm.*;
+
+import org.apache.bcel.classfile.ConstantPool;
 
 
 /**
  * Create new array of reference
  * ..., count => ..., arrayref
  */
-public class ANEWARRAY extends NewArrayInstruction {
+public class ANEWARRAY extends Instruction {
+  protected String type;
 
-  public ANEWARRAY (String typeDescriptor){
-    type = Types.getTypeSignature(typeDescriptor, true);
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    type = cp.constantToString(cp.getConstant(
+                                     ((org.apache.bcel.generic.ANEWARRAY) i).getIndex()));
+
+    if (!type.startsWith("[")) {
+      type = "L" + type + ";";
+    }
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    Heap heap = ti.getHeap();
-    arrayLength = ti.pop();
-
-    if (arrayLength < 0){
-      return ti.createAndThrowException("java.lang.NegativeArraySizeException");
-    }
-
+    DynamicArea heap = DynamicArea.getHeap();    
+    int size = ti.pop();
+    
     // there is no clinit for array classes, but we still have  to create a class object
     // since its a builtin class, we also don't have to bother with NoClassDefFoundErrors
     String clsName = "[" + type;
@@ -54,15 +53,15 @@ public class ANEWARRAY extends NewArrayInstruction {
       ci.setInitialized();
     }
     
-    if (heap.isOutOfMemory()) { // simulate OutOfMemoryError
+    if (heap.getOutOfMemory()) { // simulate OutOfMemoryError
       return ti.createAndThrowException("java.lang.OutOfMemoryError",
                                         "trying to allocate new " +
                                           Types.getTypeName(type) +
-                                        "[" + arrayLength + "]");
+                                        "[" + size + "]");
     }
     
     // pushes the object reference on the top stack frame
-    ti.push(heap.newArray(type, arrayLength, ti), true);
+    ti.push(heap.newArray(type, size, ti), true);
 
     ss.checkGC(); // has to happen after we push the new object ref
     

@@ -21,15 +21,8 @@ package gov.nasa.jpf.report;
 
 import gov.nasa.jpf.ListenerAdapter;
 import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.MethodInfo;
 import gov.nasa.jpf.jvm.ThreadChoiceGenerator;
-import gov.nasa.jpf.jvm.bytecode.EXECUTENATIVE;
-import gov.nasa.jpf.jvm.bytecode.FieldInstruction;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
-import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
-import gov.nasa.jpf.jvm.bytecode.LockInstruction;
 import gov.nasa.jpf.search.Search;
 
 /**
@@ -52,8 +45,8 @@ public class Statistics extends ListenerAdapter implements Cloneable {
   
   public long maxUsed = 0;
   public long newStates = 0;
-  public long backtracked = 0;
-  public long restored = 0;
+  public int backtracked = 0;
+  public int restored = 0;
   public int processed = 0;
   public int constraints = 0;
   public long visitedStates = 0;
@@ -61,17 +54,13 @@ public class Statistics extends ListenerAdapter implements Cloneable {
   public int maxDepth = 0;
   
   public int gcCycles = 0;
-  public long insns = 0;
+  public int insns = 0;
   public int threadCGs = 0;
-  public int sharedAccessCGs = 0;
-  public int monitorCGs = 0;
-  public int signalCGs = 0;
   public int dataCGs = 0;
-  public long nNewObjects = 0;
-  public long nReleasedObjects = 0;
-  public int maxLiveObjects = 0;
+  public int nObjects = 0;
+  public int nRecycled = 0;
 
-  public Statistics clone() {
+  public synchronized Statistics clone() {
     try {
       return (Statistics)super.clone();
     } catch (CloneNotSupportedException e) {
@@ -79,55 +68,32 @@ public class Statistics extends ListenerAdapter implements Cloneable {
     }
   }
   
-  public void gcBegin (JVM vm) {
-    int heapSize = vm.getHeap().size();
-    if (heapSize > maxLiveObjects){
-      maxLiveObjects = heapSize;
-    }
-
+  public synchronized void gcBegin (JVM vm) {
     gcCycles++;
   }
   
-  public void instructionExecuted (JVM vm){
+  public synchronized void instructionExecuted (JVM vm){
     insns++;
   }
 
-  public void choiceGeneratorSet (JVM vm){
+  public synchronized void choiceGeneratorSet (JVM vm){
     ChoiceGenerator<?> cg = vm.getChoiceGenerator();
     if (cg instanceof ThreadChoiceGenerator){
       threadCGs++;
-
-      Instruction insn = cg.getInsn();
-      if (insn instanceof FieldInstruction){
-        sharedAccessCGs++;
-      } else if (insn instanceof LockInstruction || insn instanceof InvokeInstruction){
-        monitorCGs++;
-      } else if (insn instanceof EXECUTENATIVE){
-        MethodInfo mi = insn.getMethodInfo();
-        if (mi != null){
-          ClassInfo ci = mi.getClassInfo();
-          if (ci != null){
-            if (ci.isObjectClassInfo()){
-              // its got to be either a wait or a notify
-              signalCGs++;
-            }
-          }
-        }
-      }
     } else {
       dataCGs++;
     }
   }
   
-  public void objectCreated (JVM vm){
-    nNewObjects++;
+  public synchronized void objectCreated (JVM vm){
+    nObjects++;
   }
   
-  public void objectReleased (JVM vm){
-    nReleasedObjects++;
+  public synchronized void objectReleased (JVM vm){
+    nRecycled++;
   }
   
-  public void stateAdvanced (Search search){
+  public synchronized void stateAdvanced (Search search){
     long m = Runtime.getRuntime().totalMemory();
     if (m > maxUsed) {
       maxUsed = m;
@@ -147,19 +113,19 @@ public class Statistics extends ListenerAdapter implements Cloneable {
     }
   }
   
-  public void stateBacktracked (Search search){
+  public synchronized void stateBacktracked (Search search){
     backtracked++;
   }
   
-  public void stateProcessed (Search search){
+  public synchronized void stateProcessed (Search search){
     processed++;
   }
 
-  public void stateRestored (Search search){
+  public synchronized void stateRestored (Search search){
     restored++;
   }
     
-  public void searchConstraintHit (Search search){
+  public synchronized void searchConstraintHit (Search search){
     constraints++;
   }
 

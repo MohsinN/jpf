@@ -22,17 +22,14 @@ import gov.nasa.jpf.Config;
 
 /**
  * a pretty simple ChoiceGenerator that returns a boolean
- * there is not much use in having a CG type interface (such as
- * IntChoiceGenerator) since there is hardly a need for a generic type hierarchy
- * of BooleanChoiceGenerator subtypes - what else can you do with true/false
  */
-public class BooleanChoiceGenerator extends ChoiceGeneratorBase<Boolean> {
+public class BooleanChoiceGenerator extends ChoiceGenerator<Boolean> {
 
   // do we evaluate [false, true] or [true, false]
-  protected boolean falseFirst = true;
+  boolean falseFirst = true;
 
-  protected int count = -1;
-  protected boolean next;
+  int count = -1;
+  boolean next;
   
   public BooleanChoiceGenerator(Config conf, String id) {
     super(id);
@@ -75,8 +72,6 @@ public class BooleanChoiceGenerator extends ChoiceGeneratorBase<Boolean> {
   public void reset () {
     count = -1;
     next = falseFirst;
-
-    isDone = false;
   }
   
   public int getTotalNumberOfChoices () {
@@ -85,30 +80,6 @@ public class BooleanChoiceGenerator extends ChoiceGeneratorBase<Boolean> {
 
   public int getProcessedNumberOfChoices () {
     return (count+1);
-  }
-  
-  // that is pretty stupid, but for the sake of consistency we make it available
-  Boolean[] getChoices(){
-    Boolean[] vals = new Boolean[2];
-    vals[0] = !falseFirst;
-    vals[1] = falseFirst;
-    
-    return vals;
-  }
-
-  // not much use to support reordering, we just have two elements so reverse() will do
-  
-  public boolean isFalseFirst(){
-    return falseFirst;
-  }
-  
-  /**
-   *  note this should only be called before the first advance since it resets
-   *  the enumeration state 
-   */
-  public void reverse(){
-    falseFirst = !falseFirst;
-    reset();
   }
   
   public String toString () {
@@ -123,11 +94,7 @@ public class BooleanChoiceGenerator extends ChoiceGeneratorBase<Boolean> {
 
     sb.append(",{");
 
-    if (count < 0){
-      sb.append(!next);
-      sb.append(',');
-      sb.append(next);
-    } else if (count == 0) {
+    if (count < 1) {
       sb.append(MARKER);
       sb.append(next);
       sb.append(',');

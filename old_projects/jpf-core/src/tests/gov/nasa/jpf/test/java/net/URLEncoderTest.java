@@ -20,10 +20,9 @@
 package gov.nasa.jpf.test.java.net;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
-import java.net.URLDecoder;
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-
+import java.net.URLDecoder;
 import org.junit.Test;
 
 
@@ -31,6 +30,10 @@ import org.junit.Test;
  * regression test for URLEncoder/Decoder
  */
 public class URLEncoderTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   /************************** test methods ************************/
   @Test

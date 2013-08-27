@@ -19,11 +19,9 @@
 package gov.nasa.jpf.test.vm.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-import gov.nasa.jpf.util.test.TestJPFHelper;
-
-import java.lang.reflect.Method;
-
 import org.junit.Test;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 /**
  * JPF unit test for exception handling
@@ -40,6 +38,10 @@ public class ExceptionHandlingTest extends TestJPF {
     o.foo();
   }
   
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
+
   @Test public void testNPE () {
     if (verifyUnhandledException("java.lang.NullPointerException")){
       ExceptionHandlingTest o = null;
@@ -144,23 +146,16 @@ public class ExceptionHandlingTest extends TestJPF {
         System.out.println(')');
       }
 
-      assert st.length == 5 : "wrong stack trace depth";
+      assert st.length == 2 : "wrong stack trace depth";
 
-      assert st[0].getClassName().equals(ExceptionHandlingTest.class.getName());
+      String clsName = ExceptionHandlingTest.class.getName();
+      assert st[0].getClassName().equals(clsName);
       assert st[0].getMethodName().equals("testStackTrace");
 
-      assert st[1].getClassName().equals(Method.class.getName());
-      assert st[1].getMethodName().equals("invoke");
-
-      assert st[2].getClassName().equals(Method.class.getName());
-      assert st[2].getMethodName().equals("invoke");
-
-      assert st[3].getClassName().equals(TestJPF.class.getName());
-      assert st[3].getMethodName().equals("runTestOfClass");
-
-      assert st[4].getClassName().equals(TestJPFHelper.class.getName());
-      assert st[4].getMethodName().equals("main");
+      assert st[1].getClassName().equals(clsName);
+      assert st[1].getMethodName().equals("main");
     }
-  }  
+  }
+  
 }
 

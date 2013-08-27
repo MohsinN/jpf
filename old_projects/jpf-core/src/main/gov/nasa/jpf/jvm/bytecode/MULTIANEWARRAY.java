@@ -19,12 +19,13 @@
 package gov.nasa.jpf.jvm.bytecode;
 
 import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.jvm.DynamicArea;
 import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.Heap;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.classfile.ConstantPool;
 
 
 /**
@@ -33,23 +34,22 @@ import gov.nasa.jpf.jvm.Types;
  */
 public class MULTIANEWARRAY extends Instruction {
   protected String type;
-  
   protected int dimensions;
-  protected int[] arrayLengths;
 
-  public MULTIANEWARRAY (String typeName, int dimensions){
-    this.type = Types.getClassNameFromTypeName(typeName);
-    this.dimensions = dimensions;
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    type = cp.constantToString(cp.getConstant(
+                                     ((org.apache.bcel.generic.MULTIANEWARRAY) i).getIndex()));
+    dimensions = ((org.apache.bcel.generic.MULTIANEWARRAY) i).getDimensions();
   }
 
-  public static int allocateArray (Heap heap, String type, int[] dim, ThreadInfo ti, int d) {
+  public static int allocateArray (DynamicArea heap, String type, int[] dim, ThreadInfo ti, int d) {
     int         l = dim[d];
     int         arrayRef = heap.newArray(type.substring(d + 1), l, ti);
     ElementInfo e = heap.get(arrayRef);
 
     if (dim.length > (d + 1)) {
       for (int i = 0; i < l; i++) {
-        e.setReferenceElement(i, allocateArray(heap, type, dim, ti, d + 1));
+        e.setElement(i, allocateArray(heap, type, dim, ti, d + 1));
       }
     }
 
@@ -57,10 +57,10 @@ public class MULTIANEWARRAY extends Instruction {
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
-    arrayLengths = new int[dimensions];
+    int[] dim = new int[dimensions];
 
     for (int i = dimensions - 1; i >= 0; i--) {
-      arrayLengths[i] = ti.pop();
+      dim[i] = ti.pop();
     }
 
     // there is no clinit for array classes, but we still have  to create a class object
@@ -71,7 +71,7 @@ public class MULTIANEWARRAY extends Instruction {
       ci.setInitialized();
     }
     
-    int arrayRef = allocateArray(ti.getHeap(), type, arrayLengths, ti, 0);
+    int arrayRef = allocateArray(ks.da, type, dim, ti, 0);
 
     // put the result (the array reference) on the stack
     ti.push(arrayRef, true);
@@ -89,26 +89,5 @@ public class MULTIANEWARRAY extends Instruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
-  }
-
-  public String getType(){
-    return type;
-  }
-  
-  public int getDimensions() {
-    return dimensions;
-  }
-  
-  public int getArrayLength (int dimension){
-    if (dimension < dimensions && arrayLengths != null){
-      return arrayLengths[dimension];
-    } else {
-      return -1;
-    }
-  }
-  
-  @Override
-  public void cleanupTransients(){
-    arrayLengths= null;
   }
 }

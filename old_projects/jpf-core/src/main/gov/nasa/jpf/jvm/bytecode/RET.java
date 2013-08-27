@@ -22,6 +22,8 @@ import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 
+import org.apache.bcel.classfile.ConstantPool;
+
 
 /**
  * Return from subroutine
@@ -30,16 +32,16 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 public class RET extends Instruction {
   private int index;
 
-  public RET( int index){
-    this.index = index;
+  public void setPeer (org.apache.bcel.generic.Instruction i, ConstantPool cp) {
+    index = ((org.apache.bcel.generic.RET) i).getIndex();
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
-    return mi.getInstructionAt(th.getLocalVariable(index));
+    return th.getMethod().getInstructionAt(th.getLocalVariable(index));
   }
 
   public int getLength() {
-    return 2; // opcode, insnIndex
+    return 2; // opcode, index
   }
   
   public int getByteCode () {
@@ -48,9 +50,5 @@ public class RET extends Instruction {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
-  }
-
-  public int getIndex() {
-	return index;
   }
 }

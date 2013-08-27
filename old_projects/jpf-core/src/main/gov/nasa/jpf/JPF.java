@@ -18,9 +18,7 @@
 //
 package gov.nasa.jpf;
 
-import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.jvm.NoOutOfMemoryErrorProperty;
-import gov.nasa.jpf.jvm.VMListener;
+import gov.nasa.jpf.jvm.*;
 import gov.nasa.jpf.report.Publisher;
 import gov.nasa.jpf.report.PublisherExtension;
 import gov.nasa.jpf.report.Reporter;
@@ -33,6 +31,8 @@ import gov.nasa.jpf.util.Misc;
 import gov.nasa.jpf.util.RunRegistry;
 
 import java.io.File;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
@@ -44,19 +44,17 @@ import java.util.logging.Logger;
  */
 public class JPF implements Runnable {
   
-  public static String VERSION = "6.0"; // the major version number
+  /** JPF version, we read this in later from default.properties */
+  public static String VERSION    = "5.?";
 
   static Logger logger     = null; // initially
 
   public enum Status { NEW, RUNNING, DONE };
 
   class ConfigListener implements ConfigChangeListener {
-    
-    /**
-     * check for new listeners that are dynamically configured
-     */
-    @Override
     public void propertyChanged(Config config, String key, String oldValue, String newValue) {
+            
+      //--- check for new listeners
       if ("listener".equals(key)) {
         if (oldValue == null)
           oldValue = "";
@@ -80,22 +78,12 @@ public class JPF implements Runnable {
           }
         }
       }
-    }
-    
-    /**
-     * clean up to avoid a sublte but serious memory leak when using the
-     * same config for multiple JPF objects/runs - this listener is an inner
-     * class object that keeps its encapsulating JPF instance alive
-     */
-    @Override
-    public void jpfRunTerminated(Config config){
-      config.removeChangeListener(this);
-    }
+    }    
   }
   
   /** this is the backbone of all JPF configuration */
   Config config;
-  
+
   /** The search policy used to explore the state space */
   Search search;
 
@@ -106,11 +94,6 @@ public class JPF implements Runnable {
   Reporter reporter;
 
   Status status = Status.NEW;
-
-  /** a list of listeners that get automatically added from VM, Search or Reporter initialization */
-  List<VMListener> pendingVMListeners;
-  List<SearchListener> pendingSearchListeners;
-
   
   /** we use this as safety margin, to be released upon OutOfMemoryErrors */
   byte[] memoryReserve;
@@ -132,16 +115,8 @@ public class JPF implements Runnable {
     int options = RunJPF.getOptions(args);
 
     if (args.length == 0 || RunJPF.isOptionEnabled( RunJPF.HELP,options)) {
-      RunJPF.showUsage();
+      showUsage();
       return;
-    }
-    if (RunJPF.isOptionEnabled( RunJPF.ADD_PROJECT,options)){
-      RunJPF.addProject(args);
-      return;
-    }
-    
-    if (RunJPF.isOptionEnabled( RunJPF.BUILD_INFO,options)){
-      RunJPF.showBuild(RunJPF.class.getClassLoader());
     }
 
     if (RunJPF.isOptionEnabled( RunJPF.LOG,options)){
@@ -279,18 +254,7 @@ public class JPF implements Runnable {
       search = config.getEssentialInstance("search.class", Search.class,
                                                 searchArgTypes, searchArgs);
 
-      // although the Reporter will always be notified last, this has to be set
-      // first so that it can register utility listeners like Statistics that
-      // can be used by configured listeners
-      Class<?>[] reporterArgTypes = { Config.class, JPF.class };
-      Object[] reporterArgs = { config, this };
-      reporter = config.getInstance("report.class", Reporter.class, reporterArgTypes, reporterArgs);
-      if (reporter != null){
-        search.setReporter(reporter);
-      }
-      
       addListeners();
-      
       config.addChangeListener(new ConfigListener());
       
     } catch (JPFConfigException cx) {
@@ -300,7 +264,6 @@ public class JPF implements Runnable {
     }
   }  
 
-  
   public Status getStatus() {
     return status;
   }
@@ -325,59 +288,19 @@ public class JPF implements Runnable {
     }
   }
 
-  protected void addPendingVMListener (VMListener l){
-    if (pendingVMListeners == null){
-      pendingVMListeners = new ArrayList<VMListener>();
-    }
-    pendingVMListeners.add(l);
-  }
-  
-  protected void addPendingSearchListener (SearchListener l){
-    if (pendingSearchListeners == null){
-      pendingSearchListeners = new ArrayList<SearchListener>();
-    }
-    pendingSearchListeners.add(l);
-  }
-  
-  public void addListener (JPFListener l) {    
-    // the VM is instantiated first
+  public void addListener (JPFListener l) {
     if (l instanceof VMListener) {
       if (vm != null) {
         vm.addListener( (VMListener) l);
-        
-      } else { // no VM yet, we are in VM initialization
-        addPendingVMListener((VMListener)l);
       }
     }
-    
     if (l instanceof SearchListener) {
       if (search != null) {
         search.addListener( (SearchListener) l);
-        
-      } else { // no search yet, we are in Search initialization
-        addPendingSearchListener((SearchListener)l);
       }
     }
   }
 
-  public <T> T getListenerOfType( Class<T> type){
-    if (search != null){
-      T listener = search.getNextListenerOfType(type, null);
-      if (listener != null){
-        return listener;
-      }
-    }
-    
-    if (vm != null){
-      T listener = vm.getNextListenerOfType(type, null);
-      if (listener != null){
-        return listener;
-      }
-    }
-    
-    return null;
-  }
-  
   public boolean addUniqueTypeListener (JPFListener l) {
     boolean addedListener = false;
     Class<?> cls = l.getClass();
@@ -401,7 +324,6 @@ public class JPF implements Runnable {
 
     return addedListener;
   }
-  
   
   public void removeListener (JPFListener l){
     if (l instanceof VMListener) {
@@ -427,31 +349,22 @@ public class JPF implements Runnable {
       search.addProperty(p);
     }
   }
-    
-  /**
-   * this is called after vm, search and reporter got instantiated
-   */
+  
   void addListeners () {
+
+    // first, our system listeners
     Class<?>[] argTypes = { Config.class, JPF.class };
     Object[] args = { config, this };
 
-    // first listeners that were automatically added from VM, Search and Reporter initialization
-    if (pendingVMListeners != null){
-      for (VMListener l : pendingVMListeners) {
-       vm.addListener(l);
-      }      
-      pendingVMListeners = null;
+    reporter = config.getInstance("report.class", Reporter.class, argTypes, args);
+    if (reporter != null){
+      addListener(reporter);
     }
-    
-    if (pendingSearchListeners != null){
-      for (SearchListener l : pendingSearchListeners) {
-       search.addListener(l);
-      }
-      pendingSearchListeners = null;
-    }
-    
-    // and finally everything that's user configured
-    List<JPFListener> listeners = config.getInstances("listener", JPFListener.class, argTypes, args);
+
+    // now everything that's user configured
+    List<JPFListener> listeners =
+      config.getInstances("listener", JPFListener.class, argTypes, args);
+
     if (listeners != null) {
       for (JPFListener l : listeners) {
         addListener(l);
@@ -528,7 +441,7 @@ public class JPF implements Runnable {
 
   public static void printBanner (Config config) {
     System.out.println("Java Pathfinder Model Checker v" +
-                  config.getString("jpf.version", VERSION) +
+                  config.getString("jpf.version", "4") +
                   " - (C) 1999-2008 RIACS/NASA Ames Research Center");
   }
 
@@ -657,17 +570,8 @@ public class JPF implements Runnable {
 
       } finally {
         status = Status.DONE;
-
-        config.jpfRunTerminated();
-        cleanUp();        
       }
     }
-  }
-  
-  protected void cleanUp(){
-    search.cleanUp();
-    vm.cleanUp();
-    reporter.cleanUp();
   }
   
   public List<Error> getSearchErrors () {
@@ -690,6 +594,17 @@ public class JPF implements Runnable {
 
     return true;
   }
+
+  static void showUsage() {
+    System.out.println("Usage: \"java [<vm-option>..] gov.nasa.jpf.JPF [<jpf-option>..] [<app> [<app-arg>..]]");
+    System.out.println("  <jpf-option> : -help  : print usage information");
+    System.out.println("               | -log   : print configuration initialization steps");
+    System.out.println("               | -show  : print configuration dictionary contents");
+    System.out.println("               | +<key>=<value>  : add or override key/value pair to config dictionary");
+    System.out.println("  <app>        : *.jpf application properties file pathname | fully qualified application class name");
+    System.out.println("  <app-arg>    : arguments passed into main() method of application class");
+  }
+
 
   public static void handleException(JPFException e) {
     logger.severe(e.getMessage());

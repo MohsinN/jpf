@@ -21,6 +21,8 @@ package gov.nasa.jpf.listener;
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.JPFConfigException;
+import gov.nasa.jpf.search.Search;
+import gov.nasa.jpf.ListenerAdapter;
 import gov.nasa.jpf.PropertyListenerAdapter;
 import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.JVM;
@@ -29,7 +31,6 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.bytecode.ArrayStoreInstruction;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
-import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.util.DynamicObjectArray;
 
 import java.util.logging.Logger;
@@ -83,7 +84,7 @@ public class IdleFilter extends PropertyListenerAdapter {
     }
   }
 
-  static enum Action { JUMP, PRUNE, BREAK, YIELD, WARN }
+  static enum Action { JUMP, PRUNE, BREAK, WARN }
 
   DynamicObjectArray<ThreadStat> threadStats = new DynamicObjectArray<ThreadStat>(4,16);
 
@@ -107,8 +108,6 @@ public class IdleFilter extends PropertyListenerAdapter {
       action = Action.WARN;
     } else if ("break".equalsIgnoreCase(act)){
       action = Action.BREAK;
-    } else if ("yield".equalsIgnoreCase(act)){
-      action = Action.YIELD;
     } else if ("prune".equalsIgnoreCase(act)){
       action = Action.PRUNE;
     } else if ("jump".equalsIgnoreCase(act)){
@@ -118,7 +117,7 @@ public class IdleFilter extends PropertyListenerAdapter {
     }
 
   }
-  
+
   public void stateAdvanced(Search search) {
     ts.backJumps = 0;
     ts.isCleared = false;
@@ -140,7 +139,7 @@ public class IdleFilter extends PropertyListenerAdapter {
     Instruction insn = jvm.getLastInstruction();
     ThreadInfo ti = jvm.getLastThreadInfo();
 
-    int tid = ti.getId();
+    int tid = ti.getIndex();
     ts = threadStats.get(tid);
     if (ts == null) {
       ts = new ThreadStat(ti.getName());
@@ -150,7 +149,7 @@ public class IdleFilter extends PropertyListenerAdapter {
     if (insn.isBackJump()) {
       ts.backJumps++;
 
-      int loopStackDepth = ti.getStackDepth();
+      int loopStackDepth = ti.countStackFrames();
       int loopPc = jvm.getNextInstruction().getPosition();
 
       if ((loopStackDepth != ts.loopStackDepth) || (loopPc != ts.loopStartPc)) {
@@ -160,7 +159,6 @@ public class IdleFilter extends PropertyListenerAdapter {
         ts.loopStartPc = loopPc;
         ts.loopEndPc = insn.getPosition();
         ts.backJumps = 0;
-        
       } else {
         if (!ts.isCleared) {
           if (ts.backJumps > maxBackJumps) {
@@ -199,16 +197,6 @@ public class IdleFilter extends PropertyListenerAdapter {
 
                 break;
 
-              case YIELD:
-                // give other threads a chance to run
-                brokeTransition = true;
-                ti.yield();
-
-                log.warning("yield on suspicious loop in thread: " + ti.getName() +
-                        "\n\tat " + ci.getName() + "." + mi.getName() + "(" + file + ":" + line + ")");
-
-                break;
-                
               case WARN:
                 log.warning("detected suspicious loop in thread: " + ti.getName() +
                         "\n\tat " + ci.getName() + "." + mi.getName() + "(" + file + ":" + line + ")");
@@ -222,11 +210,9 @@ public class IdleFilter extends PropertyListenerAdapter {
     } else if (!ts.isCleared) {
       // if we call methods or set array elements inside the loop in question,
       // we assume this is not an idle loop and terminate the checks
-      // <2do> this is too restrictive - we should leave this to state matching
-      
       if ((insn instanceof InvokeInstruction)
           || (insn instanceof ArrayStoreInstruction)) {
-        int stackDepth = ti.getStackDepth();
+        int stackDepth = ti.countStackFrames();
         int pc = insn.getPosition();
 
         if (stackDepth == ts.loopStackDepth) {
@@ -237,13 +223,5 @@ public class IdleFilter extends PropertyListenerAdapter {
       }
     }
   }
-  
-  // thread ids are reused, so we have to clean up
-  public void threadTerminated (JVM jvm){
-    ThreadInfo ti = jvm.getLastThreadInfo();
-    int tid = ti.getId();
-    threadStats.set(tid, null);
-  }
-
 
 }

@@ -18,21 +18,22 @@
 //
 package gov.nasa.jpf.jvm;
 
+import org.apache.bcel.classfile.*;
 import gov.nasa.jpf.JPFException;
 
 
 /**
  * field info for object fields
  */
-public class ReferenceFieldInfo extends SingleSlotFieldInfo {
+public class ReferenceFieldInfo extends FieldInfo {
   int init=-1;
   String sInit; // <2do> pcm - just a temporary quirk to init from string literals
                 // check if there are other non-object reference inits
 
-  
   public ReferenceFieldInfo (String name, String type, int modifiers,
-                             ClassInfo ci, int idx, int off) {
-    super(name, type, modifiers, ci, idx, off);
+                             ConstantValue cv, ClassInfo ci, int idx, int off) {
+    super(name, type, modifiers, cv, ci, idx, off);
+    init = computeInitValue(cv);
   }
 
   public String valueToString (Fields f) {
@@ -40,7 +41,7 @@ public class ReferenceFieldInfo extends SingleSlotFieldInfo {
     if (i == -1) {
       return "null";
     } else {
-      return (JVM.getVM().getHeap().get(i)).toString();
+      return DynamicArea.getHeap().get(i).toString();
     }
   }
 
@@ -56,7 +57,7 @@ public class ReferenceFieldInfo extends SingleSlotFieldInfo {
     return ci.isArray;
   }
 
-  public void setConstantValue (Object constValue){
+  int computeInitValue (ConstantValue cv) {
     // <2do> pcm - check what other constants we might encounter, this is most
     // probably not just used for Strings.
     // Besides the type issue, there is an even bigger problem with identities.
@@ -68,21 +69,31 @@ public class ReferenceFieldInfo extends SingleSlotFieldInfo {
     // For the sake of progress, we ignore this for now, but have to come back
     // to it because it violates the VM spec
 
-    if (constValue instanceof String){
-      cv = constValue;
-      sInit = (String)constValue;
+    if (cv == null) return -1;
+
+    // here the mess starts
+    //DynamicArea heap = DynamicArea.getHeap();
+    String s = cv.toString();
+
+    if (s.charAt(0) == '"') {
+      s = s.substring(1,s.length()-1); // chop off the double quotes
+      sInit = s;
+
+      //init = heap.newString(s, null);  // turn literal into a string object
+      // but how do we pin it down?
     } else {
-      throw new JPFException ("unsupported reference initialization: " + constValue);
+      throw new JPFException ("unsupported reference initialization: " + s);
     }
+
+    return -1;
   }
 
   public void initialize (ElementInfo ei) {
     int ref = init;
     if (sInit != null) {
-      Heap heap = JVM.getVM().getHeap();
-      ref = heap.newString(sInit, null);
+      ref = DynamicArea.getHeap().newString(sInit, null);
     }
-    ei.getFields().setReferenceValue( storageOffset, ref);
+    ei.getFields().setReferenceValue(ei, storageOffset, ref);
   }
 
   public Object getValueObject (Fields f){
@@ -90,8 +101,7 @@ public class ReferenceFieldInfo extends SingleSlotFieldInfo {
     if (i == -1) {
       return null;
     } else {
-      Heap heap = JVM.getVM().getHeap();
-      return heap.get(i);
+      return DynamicArea.getHeap().get(i);
     }
   }
 }

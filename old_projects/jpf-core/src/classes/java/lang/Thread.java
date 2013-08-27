@@ -22,40 +22,22 @@ import sun.nio.ch.Interruptible;
 
 /**
  * MJI model class for java.lang.Thread library abstraction
- * 
- * <2do> this should not require the JPF ThreadList to retrieve corresponding ThreadInfos
- * (the ThreadList might not store terminated threads)
  */
 public class Thread implements Runnable {
 
-  public interface UncaughtExceptionHandler {
-    // note this doesn't stop the thread from being terminated
-    void uncaughtException (Thread t, Throwable x);
-  }
-  
-  static int nameThreadNum; // to construct the default thread name  
+  static int              threadNum;
 
   public static final int MIN_PRIORITY = 1;
   public static final int NORM_PRIORITY = 5;
   public static final int MAX_PRIORITY = 10;
 
-  // don't rename this - it's used by ThreadGoup.uncaughtException()
-  private static volatile UncaughtExceptionHandler defaultUncaughtExceptionHandler; // null by default
-
-  
-  // JPF internal identifier - according to the Java specs, thread ids can be reused.
-  // We keep ids until the thread object is recycled, i.e. there are never two live thread
-  // objects that have the same id (regardless of whether the threads are already terminated or not)
-  int id;
-  
-  
   // initialized in init(), except of the main thread (which gets explicitly initialized by the VM)
-  ThreadGroup group;
-  Runnable target;
-  String name;
-  int priority;
-  boolean isDaemon;
-  
+  ThreadGroup         group;
+  Runnable            target;
+  String              name;
+  int                 priority;
+  boolean             isDaemon;
+
   // this is an explicit thread state that gets set on a call of interrupt(), but
   // only if the thread is not blocked. If it is, we only change the status.
   // this gets cleared by calling interrupted()
@@ -78,101 +60,45 @@ public class Thread implements Runnable {
   // DON'T CHANGE THIS NAME
   volatile Object parkBlocker;
 
-  // used to store Thread.stop() exceptions
-  Throwable stopException;
-  
-  private volatile UncaughtExceptionHandler uncaughtExceptionHandler; // null by default
-
-  
   public enum State { BLOCKED, NEW, RUNNABLE, TERMINATED, TIMED_WAITING, WAITING }
 
-  
-  public static void setDefaultUncaughtExceptionHandler(UncaughtExceptionHandler xh) {
-    defaultUncaughtExceptionHandler = xh;
-  }
-  
-  public static UncaughtExceptionHandler getDefaultUncaughtExceptionHandler(){
-    return defaultUncaughtExceptionHandler;
-  }
-  
-  
   public Thread () {
-    this(null, null, null, 0L);
+    init(group, target, name, 0L);
   }
 
   public Thread (Runnable target) {
-    this(null, target, null, 0L);
+    init(group, target, name, 0L);
   }
 
   public Thread (Runnable target, String name) {
-    this(null, target, name, 0L);
+    init(group, target, name, 0L);
   }
 
   public Thread (String name) {
-    this(null, null, name, 0L);
+    init(group, target, name, 0L);
   }
 
-  public Thread (ThreadGroup group, String name) {
-    this(group, null, name, 0L);
-  }
-  
   public Thread (ThreadGroup group, Runnable target) {
-    this(group, target, null, 0L);
+    init(group, target, name, 0L);
   }
 
   public Thread (ThreadGroup group, Runnable target, String name) {
-    this(group, target, name, 0L);
+    init(group, target, name, 0L);
   }
 
-  public Thread (ThreadGroup group, Runnable target, String name, long stackSize) {
-    Thread cur = currentThread();
-
-    if (group == null) {
-      this.group = cur.getThreadGroup();
-    } else {
-      this.group = group;
-    }
-
-    this.group.add(this);
-
-    if (name == null) {
-      this.name = "Thread-" + ++nameThreadNum;
-    } else {
-      this.name = name;
-    }
-
-    this.permit = new Permit();
-
-    // those are always inherited from the current thread
-    this.priority = cur.getPriority();
-    this.isDaemon = cur.isDaemon();
-
-    this.target = target;
-
-    // do our associated native init
-    init0(this.group, target, this.name, stackSize);
+  public Thread (ThreadGroup group, Runnable target, String name,
+                 long stackSize) {
+    init(group, target, name, 0L);
   }
 
+  public Thread (ThreadGroup group, String name) {
+    init(group, target, name, 0L);
+  }
 
-  // this takes care of ThreadInfo initialization
-  native void init0 (ThreadGroup group, Runnable target, String name, long stackSize);
-  
   public static int activeCount () {
     return 0;
   }
 
-  public void setUncaughtExceptionHandler(UncaughtExceptionHandler xh) {
-    uncaughtExceptionHandler = xh;
-  }
-  
-  public UncaughtExceptionHandler getUncaughtExceptionHandler(){
-    if (uncaughtExceptionHandler != null){
-      return uncaughtExceptionHandler;
-    } else {
-      return group;
-    }
-  }
-  
   public void setContextClassLoader (ClassLoader cl) {
   }
 
@@ -190,9 +116,7 @@ public class Thread implements Runnable {
     return isDaemon;
   }
 
-  public long getId(){
-    return id;
-  }
+  public native long getId();
 
   public StackTraceElement[] getStackTrace() {
     return null; // not yet implemented
@@ -335,13 +259,14 @@ public class Thread implements Runnable {
   public static native void sleep (long millis, int nanos)
                             throws InterruptedException;
 
-  public native void start();
-  public native void stop();
-  public native void stop(Throwable obj);
+  public native void start ();
+
+  public void stop () {
+    // deprecated, <NSY>
+  }
 
   public native void suspend();
   public native void resume();
-
 
   public String toString () {
     return ("Thread[" + name + ',' + priority + ',' + (group == null ? "" : group.getName()) + ']');
@@ -355,7 +280,37 @@ public class Thread implements Runnable {
 
   native void setPriority0 (int priority);
 
+  void init (ThreadGroup group, Runnable target, String name, long stackSize) {
+    Thread cur = currentThread();
 
+    if (group == null) {
+      this.group = cur.getThreadGroup();
+    } else {
+      this.group = group;
+    }
+
+    this.group.add(this);
+
+    if (name == null) {
+      this.name = "Thread-" + threadNum++;
+    } else {
+      this.name = name;
+    }
+
+    this.permit = new Permit();
+
+    // those are always inherited from the current thread
+    this.priority = cur.getPriority();
+    this.isDaemon = cur.isDaemon();
+
+    this.target = target;
+
+    // do our associated native init
+    init0(this.group, target, this.name, stackSize);
+  }
+
+  native void init0 (ThreadGroup group, Runnable target, String name,
+                     long stackSize);
 
   /**
    * automatically called by system upon thread termination to clean up
@@ -376,5 +331,4 @@ public class Thread implements Runnable {
   // some Java 6 mojo
   // <2do> not implemented yet
   native void blockedOn (Interruptible b);
-
 }

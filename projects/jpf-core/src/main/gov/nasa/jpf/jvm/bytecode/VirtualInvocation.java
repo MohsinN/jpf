@@ -18,13 +18,13 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
-import gov.nasa.jpf.jvm.ClassInfo;
-import gov.nasa.jpf.jvm.ElementInfo;
-import gov.nasa.jpf.jvm.KernelState;
-import gov.nasa.jpf.jvm.MJIEnv;
-import gov.nasa.jpf.jvm.MethodInfo;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.ElementInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.MJIEnv;
+import gov.nasa.jpf.vm.MethodInfo;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
 
 
 /**
@@ -44,7 +44,7 @@ public abstract class VirtualInvocation extends InstanceInvocation {
     super(clsDescriptor, methodName, signature);
   }
 
-  public Instruction execute (SystemState ss, KernelState ks, ThreadInfo ti) {
+  public Instruction execute (ThreadInfo ti) {
     int objRef = ti.getCalleeThis(getArgSize());
 
     if (objRef == -1) {
@@ -52,22 +52,27 @@ public abstract class VirtualInvocation extends InstanceInvocation {
       return ti.createAndThrowException("java.lang.NullPointerException", "Calling '" + mname + "' on null object");
     }
 
-    MethodInfo mi = getInvokedMethod(ti, objRef);
-
-    if (mi == null) {
+    MethodInfo callee = getInvokedMethod(ti, objRef);
+    ElementInfo ei = ti.getElementInfo(objRef);
+    
+    if (callee == null) {
       String clsName = ti.getClassInfo(objRef).getName();
       return ti.createAndThrowException("java.lang.NoSuchMethodError", clsName + '.' + mname);
+    } else {
+      if (callee.isAbstract()){
+        return ti.createAndThrowException("java.lang.AbstractMethodError", callee.getFullName() + ", object: " + ei);
+      }
     }
-    
-    ElementInfo ei = ks.heap.get(objRef);
 
-    if (mi.isSynchronized()) {
-      if (checkSyncCG(ei, ss, ti)){
+    if (callee.isSynchronized()) {
+      if (checkSyncCG(ei, ti)){
         return this;
       }
     }
 
-    return mi.execute(ti);    // this will lock the object if necessary
+    setupCallee( ti, callee); // this creates, initializes and pushes the callee StackFrame
+
+    return ti.getPC(); // we can't just return the first callee insn if a listener throws an exception
   }
   
   /**
@@ -141,5 +146,24 @@ public abstract class VirtualInvocation extends InstanceInvocation {
   
   public void accept(InstructionVisitor insVisitor) {
 	  insVisitor.visit(this);
+  }
+
+  @Override
+  public Instruction typeSafeClone(MethodInfo clonedMethod) {
+    VirtualInvocation clone = null;
+
+    try {
+      clone = (VirtualInvocation) super.clone();
+
+      // reset the method that this insn belongs to
+      clone.mi = clonedMethod;
+
+      clone.lastCalleeCi = null;
+      clone.invokedMethod = null;
+    } catch (CloneNotSupportedException e) {
+      e.printStackTrace();
+    }
+
+    return clone;
   }
 }

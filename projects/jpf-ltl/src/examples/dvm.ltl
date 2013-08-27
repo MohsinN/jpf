@@ -1,8 +1,0 @@
-[] ( Dvm.insertCoin(int, int, int)
-             -> X ( [] ( CoinBox.addCoin(int)
-             -> X ( [] (  CoinBox.addCoin(int)
-             -> X ( [] ( CoinBox.addCoin(int)
-             -> X ( [] ( Dvm.returnButton()
-             -> X ( [] ( Drink.release()
-             -> X ( <>  Drink.updateDrink()
-              ) ) ) ) ) ) ) ) ) ) ) )

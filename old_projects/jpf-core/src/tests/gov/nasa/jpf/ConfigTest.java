@@ -1,10 +1,8 @@
 package gov.nasa.jpf;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
-import java.io.File;
-import java.util.regex.Matcher;
-
+import java.io.*;
+import java.util.regex.*;
 import org.junit.Test;
 
 
@@ -12,6 +10,10 @@ import org.junit.Test;
  * unit test for Config
  */
 public class ConfigTest extends TestJPF {
+
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
+  }
 
   @Test
   public void testDefaultAppPropertyInit () {
@@ -133,19 +135,4 @@ public class ConfigTest extends TestJPF {
     assert (v != null) && v.equals("whatever");
   }
 
-  @Test
-  public void testIntArray(){
-    String dir = "src/tests/gov/nasa/jpf/";
-    String[] args = { "+site=" + dir + "configTestSite.properties",
-                      "+arr=-42,0xff,0" };
-
-    Config.enableLogging(true);
-    Config conf = new Config( args);
-    int[] a = conf.getIntArray("arr");
-    
-    assertTrue(a != null);
-    assertTrue(a.length == 3);
-    assertTrue(a[0] == -42 && a[1] == 0xff && a[2] == 0);
-    
-  }
 }

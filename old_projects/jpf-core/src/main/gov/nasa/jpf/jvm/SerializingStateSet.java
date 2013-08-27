@@ -18,6 +18,7 @@
 //
 package gov.nasa.jpf.jvm;
 
+import gov.nasa.jpf.Config;
 
 public abstract class SerializingStateSet implements StateSet {
   protected StateSerializer serializer;

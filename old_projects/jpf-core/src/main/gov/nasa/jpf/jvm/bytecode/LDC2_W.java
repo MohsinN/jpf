@@ -18,9 +18,17 @@
 //
 package gov.nasa.jpf.jvm.bytecode;
 
+import gov.nasa.jpf.jvm.ClassInfo;
 import gov.nasa.jpf.jvm.KernelState;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
+import gov.nasa.jpf.jvm.Types;
+
+import org.apache.bcel.classfile.ConstantDouble;
+import org.apache.bcel.classfile.ConstantLong;
+import org.apache.bcel.classfile.ConstantPool;
+import org.apache.bcel.generic.ConstantPoolGen;
+import org.apache.bcel.generic.Type;
 
 
 /**
@@ -28,20 +36,22 @@ import gov.nasa.jpf.jvm.ThreadInfo;
  * ... => ..., value
  */
 public class LDC2_W extends Instruction {
-
-  public enum Type {LONG, DOUBLE};
-
   protected Type type;
   protected long value;
 
-  public LDC2_W(long l){
-    value = l;
-    type = Type.LONG;
-  }
+  public void setPeer (org.apache.bcel.generic.Instruction insn, ConstantPool cp) {
+    ConstantPoolGen cpg = ClassInfo.getConstantPoolGen(cp);
+    
+    org.apache.bcel.generic.LDC2_W ldc2_w = (org.apache.bcel.generic.LDC2_W) insn;
+    int index = ldc2_w.getIndex();
+    
+    type = ldc2_w.getType(cpg);
 
-  public LDC2_W(double d){
-    value = Double.doubleToLongBits(d);
-    type = Type.DOUBLE;
+    if (type == Type.LONG) {
+      value = ((ConstantLong) cp.getConstant( index)).getBytes();
+    } else {
+      value = Types.doubleToLong(((ConstantDouble) cp.getConstant( index)).getBytes());
+    }
   }
 
   public Instruction execute (SystemState ss, KernelState ks, ThreadInfo th) {
@@ -60,14 +70,6 @@ public class LDC2_W extends Instruction {
   
   public Type getType() {
     return type;
-  }
-  
-  public double getDoubleValue(){
-	  if(type!=Type.DOUBLE){
-		  throw new IllegalStateException();
-	  }
-    
-	  return Double.longBitsToDouble(value);
   }
   
   public long getValue() {

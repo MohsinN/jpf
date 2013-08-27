@@ -19,13 +19,17 @@
 package gov.nasa.jpf.test.vm.basic;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
  * test large methods (e.g. synthesized by code generators)
  */
 public class LargeCodeTest extends TestJPF {
+
+
+  public static void main (String[] args){
+    runTestsOfThisClass(args);
+  }
 
 
   @Test public void testGotoW () {

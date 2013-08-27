@@ -18,15 +18,21 @@
 //
 package gov.nasa.jpf.test.mc.basic;
 
-import gov.nasa.jpf.util.test.TestJPF;
-
-import org.junit.Test;
+import gov.nasa.jpf.jvm.*;
+import gov.nasa.jpf.util.test.*;
+import java.util.concurrent.atomic.*;
+import org.junit.*;
 
 /**
  * Ensures that a recursive lock/unlock doesn't leave the lock in an acquired state.
  */
 public class RecursiveLockTest extends TestJPF
 {
+   public static void main(String[] args)
+   {
+      runTestsOfThisClass(args);
+   }
+
    @Test
    public void recursiveUnlock() throws InterruptedException
    {

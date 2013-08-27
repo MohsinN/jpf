@@ -19,10 +19,8 @@
 package gov.nasa.jpf.test.java.concurrent;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
 import org.junit.Test;
 
 /**
@@ -31,6 +29,10 @@ import org.junit.Test;
  * Thread.interrupt())
  */
 public class ExecutorServiceTest extends TestJPF {
+
+  public static void main(String[] args) {
+    runTestsOfThisClass(args);
+  }
 
   //--- the test methods
   @Test

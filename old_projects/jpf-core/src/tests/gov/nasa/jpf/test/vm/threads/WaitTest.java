@@ -19,7 +19,6 @@
 package gov.nasa.jpf.test.vm.threads;
 
 import gov.nasa.jpf.util.test.TestJPF;
-
 import org.junit.Test;
 
 /**
@@ -31,6 +30,10 @@ public class WaitTest extends TestJPF
   boolean cond;
   boolean done;
   
+  public static void main (String[] args) {
+    runTestsOfThisClass(args);
+  }
+
   @Test public void testVerySimpleWait () {
     if (verifyNoPropertyViolation()) {
       System.out.println("running testVerySimpleWait()");

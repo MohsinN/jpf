@@ -18,14 +18,15 @@
 //
 package gov.nasa.jpf.jvm;
 
-import gov.nasa.jpf.util.ImmutableList;
+import gov.nasa.jpf.Config;
+import gov.nasa.jpf.util.StackNode;
 
 public class DefaultBacktracker<KState> implements Backtracker {
-  /** where we keep the saved KernelState head */ 
-  protected ImmutableList<KState> kstack;
+  /** where we keep the saved KernelState data */ 
+  protected StackNode<KState> kstack;
    
-  /** and that adds the SystemState specifics */
-  protected ImmutableList<Object> sstack;
+  /** and that adds the SystemState specifics (Scheduler) */
+  protected StackNode<Object> sstack;
   
   protected SystemState ss;
   protected StateRestorer<KState> restorer;
@@ -35,18 +36,16 @@ public class DefaultBacktracker<KState> implements Backtracker {
     restorer = jvm.getRestorer();
   }
 
-  //--- the backtrack support (depth first only)
-  
-  protected void backtrackKernelState() {
-    KState data = kstack.head;
-    kstack = kstack.tail;
+  public void backtrackKernelState() {
+    KState data = kstack.data;
+    kstack = kstack.next;
     
     restorer.restore(data);
   }
 
-  protected void backtrackSystemState() {
-    Object o = sstack.head;
-    sstack = sstack.tail;
+  public void backtrackSystemState() {
+    Object o = sstack.data;
+    sstack = sstack.next;
     ss.backtrackTo(o);
   }
 
@@ -58,7 +57,6 @@ public class DefaultBacktracker<KState> implements Backtracker {
    * the stack, so we have to remove that one first (i.e. popping two states
    * and restoring the second one)
    */
-  @Override
   public boolean backtrack () {
     if (sstack != null) {
   
@@ -72,40 +70,37 @@ public class DefaultBacktracker<KState> implements Backtracker {
     }
   }
   
+  
+  public void popKernelState () {
+    kstack = kstack.next;
+  }
+
   /**
    * Saves the state of the system.
    */
-  @Override
   public void pushKernelState () {
-    kstack = new ImmutableList<KState>(restorer.getRestorableData(),kstack);
+    kstack = new StackNode<KState>(restorer.getRestorableData(),kstack);
   }
   
   /**
    * Saves the backtracking information.
    */
-  @Override
   public void pushSystemState () {
-    sstack = new ImmutableList<Object>(ss.getBacktrackData(),sstack);
+    sstack = new StackNode<Object>(ss.getBacktrackData(),sstack);
   }
 
   
-  //--- the restore support
-  
-  // <2do> this saves both the backtrack and the restore data - too redundant
-  class RestorableStateImpl implements RestorableState {
-    final ImmutableList<KState> savedKstack;
-    final ImmutableList<Object> savedSstack;
-    
+  class StateImpl implements State {
+    final StackNode<KState> savedKstack;
+    final StackNode<Object> savedSstack;
     final KState kcur;
     final Object scur;
-    
-    RestorableStateImpl() {
+    StateImpl() {
       savedKstack = kstack;
       savedSstack = sstack;
       kcur = restorer.getRestorableData();
-      scur = ss.getRestoreData();
+      scur = ss.getBacktrackData();
     }
-    
     void restore() {
       kstack = savedKstack;
       sstack = savedSstack;
@@ -114,13 +109,11 @@ public class DefaultBacktracker<KState> implements Backtracker {
     }
   }
   
-  @Override
-  public void restoreState (RestorableState state) {
-    ((RestorableStateImpl) state).restore();
+  public void restoreState (State state) {
+    ((StateImpl) state).restore();
   }
   
-  @Override
-  public RestorableState getRestorableState() {
-    return new RestorableStateImpl();
+  public State getState() {
+    return new StateImpl();
   }
 }

@@ -18,6 +18,8 @@
 //
 package gov.nasa.jpf.listener;
 
+import java.io.PrintWriter;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.ListenerAdapter;
@@ -29,8 +31,6 @@ import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.VirtualInvocation;
 import gov.nasa.jpf.search.Search;
-
-import java.io.PrintWriter;
 
 /**
  * simple tool to log method invocations
@@ -50,7 +50,7 @@ public class MethodTracker extends ListenerAdapter {
   }
 
   void logMethodCall(ThreadInfo ti, MethodInfo mi, int stackDepth) {
-    out.print(ti.getId());
+    out.print(ti.getIndex());
     out.print(":");
 
     for (int i=0; i<stackDepth%80; i++) {
@@ -61,7 +61,7 @@ public class MethodTracker extends ListenerAdapter {
       out.print("native ");
     }
 
-    out.print(mi.getFullName());
+    out.print(mi.getCompleteName());
 
     if (ti.isFirstStepInsn()) {
       out.print("...");
@@ -76,7 +76,7 @@ public class MethodTracker extends ListenerAdapter {
     ThreadInfo ti = vm.getLastThreadInfo();
 
     if (mi != lastMi) {
-      logMethodCall(ti, mi, ti.getStackDepth());
+      logMethodCall(ti, mi, ti.getStack().size());
       lastMi = mi;
 
     } else if (insn instanceof InvokeInstruction) {
@@ -102,7 +102,7 @@ public class MethodTracker extends ListenerAdapter {
 
       if (callee != null) {
         if (callee.isMJI()) {
-          logMethodCall(ti, callee, ti.getStackDepth()+1);
+          logMethodCall(ti, callee, ti.getStack().size()+1);
         }
       } else {
         out.println("ERROR: unknown callee of: " + insn);
