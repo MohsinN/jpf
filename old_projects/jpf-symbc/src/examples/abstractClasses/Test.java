@@ -11,7 +11,7 @@ public class Test {
 	}
 	
 	public static void main (String[] args) {
-		C a = null;
+		A a = null;
 		foo(a);
 	}
 }
