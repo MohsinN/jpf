@@ -1,0 +1,5 @@
+@using jpf-symbc
+target = Dining
+finite=false
+search.class=gov.nasa.jpf.ltl.ddfs.DDFSearch
+vm.storage.class=gov.nasa.jpf.jvm.FullStateSet

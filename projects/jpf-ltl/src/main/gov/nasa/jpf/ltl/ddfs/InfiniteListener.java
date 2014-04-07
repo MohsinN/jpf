@@ -10,6 +10,10 @@ import gov.nasa.ltl.trans.ParseErrorException;
 import java.util.LinkedList;
 
 import gov.nasa.jpf.ListenerAdapter;
+import gov.nasa.jpf.jvm.bytecode.ASTORE;
+import gov.nasa.jpf.jvm.bytecode.GETSTATIC;
+import gov.nasa.jpf.jvm.bytecode.ICONST;
+import gov.nasa.jpf.jvm.bytecode.ISTORE;
 import gov.nasa.jpf.vm.AnnotationInfo;
 import gov.nasa.jpf.vm.ChoiceGenerator;
 import gov.nasa.jpf.vm.ClassInfo;
@@ -18,9 +22,12 @@ import gov.nasa.jpf.vm.VM;
 import gov.nasa.jpf.vm.ThreadInfo;
 // import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
+import gov.nasa.jpf.jvm.bytecode.PUTSTATIC;
 import gov.nasa.jpf.ltl.Antlr.DetectParamLexer;
 import gov.nasa.jpf.ltl.Antlr.DetectParamParser;
 import gov.nasa.jpf.search.Search;
+import gov.nasa.jpf.vm.ApplicationContext;
+import gov.nasa.jpf.vm.LocalVarInfo;
 import gov.nasa.ltl.graph.Graph;
 import gov.nasa.ltl.graph.Literal;
 import gov.nasa.ltl.graph.Node;
@@ -121,6 +128,7 @@ public class InfiniteListener extends ListenerAdapter {
     
     // TODO: we should probably raise an error if we have an LTL formula and we
     // try to set another one
+    // LTL2Buchi doesn't translate a wrong LTL formula
     
     Graph<String> translate = null;
     gov.nasa.jpf.ltl.finite.trans.Graph translateFinite = null;
@@ -152,8 +160,20 @@ public class InfiniteListener extends ListenerAdapter {
               Iterator<Literal<String>> itr = e.getGuard().iterator();
               while (itr.hasNext()) {
                 Literal<String> a = itr.next();
+                
+                /*
+                String str = a.getAtom().toString();
+                System.out.println(str);
+
+                if ((str.contains("<"))) {
+                  String nameVar = str.substring(0, str.indexOf('<'));
+                  int valueVar = Integer.parseInt(str.substring(str.indexOf('<')+1, str.length()));
+                  System.out.println(nameVar + " @@@@@@@ " + valueVar);
+                }else{*/
+
                 String bytecodeMethodName = translateToByteCode(a.getAtom().toString());
                 LTLatoms.add(bytecodeMethodName);
+                //}
               }
         }
       }
@@ -168,22 +188,61 @@ public class InfiniteListener extends ListenerAdapter {
     if (saveSpec != null) {
       this.search.setSpec(saveSpec, specText, specSource.getName(),DEBUG);
     }
+    if(LTLatoms.isEmpty()){
+     System.out.println("The formula does not contain atoms. Please check it.");
+     System.exit(0);
+    }
   }
 
   @Override
   public void executeInstruction(VM vm, ThreadInfo currentThread, Instruction instructionToExecute) {
 
+    
+     
     Instruction insn = instructionToExecute;
-    /*System.out.println("#########################################################"+insn.toString());
-    if (insn instanceof ILOAD){
-      System.out.println("@@@@@@@@@@@@@@@@@@@@@"+insn.getSourceLine());
-    }*/
+    
+    /*Tramite questo if annidato possiamo recuperare il valore delle variabili
+     * 
+    if (insn.getMethodInfo().getLocalVars() != null) {
+
+      LocalVarInfo[] vars = insn.getMethodInfo().getLocalVars();
+      //System.out.println("____" + vars.length);
+      for (int i = 0; i < vars.length; i++) {
+        LocalVarInfo lv = vars[i];
+        //System.out.println("name of the variable = "+ lv.getName() + " = " + lv.getSignature());
+      }
+    }
+
+
+    */
+    if (DEBUG) {
+      System.out.println("#########################################################" + insn.toString());
+      //System.out.println("____"+instruction.getMethodInfo().getLocalVars());
+      /*if (insn instanceof ILOAD){
+       System.out.println("@@@@@@@@@@@@@@@@@@@@@"+insn.getSourceLine());
+       }*/
+      if (insn instanceof GETSTATIC) {//static variables returned
+        System.out.println("getSourceLineGETSTATIC = " + insn.getSourceLine());
+      }
+      if (insn instanceof ISTORE) {//Store int (and boolean) "value"
+        System.out.println("getSourceLineISTORE = " + insn.getSourceLine());
+      }
+      if (insn instanceof ASTORE) {//String variables 
+        System.out.println("getSourceLineASTORE = " + insn.getSourceLine());
+      }
+      if (insn instanceof PUTSTATIC) {//Set static field to "value" in a class
+        System.out.println("getSourceLinePUTSTATIC = " + insn.getSourceLine());
+      }
+    }
+    
+    
+    
+    
     if (insn instanceof InvokeInstruction) {
 
       
-      
-      
       InvokeInstruction inst = (InvokeInstruction) insn;
+   
       String methodName = inst.getInvokedMethodName(); //getKeyValuePairs()[Ljava/lang/String;
       String returnedParam = methodName.substring(methodName.indexOf(")") + 1, methodName.length()); //[Ljava/lang/String;
       try {
@@ -245,7 +304,7 @@ public class InfiniteListener extends ListenerAdapter {
             enabledEdges.add(outgoingEdges.get(k));
           }
         }
-      }
+      } //else???
       System.out.println("FRANCO: in choiceGeneratorSet N. of enabled edges = " + enabledEdges.size());
       if (!enabledEdges.isEmpty()) {
         EdgeCG cg = new EdgeCG("EdgeCG", enabledEdges);
@@ -285,15 +344,25 @@ public class InfiniteListener extends ListenerAdapter {
       if (lit.isNegated()) {
         return false;
       }else{
+        /*
+         * usiamo una variabile d'appoggio poichè al ritorno dalla ricorsione
+         * la label della guardia tolta (g.first) sarebbe persa del tutto.
+         */
+        Object labelcopy = g.first();
         g.remove(g.first());
-        return evaluateGuard (g,m);
+        boolean returnBool = evaluateGuard (g,m);
+        g.add(labelcopy);
+        return returnBool;
       }
     }else {
       if (!lit.isNegated()) {
         return false;
       }else{
+        Object labelcopy = g.first();
         g.remove(g.first());
-        return evaluateGuard (g,m);
+        boolean returnBool = evaluateGuard (g,m);
+        g.add(labelcopy);
+        return returnBool;
       }
     }
   }

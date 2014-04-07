@@ -9,7 +9,7 @@ package infinite;
 import gov.nasa.jpf.ltl.LTLSpec;
 
 // If you remove the breakTransition it is false.
-import gov.nasa.jpf.jvm.Verify;
+//import gov.nasa.jpf.jvm.Verify;
 import java.util.Random;
 
 @LTLSpec("([](<>\"done()\" && <>\"foo()\"))")

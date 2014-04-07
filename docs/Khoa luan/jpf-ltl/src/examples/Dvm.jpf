@@ -1,0 +1,6 @@
+@using jpf-symbc
+target=DVMMain
+finite=true
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples

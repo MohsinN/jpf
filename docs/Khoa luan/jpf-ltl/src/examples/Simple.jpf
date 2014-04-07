@@ -1,0 +1,9 @@
+@using jpf-symbc
+target=Simple
+
+#finite=true // wrong, because the current automata for finite trace if not correct? 
+finite=false
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples

@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmi:XMI xmlns:xmi="http://schema.omg.org/spec/XMI/2.1" xmlns:uml="http://schema.omg.org/spec/UML/2.0" xmi:version="2.1">
+	<xmi:Documentation contact="www.altova.com" exporter="Altova UModel2010r2" exporterVersion="6"/>
+	<xmi:Extension extender="UModel">
+		<OpenDiagrams activeDiagram="d9023091-7e2d-4330-8789-c6e3912282f5">
+			<OpenDiagramEntry>d9023091-7e2d-4330-8789-c6e3912282f5</OpenDiagramEntry>
+		</OpenDiagrams>
+		<Diagrams>
+			<uml:RootElement xmi:id="U00000002-7510-11d9-86f2-000476a22f44" xmi:uuid="00000002-7510-11d9-86f2-000476a22f44">
+				<guiRootGuiDiagram xmi:type="uml:SequenceDiagram" xmi:id="Ud9023091-7e2d-4330-8789-c6e3912282f5" xmi:uuid="d9023091-7e2d-4330-8789-c6e3912282f5" name="SequenceDiagram1" guiDiagramLinkedOwner="U19e11caa-04e9-4a4b-8431-d788d72ccf74">
+					<style showmessagenumbers="2"/>
+					<guiDiagramGuiLink xmi:type="uml:NodeLink" xmi:id="Ufeb31f23-c5cf-4596-80f8-12cec38af122" xmi:uuid="feb31f23-c5cf-4596-80f8-12cec38af122" guiLink_Element="U5e2df0fb-fe7b-423a-83ab-f844120c9bd4">
+						<style autosize="0"/>
+						<nodeRect Left="30" Top="30" Right="68" Bottom="650"/>
+						<guiNodeLinkGuiNodeLink xmi:type="uml:NodeLink" xmi:id="Ubf39a531-19b7-489a-b563-dee5fa669727" xmi:uuid="bf39a531-19b7-489a-b563-dee5fa669727" guiLink_Element="Udd739597-fa89-4b3d-8ea4-7059deac8e5c">
+							<nodeRect Left="44" Top="172" Right="54" Bottom="434"/>
+						</guiNodeLinkGuiNodeLink>
+						<guiNodeLinkGuiNodeLink xmi:type="uml:NodeLink" xmi:id="U17ba9f4b-accb-42ff-be3a-8e4bd6d215f4" xmi:uuid="17ba9f4b-accb-42ff-be3a-8e4bd6d215f4" guiLink_Element="U8e448648-3c91-425b-89d2-9c9a54207320">
+							<nodeRect Left="44" Top="434" Right="54" Bottom="454"/>
+						</guiNodeLinkGuiNodeLink>
+					</guiDiagramGuiLink>
+					<guiDiagramGuiLink xmi:type="uml:NodeLink" xmi:id="U848a3435-6276-4195-9e92-6dfdbee2635a" xmi:uuid="848a3435-6276-4195-9e92-6dfdbee2635a" guiLink_Element="U0db3aed6-45ea-4055-baf1-f8292be8eae4">
+						<style autosize="0"/>
+						<nodeRect Left="240" Top="30" Right="330" Bottom="654"/>
+						<guiNodeLinkGuiNodeLink xmi:type="uml:NodeLink" xmi:id="Ued694469-dd14-4585-aeb7-253bbebf0e28" xmi:uuid="ed694469-dd14-4585-aeb7-253bbebf0e28" guiLink_Element="Ud957bc9c-42e8-42dc-9c50-08cf482eef97">
+							<nodeRect Left="280" Top="172" Right="290" Bottom="185"/>
+						</guiNodeLinkGuiNodeLink>
+						<guiNodeLinkGuiNodeLink xmi:type="uml:NodeLink" xmi:id="U828b1e7e-a588-49c8-a248-8da2b06d8019" xmi:uuid="828b1e7e-a588-49c8-a248-8da2b06d8019" guiLink_Element="U8e62303e-0b43-4971-9281-b39d27660b76">
+							<nodeRect Left="280" Top="185" Right="290" Bottom="434"/>
+						</guiNodeLinkGuiNodeLink>
+						<guiNodeLinkGuiNodeLink xmi:type="uml:NodeLink" xmi:id="U0b6a208d-34d4-4c90-96f7-76cb557296b0" xmi:uuid="0b6a208d-34d4-4c90-96f7-76cb557296b0" guiLink_Element="Ud2e84398-5466-44ad-b5d8-8456e3b648fa">
+							<nodeRect Left="280" Top="200" Right="295" Bottom="231"/>
+						</guiNodeLinkGuiNodeLink>
+					</guiDiagramGuiLink>
+					<guiDiagramGuiLink xmi:type="uml:LineLink" xmi:id="Ub6b1fa83-f965-41b6-afda-6d1c33c37650" xmi:uuid="b6b1fa83-f965-41b6-afda-6d1c33c37650" guiLink_Element="U48b669d5-1953-4229-94c9-11f3a1f082fe" guiLineLink_LineBegin="U848a3435-6276-4195-9e92-6dfdbee2635a" guiLineLink_LineEnd="U848a3435-6276-4195-9e92-6dfdbee2635a">
+						<guiLineLink_LineMiddleWaypoint xmi:type="uml:MiddleWaypoint" xmi:id="U2a041c08-ee83-411a-b57c-214ce23c5a22" xmi:uuid="2a041c08-ee83-411a-b57c-214ce23c5a22">
+							<pos X="320" Y="190"/>
+							<guiTextLabelWaypoint_TextLabel xmi:type="uml:TextLabel" xmi:id="U00ae4bef-83aa-4a9e-984d-514afbdef87e" xmi:uuid="00ae4bef-83aa-4a9e-984d-514afbdef87e" textLabel="15" guiTextLabel_Element="U48b669d5-1953-4229-94c9-11f3a1f082fe">
+								<pos X="-15" Y="-24"/>
+							</guiTextLabelWaypoint_TextLabel>
+						</guiLineLink_LineMiddleWaypoint>
+						<guiLineLinkWaypoint xmi:type="uml:EndWaypoint" xmi:id="Ufe950dc1-e87c-4e53-9c4c-feb8ac8f4c7e" xmi:uuid="fe950dc1-e87c-4e53-9c4c-feb8ac8f4c7e" alignment="5">
+							<pos X="290" Y="185"/>
+						</guiLineLinkWaypoint>
+						<guiLineLinkWaypoint xmi:type="uml:Waypoint" xmi:id="U97f5185b-e76d-4cda-a51c-783bec06b68e" xmi:uuid="97f5185b-e76d-4cda-a51c-783bec06b68e">
+							<pos X="320" Y="185"/>
+						</guiLineLinkWaypoint>
+						<guiLineLinkWaypoint xmi:type="uml:Waypoint" xmi:id="U02fc3620-3171-4bcc-bfe8-ec7212c9d6ea" xmi:uuid="02fc3620-3171-4bcc-bfe8-ec7212c9d6ea">
+							<pos X="320" Y="200"/>
+						</guiLineLinkWaypoint>
+						<guiLineLinkWaypoint xmi:type="uml:EndWaypoint" xmi:id="U3a5f76b2-4bbc-4aeb-bcd6-ae054afd08d6" xmi:uuid="3a5f76b2-4bbc-4aeb-bcd6-ae054afd08d6" alignment="5">
+							<pos X="295" Y="200"/>
+						</guiLineLinkWaypoint>
+					</guiDiagramGuiLink>
+					<guiDiagramGuiLink xmi:type="uml:LineLink" xmi:id="U47d8f80e-e64c-4b24-a7a5-33d03e190100" xmi:uuid="47d8f80e-e64c-4b24-a7a5-33d03e190100" guiLink_Element="Udac1038d-4727-43d6-84bc-521748bceb49" guiLineLink_LineBegin="Ufeb31f23-c5cf-4596-80f8-12cec38af122" guiLineLink_LineEnd="U848a3435-6276-4195-9e92-6dfdbee2635a">
+						<guiLineLink_LineMiddleWaypoint xmi:type="uml:MiddleWaypoint" xmi:id="Ub61c457e-7b88-476f-915d-06cf9c1b09c1" xmi:uuid="b61c457e-7b88-476f-915d-06cf9c1b09c1">
+							<pos X="167" Y="172"/>
+							<guiTextLabelWaypoint_TextLabel xmi:type="uml:TextLabel" xmi:id="Udd0e0354-940e-465f-929f-44e669344293" xmi:uuid="dd0e0354-940e-465f-929f-44e669344293" textLabel="15" guiTextLabel_Element="Udac1038d-4727-43d6-84bc-521748bceb49">
+								<pos X="-57" Y="-25"/>
+							</guiTextLabelWaypoint_TextLabel>
+						</guiLineLink_LineMiddleWaypoint>
+						<guiLineLinkWaypoint xmi:type="uml:EndWaypoint" xmi:id="U9d04ed25-d33f-4f45-bbb6-8dc1da2bbd9c" xmi:uuid="9d04ed25-d33f-4f45-bbb6-8dc1da2bbd9c" alignment="5">
+							<pos X="54" Y="172"/>
+						</guiLineLinkWaypoint>
+						<guiLineLinkWaypoint xmi:type="uml:EndWaypoint" xmi:id="U6785eb47-da4e-4f09-a34a-99e7ebfff0eb" xmi:uuid="6785eb47-da4e-4f09-a34a-99e7ebfff0eb" alignment="5">
+							<pos X="280" Y="172"/>
+						</guiLineLinkWaypoint>
+					</guiDiagramGuiLink>
+					<guiDiagramGuiLink xmi:type="uml:LineLink" xmi:id="Ua1e4b144-56ff-4f17-befd-b56561b3bd9f" xmi:uuid="a1e4b144-56ff-4f17-befd-b56561b3bd9f" guiLink_Element="U14f762c4-0dd3-4e2b-a89f-cd8f7f519fff" guiLineLink_LineBegin="U848a3435-6276-4195-9e92-6dfdbee2635a" guiLineLink_LineEnd="Ufeb31f23-c5cf-4596-80f8-12cec38af122">
+						<guiLineLink_LineMiddleWaypoint xmi:type="uml:MiddleWaypoint" xmi:id="Uf79e4148-70b7-48ca-905d-b5489996c3f4" xmi:uuid="f79e4148-70b7-48ca-905d-b5489996c3f4">
+							<pos X="167" Y="434"/>
+							<guiTextLabelWaypoint_TextLabel xmi:type="uml:TextLabel" xmi:id="Uac0227d6-ef94-4fda-b79e-f736fd995832" xmi:uuid="ac0227d6-ef94-4fda-b79e-f736fd995832" textLabel="15" guiTextLabel_Element="U14f762c4-0dd3-4e2b-a89f-cd8f7f519fff">
+								<pos X="-17" Y="-20"/>
+							</guiTextLabelWaypoint_TextLabel>
+						</guiLineLink_LineMiddleWaypoint>
+						<guiLineLinkWaypoint xmi:type="uml:EndWaypoint" xmi:id="Uc42fb588-a0c1-4f3d-b8fb-a159512d2ae4" xmi:uuid="c42fb588-a0c1-4f3d-b8fb-a159512d2ae4" alignment="5">
+							<pos X="280" Y="434"/>
+						</guiLineLinkWaypoint>
+						<guiLineLinkWaypoint xmi:type="uml:EndWaypoint" xmi:id="U03d8194f-9655-45d1-92ba-c7bd72625d44" xmi:uuid="03d8194f-9655-45d1-92ba-c7bd72625d44" alignment="5">
+							<pos X="54" Y="434"/>
+						</guiLineLinkWaypoint>
+					</guiDiagramGuiLink>
+					<guiDiagramGuiLink xmi:type="uml:SeparatedNodeLink" xmi:id="U5dddcdc2-4968-4960-b47d-78fb59652d4f" xmi:uuid="5dddcdc2-4968-4960-b47d-78fb59652d4f" guiLink_Element="U87739a29-c341-4fd0-b33f-b91e1a233a8e">
+						<style autosize="0"/>
+						<nodeRect Left="18" Top="124" Right="465" Bottom="255"/>
+					</guiDiagramGuiLink>
+					<guiDiagramLayer xmi:type="uml:DiagramLayer" xmi:id="U4108c591-33f4-485a-b84e-f22af0a9a4bc" xmi:uuid="4108c591-33f4-485a-b84e-f22af0a9a4bc" name="Default"/>
+				</guiRootGuiDiagram>
+			</uml:RootElement>
+		</Diagrams>
+	</xmi:Extension>
+	<uml:Package xmi:id="U00000001-7510-11d9-86f2-000476a22f44" xmi:uuid="00000001-7510-11d9-86f2-000476a22f44" name="Root" visibility="unspecified">
+		<ownedMember xmi:type="uml:Package" xmi:id="U00000003-7510-11d9-86f2-000476a22f44" xmi:uuid="00000003-7510-11d9-86f2-000476a22f44" name="Component View">
+			<ownedMember xmi:type="uml:Interaction" xmi:id="U19e11caa-04e9-4a4b-8431-d788d72ccf74" xmi:uuid="19e11caa-04e9-4a4b-8431-d788d72ccf74" name="Interaction1" isReentrant="true">
+				<lifeline xmi:type="uml:Lifeline" xmi:id="U5e2df0fb-fe7b-423a-83ab-f844120c9bd4" xmi:uuid="5e2df0fb-fe7b-423a-83ab-f844120c9bd4" name="User">
+					<coveredBy xmi:idref="U34ee7f1b-4c8c-49d1-9f2b-022438f941b7"/>
+					<coveredBy xmi:idref="Uc89f137a-a005-491f-9398-25683caf770b"/>
+					<coveredBy xmi:idref="U87739a29-c341-4fd0-b33f-b91e1a233a8e"/>
+				</lifeline>
+				<lifeline xmi:type="uml:Lifeline" xmi:id="U0db3aed6-45ea-4055-baf1-f8292be8eae4" xmi:uuid="0db3aed6-45ea-4055-baf1-f8292be8eae4" name="LoginSystem">
+					<coveredBy xmi:idref="U058b0bfe-d5dc-4934-8b63-66a08761d87e"/>
+					<coveredBy xmi:idref="U30d75c49-4837-45af-bad3-fad908e576d0"/>
+					<coveredBy xmi:idref="Ucfe2dd3d-02c7-490d-aa6e-b779b79f6835"/>
+					<coveredBy xmi:idref="U4160f3cc-ba02-49df-be99-fa2bbed186a5"/>
+					<coveredBy xmi:idref="U87739a29-c341-4fd0-b33f-b91e1a233a8e"/>
+				</lifeline>
+				<fragment xmi:type="uml:MessageOccurrenceSpecification" xmi:id="U058b0bfe-d5dc-4934-8b63-66a08761d87e" xmi:uuid="058b0bfe-d5dc-4934-8b63-66a08761d87e">
+					<message xmi:idref="U48b669d5-1953-4229-94c9-11f3a1f082fe"/>
+					<covered xmi:idref="U0db3aed6-45ea-4055-baf1-f8292be8eae4"/>
+				</fragment>
+				<fragment xmi:type="uml:MessageOccurrenceSpecification" xmi:id="U30d75c49-4837-45af-bad3-fad908e576d0" xmi:uuid="30d75c49-4837-45af-bad3-fad908e576d0">
+					<message xmi:idref="U48b669d5-1953-4229-94c9-11f3a1f082fe"/>
+					<covered xmi:idref="U0db3aed6-45ea-4055-baf1-f8292be8eae4"/>
+				</fragment>
+				<fragment xmi:type="uml:BehaviorExecutionSpecification" xmi:id="Ud2e84398-5466-44ad-b5d8-8456e3b648fa" xmi:uuid="d2e84398-5466-44ad-b5d8-8456e3b648fa" start="U30d75c49-4837-45af-bad3-fad908e576d0"/>
+				<fragment xmi:type="uml:BehaviorExecutionSpecification" xmi:id="U8e62303e-0b43-4971-9281-b39d27660b76" xmi:uuid="8e62303e-0b43-4971-9281-b39d27660b76" start="U058b0bfe-d5dc-4934-8b63-66a08761d87e"/>
+				<fragment xmi:type="uml:MessageOccurrenceSpecification" xmi:id="Ucfe2dd3d-02c7-490d-aa6e-b779b79f6835" xmi:uuid="cfe2dd3d-02c7-490d-aa6e-b779b79f6835">
+					<message xmi:idref="Udac1038d-4727-43d6-84bc-521748bceb49"/>
+					<covered xmi:idref="U0db3aed6-45ea-4055-baf1-f8292be8eae4"/>
+				</fragment>
+				<fragment xmi:type="uml:MessageOccurrenceSpecification" xmi:id="U34ee7f1b-4c8c-49d1-9f2b-022438f941b7" xmi:uuid="34ee7f1b-4c8c-49d1-9f2b-022438f941b7">
+					<message xmi:idref="Udac1038d-4727-43d6-84bc-521748bceb49"/>
+					<covered xmi:idref="U5e2df0fb-fe7b-423a-83ab-f844120c9bd4"/>
+				</fragment>
+				<fragment xmi:type="uml:BehaviorExecutionSpecification" xmi:id="Udd739597-fa89-4b3d-8ea4-7059deac8e5c" xmi:uuid="dd739597-fa89-4b3d-8ea4-7059deac8e5c" start="U34ee7f1b-4c8c-49d1-9f2b-022438f941b7"/>
+				<fragment xmi:type="uml:BehaviorExecutionSpecification" xmi:id="Ud957bc9c-42e8-42dc-9c50-08cf482eef97" xmi:uuid="d957bc9c-42e8-42dc-9c50-08cf482eef97" start="Ucfe2dd3d-02c7-490d-aa6e-b779b79f6835"/>
+				<fragment xmi:type="uml:MessageOccurrenceSpecification" xmi:id="Uc89f137a-a005-491f-9398-25683caf770b" xmi:uuid="c89f137a-a005-491f-9398-25683caf770b">
+					<message xmi:idref="U14f762c4-0dd3-4e2b-a89f-cd8f7f519fff"/>
+					<covered xmi:idref="U5e2df0fb-fe7b-423a-83ab-f844120c9bd4"/>
+				</fragment>
+				<fragment xmi:type="uml:MessageOccurrenceSpecification" xmi:id="U4160f3cc-ba02-49df-be99-fa2bbed186a5" xmi:uuid="4160f3cc-ba02-49df-be99-fa2bbed186a5">
+					<message xmi:idref="U14f762c4-0dd3-4e2b-a89f-cd8f7f519fff"/>
+					<covered xmi:idref="U0db3aed6-45ea-4055-baf1-f8292be8eae4"/>
+				</fragment>
+				<fragment xmi:type="uml:BehaviorExecutionSpecification" xmi:id="U8e448648-3c91-425b-89d2-9c9a54207320" xmi:uuid="8e448648-3c91-425b-89d2-9c9a54207320" start="Uc89f137a-a005-491f-9398-25683caf770b"/>
+				<fragment xmi:type="uml:CombinedFragment" xmi:id="U87739a29-c341-4fd0-b33f-b91e1a233a8e" xmi:uuid="87739a29-c341-4fd0-b33f-b91e1a233a8e" name="CombinedFragment1" interactionOperator="loop">
+					<operand xmi:type="uml:InteractionOperand" xmi:id="Uc93bdca3-7b9d-4ccc-924e-cd27f14134f7" xmi:uuid="c93bdca3-7b9d-4ccc-924e-cd27f14134f7" name="InteractionOperand">
+						<guard xmi:type="uml:InteractionConstraint" xmi:id="U1aa2763a-4ba0-4886-8bb2-793f0c918910" xmi:uuid="1aa2763a-4ba0-4886-8bb2-793f0c918910">
+							<maxint xmi:type="uml:LiteralString" xmi:id="Ubcb2673d-43cc-4347-b5ff-d0016c663cee" xmi:uuid="bcb2673d-43cc-4347-b5ff-d0016c663cee" value="n"/>
+							<minint xmi:type="uml:LiteralString" xmi:id="Ud76d953b-d6b8-48ba-98e1-48f9675e91fe" xmi:uuid="d76d953b-d6b8-48ba-98e1-48f9675e91fe" value="1"/>
+						</guard>
+					</operand>
+					<covered xmi:idref="U5e2df0fb-fe7b-423a-83ab-f844120c9bd4"/>
+					<covered xmi:idref="U0db3aed6-45ea-4055-baf1-f8292be8eae4"/>
+				</fragment>
+				<message xmi:type="uml:Message" xmi:id="U48b669d5-1953-4229-94c9-11f3a1f082fe" xmi:uuid="48b669d5-1953-4229-94c9-11f3a1f082fe" name="isAccountValid(userID,PIN)" sendEvent="U30d75c49-4837-45af-bad3-fad908e576d0" receiveEvent="U058b0bfe-d5dc-4934-8b63-66a08761d87e"/>
+				<message xmi:type="uml:Message" xmi:id="Udac1038d-4727-43d6-84bc-521748bceb49" xmi:uuid="dac1038d-4727-43d6-84bc-521748bceb49" name="login(userID,PIN)" sendEvent="U34ee7f1b-4c8c-49d1-9f2b-022438f941b7" receiveEvent="Ucfe2dd3d-02c7-490d-aa6e-b779b79f6835"/>
+				<message xmi:type="uml:Message" xmi:id="U14f762c4-0dd3-4e2b-a89f-cd8f7f519fff" xmi:uuid="14f762c4-0dd3-4e2b-a89f-cd8f7f519fff" name="Reply1" sendEvent="U4160f3cc-ba02-49df-be99-fa2bbed186a5" receiveEvent="Uc89f137a-a005-491f-9398-25683caf770b">
+					<xmi:Extension extender="UModel">
+						<attributeExtension messageSort="reply"/>
+					</xmi:Extension>
+				</message>
+			</ownedMember>
+		</ownedMember>
+	</uml:Package>
+</xmi:XMI>

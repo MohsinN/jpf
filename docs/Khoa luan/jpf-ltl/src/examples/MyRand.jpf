@@ -1,0 +1,9 @@
+@using jpf-symbc
+target=MyRand
+
+finite=true
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+
+cg.enumerate_random=true

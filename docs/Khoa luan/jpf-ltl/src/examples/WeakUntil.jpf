@@ -1,0 +1,12 @@
+@using jpf-symbc
+target=WeakUntil
+#target_args=7,0
+target_args=1,0
+finite=true
+#symbolic.method=WeakUntil.test(sym#sym)
+
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+

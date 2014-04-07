@@ -1,0 +1,14 @@
+target = BSTDriverSequences
+
+classpath = ${jpf-ltl}/build/tests
+sourcepath = ${jpf-ltl}/src/tests
+
+symbolic.method = BST.add(sym),BST.remove(sym),BST.find(sym)
+symbolic.dp=cvc3
+
+coverage.show_methods=true
+coverage.show_bodies=true 
+
+listener = gov.nasa.jpf.symbc.SymbolicListener
+#listener = gov.nasa.jpf.listener.CallMonitor
+ 

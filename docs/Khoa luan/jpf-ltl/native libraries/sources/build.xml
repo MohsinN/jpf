@@ -1,0 +1,10 @@
+<project name="decision proc.s" basedir="." default="compile">
+
+<property name="ccompiler"           value="gcc"/>
+<property name="libmba.home"         value="/home/saswat/libmba-0.9.1" /> 
+<property name="omega.home"          value="/home/saswat/work/omega" />
+
+
+<cc name=${ccompiler} outtype="shared" optimize="aggressive" outfile="libomega-interface.so"
+
+</project>

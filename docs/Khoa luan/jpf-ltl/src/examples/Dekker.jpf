@@ -1,0 +1,6 @@
+@using jpf-symbc
+target=Dekker
+finite=true
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples

@@ -1,0 +1,11 @@
+target = MyTest1
+
+classpath = ${jpf-ltl}/build/tests
+sourcepath = ${jpf-ltl}/src/tests
+
+symbolic.method = MyTest1.test(sym#sym#sym)
+symbolic.dp=cvc3
+
+listener = gov.nasa.jpf.symbc.SymbolicListener
+#listener = gov.nasa.jpf.listener.CallMonitor
+ 

@@ -1,0 +1,9 @@
+@using jpf-symbc
+target=Frogs
+finite=false
+
+#vm.por.sync_detection=false
+#search.class = .search.heuristic.BFSHeuristic
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples

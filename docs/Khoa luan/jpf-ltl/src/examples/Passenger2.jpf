@@ -1,0 +1,9 @@
+@using jpf-symbc
+target=Passenger2
+
+finite=true
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+

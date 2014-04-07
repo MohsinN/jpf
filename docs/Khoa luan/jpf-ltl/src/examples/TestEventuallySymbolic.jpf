@@ -1,0 +1,11 @@
+@using jpf-symbc
+target=Eventually
+
+finite=true
+
+symbolic.method=Eventually.foo(sym#sym)
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+

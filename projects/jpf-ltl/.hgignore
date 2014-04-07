@@ -9,3 +9,8 @@ dist/*
 activity*.png
 *~
 *.DS_Store
+\.orig\..*$
+\.orig$
+\.chg\..*$
+\.rej$
+\.conflict\~$

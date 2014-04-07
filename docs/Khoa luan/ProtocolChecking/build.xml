@@ -1,0 +1,48 @@
+<project name="ProtocolVerifying" default="build" basedir=".">
+    <description>
+        simple example build file
+    </description>
+  <!-- set global properties for this build -->
+  <property name="src" location="src"/>
+  <property name="build" location="build"/>
+  <property name="classes.dir" location="${build}/classes"/>
+  <property name="lib.dir" location="jpf-libs"/>
+  <property name="debug" value="on"/>
+  <property name="jar.dir" location="${build}/jar"/>
+  
+  <path id="classpath">
+	<fileset dir="${lib.dir}" includes = "**/**/*.jar"/>
+  </path>
+  <target name="init">
+    <!-- Create the time stamp -->
+    <tstamp/>
+    <!-- Create the build directory structure used by compile -->
+    <mkdir dir="${build}"/>
+	<mkdir dir="${classes.dir}"/>
+  </target>
+
+  <target name="build" depends="init"
+        description="compile the source " >
+    <!-- Compile the java code from ${src} into ${build} -->
+    <javac srcdir="${src}" destdir="${classes.dir}" debug = "${debug}" classpathref="classpath"/>
+  </target>
+
+  <target name="jar" depends="build"
+        description="generate the jar file" >
+    <!-- Create the jar directory -->
+    <mkdir dir="${jar.dir}"/>
+
+    <!-- Put everything in ${build} into the MyProject-${DSTAMP}.jar file -->
+    <jar jarfile="${jar.dir}/Protocol.jar" basedir="${classes.dir}">
+		<manifest>
+			<attribute name="Main-Class" value="RunProtocolChecking"/>
+		</manifest>
+	</jar>
+  </target>
+
+  <target name="clean"
+        description="clean up" >
+    <!-- Delete the ${build} and ${dist} directory trees -->
+    <delete dir="${build}"/>
+  </target>
+</project>

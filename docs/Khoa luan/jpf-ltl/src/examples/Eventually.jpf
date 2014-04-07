@@ -1,0 +1,8 @@
+@using jpf-symbc
+target=Eventually
+finite=true
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+
