@@ -7,7 +7,7 @@
 	<classpathentry kind="lib" path="lib/commons-lang-2.4.jar"/>
 	<classpathentry kind="lib" path="lib/hampi.jar"/>
 	<classpathentry kind="lib" path="lib/iasolver.jar"/>
-	<classpathentry kind="lib" path="lib/libcvc3.jar"/>
+	<classpathentry kind="lib" path="lib/libcvc3.jar" sourcepath="/Users/bui.khanh/Downloads/cvc3-2.4.1/java"/>
 	<classpathentry kind="lib" path="lib/scale.jar"/>
 	<classpathentry kind="lib" path="lib/STPJNI.jar"/>
 	<classpathentry kind="lib" path="lib/string.jar"/>

@@ -1,0 +1,14 @@
+@using jpf-symbc
+target=infinite.symbolic.Raimondi
+finite=false
+
+symbolic.method=infinite.symbolic.Raimondi.test(sym)
+symbolic.dp=cvc3
+
+classpath=${jpf-ltl}/build/examples
+
+sourcepath=${jpf-ltl}/src/examples
+
+search.class=gov.nasa.jpf.ltl.infinite.DDFSearch
+vm.storage.class=gov.nasa.jpf.jvm.FullStateSet
+#vm.serializer.class=gov.nasa.jpf.ltl.infinite.SymbolicFilteringSerializer
