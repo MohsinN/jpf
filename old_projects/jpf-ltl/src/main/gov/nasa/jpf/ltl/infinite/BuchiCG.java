@@ -17,11 +17,10 @@ public abstract class BuchiCG<AtomT> extends ChoiceGenerator<Node<AtomT>> {
 	protected int choices;
 	protected int index;
 	protected int bitIndex;
-	protected int m;
 	protected int ssid;
 
 	public BuchiCG(Node<AtomT> n) {
-		super("BuchiCG");
+		super("" + BuchiCG.n++);
 
 		node = n;
 
@@ -38,9 +37,9 @@ public abstract class BuchiCG<AtomT> extends ChoiceGenerator<Node<AtomT>> {
 
 		index = -1;
 		bitIndex = -1;
-		m = BuchiCG.n++;
-		setId("" + m);
 		ssid = JVM.getVM().getStateId();
+
+		System.err.println("new BuchiCG " + choices + ", " + nextIndices + ", " + n);
   }
 
 	abstract protected boolean testGuard(Guard<AtomT> g);
@@ -91,7 +90,7 @@ public abstract class BuchiCG<AtomT> extends ChoiceGenerator<Node<AtomT>> {
 
 	@Override
 	public String toString() {
-		return super.toString() + " [ssid=" + ssid + "]";
+		return super.toString() + " [ssid=" + ssid + ", " + index + ", " + choices + ", " + bitIndex + "]";
 	}
 
 	@Override

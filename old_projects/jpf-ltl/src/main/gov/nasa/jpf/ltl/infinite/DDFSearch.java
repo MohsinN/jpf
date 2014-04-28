@@ -3,10 +3,12 @@ package gov.nasa.jpf.ltl.infinite;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.LinkedList;
+
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.search.Search;
+import gov.nasa.jpf.symbc.numeric.PCChoiceGenerator;
 import gov.nasa.ltl.graph.Graph;
 import gov.nasa.ltl.graph.Node;
 
@@ -61,6 +63,8 @@ public class DDFSearch extends Search {
 
 		symbolicLTLListener = new SymbolicLTLListener();
 		addListener(symbolicLTLListener);
+		vm.addListener(symbolicLTLListener);
+		System.out.println("DDFSearch: " + symbolicLTLListener);
 
 		if (config.getBoolean("search.multiple_errors")) {
 			config.setProperty("search.multiple_errors", "false");
@@ -71,6 +75,7 @@ public class DDFSearch extends Search {
 	public void search() {
 		notifySearchStarted();
 
+		log("search", "start dfs1");
 		recordVisit(dfs1Stack);
 		recordVisit(dfs1Table);
 
@@ -88,30 +93,38 @@ public class DDFSearch extends Search {
 			}
 
 			if (forward()) {
-				if (seenBefore(dfs1Table)) {
+				log("search", "forwarded");
+				if (seenBefore(dfs1Table, 1)) {
+					log("search", "in table 1 and backtrack");
 					backtrack();
 				}
 				else {
+					log("search", "not in table 1 and record");
 					recordVisit(dfs1Stack);
 					recordVisit(dfs1Table);
 
 					if (isPropertyViolated()) {
+						log("search", "not in table 1, record and isPropertyViolated");
 						break;
 					}
 				}
 			}
 			else {
+				log("search", "can not forward");
 				if (spec != null && inAcceptingState() && dfs2()) {
+					log("search", "can not forward and end dfs2 and violated");
 					prop.setViolated();
 					isPropertyViolated();
 					break;
 				}
 
 				if (depth == 0) {
+					log("search", "can not forward but depth=0 -> terminated");
 					terminate();
 					break;
 				}
 
+				log("search", "can not forward and backtrack");
 				dfs1Stack.pop();
 				boolean canBackTrack = backtrack();
 				assert canBackTrack : "Can not dfs1.backtrack";
@@ -124,27 +137,38 @@ public class DDFSearch extends Search {
 	protected boolean dfs2() {
 		final int startDepth = depth;
 
+		log("dfs2", "start dfs2 " + startDepth);
+
 		if (vm.getChoiceGenerator() != null) {
 			vm.getChoiceGenerator().reset();
 		}
 
 		while (true) {
-			if (seenBefore(dfs2Table)) {
-				assert depth > startDepth;
+			if (seenBefore(dfs2Table, 2)) {
+				log("dfs2", "in table 2 -> backtrack " + depth + ", " + startDepth);
+				if (depth == startDepth) {
+					return false;
+				}
+				assert depth > startDepth : "depth > startDepth " + depth + ", " + startDepth;
 				backtrack();
 			}
 			else {
+				log("dfs2", "not in table 2 -> record");
 				recordVisit(dfs2Table);
 			}
 
-			if (seenBefore(dfs1Stack) && depth > startDepth) {
+			if (seenBefore(dfs1Stack, 1) && depth > startDepth) {
+				log("dfs2", "in stack 1 -> return and will be violated");
 				return true;
 			}
 
 			while (!forward()) {
+				log("dfs2", "can not forward");
 				if (depth == startDepth) {
+					log("dfs2", "can not forward and backtracked some times and can not backtrack now -> return and will not be violated");
 					return false;
 				}
+				log("dfs2", "can not forward -> backtrack");
 				backtrack();
 			}
 		}
@@ -153,6 +177,7 @@ public class DDFSearch extends Search {
 	@Override
 	protected boolean forward() {
 		if (vm.isEndState()) {
+			log("forward", "is end state -> can not foward");
 			return false;
 		}
 
@@ -162,6 +187,7 @@ public class DDFSearch extends Search {
 		do {
 			if (!vm.getCurrentThread().isRunnable()) {
 				canForward = false;
+				log("forward.not runable");
 				break;
 			}
 
@@ -170,6 +196,7 @@ public class DDFSearch extends Search {
 			haveProgress = true;
 			symbolicLTLListener.setFirstStep();
 			id = vm.getStateId();
+			log("forward.while", haveProgress + ", " + id + ", " + runsWithoutProgress + ", " + canForward);
 			canForward = super.forward();
 
 			if (!haveProgress) {
@@ -177,16 +204,23 @@ public class DDFSearch extends Search {
 			}
 
 			runsWithoutProgress++;
+			log("forward.while-->", haveProgress + ", " + id + ", " + runsWithoutProgress + ", " + canForward);
+			if (canForward && !haveProgress && vm.getStateId() == id) {
+				log("forward.while-->", "no progress -> forward again \n\n" + firstFewCGs());
+			}
 	    }
 		while (canForward && !haveProgress && vm.getStateId() == id);
 
+		log("forward?", canForward);
 		if (canForward) {
 			if (!createNextCg()) {
+				log("forward", "can forward but can not create next cg -> backtrack and return as can not forward");
 				super.backtrack();
+				notifyStateBacktracked();
 				return false;
 			}
 
-			System.err.println ("forward: PC = " + vm.getCurrentThread ().getPC());
+			log("forward", "can forward and created next cg");
 
 			depth++;
 			notifyStateAdvanced();
@@ -194,15 +228,18 @@ public class DDFSearch extends Search {
 			return true;
 		}
 		else {
+			log("forward", "can not forward");
 			if (buchiCGs.isEmpty()) {
 				return false;
 			}
+			log("forward", "can not forward and buchi not empty");
 
 			BuchiCG<String> bcg = buchiCGs.peek();
 			if (!bcg.hasMoreChoices()) {
 				return false;
 			}
 			bcg.advance();
+			log("forward", "can not forward and bcg has more choices and advanced bcg --> reset cg and try to forward again");
 
 			ChoiceGenerator<?> cg = vm.getChoiceGenerator();
 			cg.reset();
@@ -213,7 +250,10 @@ public class DDFSearch extends Search {
 
 	@Override
 	protected boolean backtrack() {
-		if (super.backtrack() || // TODO: SNAFU in jpf-core
+		boolean canBacktrack = super.backtrack();
+		log("backtrack?", canBacktrack);
+
+		if (canBacktrack || // TODO: SNAFU in jpf-core
 				(vm.getStateId() == -1 && vm.getStateSet() != null)) {
 			if (spec != null) {
 				buchiCGs.pop();
@@ -221,31 +261,39 @@ public class DDFSearch extends Search {
 
 			depth--;
 			notifyStateBacktracked();
+			log("backtracked", "canBacktrack=" + canBacktrack + ", buchiCGs.size=" + buchiCGs.size());
 
 			return true;
 		}
 		else {
+			log("not backtracked", "canBacktrack=" + canBacktrack + ", buchiCGs.size=" + buchiCGs.size());
 			return false;
 		}
 	}
 
-	protected boolean seenBefore(HashMap<Integer, BitSet> table) {
+	protected boolean seenBefore(HashMap<Integer, BitSet> table, int tableNum) {
+		boolean seen;
 		int stateId = vm.getStateId();
 		if (!table.containsKey(stateId)) {
-			return false;
-		}
-
-		Node<String> n = currentNode();
-		if (n != null) {
-			return table.get(stateId).get(currentNode().getId() + 1);
+			seen = false;
 		}
 		else {
-			return table.get(stateId).get(0);
+			Node<String> n = currentNode();
+			if (n != null) {
+				seen = table.get(stateId).get(currentNode().getId() + 1);
+			}
+			else {
+				seen = table.get(stateId).get(0);
+			}
 		}
+		log("isInTable?", seen + ", " + tableNum);
+		return seen;
 	}
 
-	protected boolean seenBefore(LinkedList<Pair> stack) {
-		return stack.contains(new Pair(vm.getStateId(), currentNode()));
+	protected boolean seenBefore(LinkedList<Pair> stack, int stackNum) {
+		boolean seen = stack.contains(new Pair(vm.getStateId(), currentNode()));
+		log("isInStack?", seen + ", " + stackNum);
+		return seen;
 	}
 
 	protected void recordVisit(HashMap<Integer, BitSet> table) {
@@ -303,8 +351,6 @@ public class DDFSearch extends Search {
 			return true;
 		}
 
-		assert cg != null;
-
 		Node<String> nextNode = cg.getNextChoice();
 		BuchiCG<String> cgNew = new AtomBuchiCG(nextNode);
 		if (cgNew.hasMoreChoices()) {
@@ -314,6 +360,7 @@ public class DDFSearch extends Search {
 			return false;
 		}
 		buchiCGs.push(cgNew);
+		log("createNextCg", "buchiCGs.size=" + buchiCGs.size() + ", cgNew=" + cgNew);
 		return true;
 	}
 
@@ -341,12 +388,22 @@ public class DDFSearch extends Search {
 		}
 		else {
 			r += "null";
-			r += ", CUR: ";
-			cg = vm.getChoiceGenerator();
-			for (int i = 0; i < 3 && cg != null; i++, cg = cg.getPreviousChoiceGenerator()) {
-				r += cg.toString().trim() + "[" + cg.getProcessedNumberOfChoices() + "/" + cg.getTotalNumberOfChoices() + "], ";
+		}
+		r += ",\nCUR: ";
+		cg = vm.getChoiceGenerator();
+		for (; cg != null; cg = cg.getPreviousChoiceGenerator()) {
+			if ((cg instanceof PCChoiceGenerator)) {
+				r += cg.toString().trim() + "[" + cg.getProcessedNumberOfChoices() + "/" + cg.getTotalNumberOfChoices() + "]\n";
 			}
 		}
 		return r;
+	}
+
+	private void log(String title) {
+		log(title, "");
+	}
+
+	private void log(String title, Object others) {
+		System.err.println(title + ": depth=" + depth + ", stateId=" + vm.getStateId() + /*", PC=" + vm.getCurrentThread ().getPC() + */", " + others /*+ ", pc=" + PathCondition.getPC(JVM.getVM())*/);
 	}
 }

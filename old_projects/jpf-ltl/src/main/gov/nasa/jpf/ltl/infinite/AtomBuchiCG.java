@@ -23,6 +23,7 @@ class AtomBuchiCG extends BuchiCG<String> {
 
 	public AtomBuchiCG(Node<String> n) {
 		super(n);
+
 		originalPC = PathCondition.getPC(JVM.getVM());
 	}
 
@@ -30,6 +31,7 @@ class AtomBuchiCG extends BuchiCG<String> {
 	protected boolean testGuard(Guard<String> g) {
 		for (Literal<String> l: g) {
 			Atom a = stringToAtom(l.getAtom());
+			System.err.println("BuchiCG.testGuard " + l.getAtom());
 			// TODO: incomplete!
 			if (!(a.isSatisfiable() ^ l.isNegated())) {
 				return false;
@@ -56,6 +58,8 @@ class AtomBuchiCG extends BuchiCG<String> {
 	public void advance() {
 		super.advance();
 
+		System.err.println("AtomBuchiCG.advance: " + toString());
+
 		if (originalPC == null) {
 			return;
 		}
@@ -65,6 +69,10 @@ class AtomBuchiCG extends BuchiCG<String> {
 			Atom a = stringToAtom(l.getAtom());
 
 			Set<Constraint> constraints = a.getConstraints();
+			System.err.println("AtomBuchiCG.advance: for guard=" + l.getAtom() + ", atom=" + a.getText() + ", constraints=" + constraints);
+			if (constraints == null) {
+				continue;
+			}
 			for(Constraint c: constraints) {
 				if (l.isNegated()) {
 					guardPC.prependUnlessRepeated(c.not());
@@ -87,6 +95,14 @@ class AtomBuchiCG extends BuchiCG<String> {
 
 		if (cg instanceof PCChoiceGenerator) {
 			((PCChoiceGenerator) cg).setCurrentPC(pc);
+			System.err.println("AtomBuchiCG.setPc: " + pc);
+			return;
 		}
-  }
+		assert false : "Can not set PC " + pc;
+	}
+
+	@Override
+	public String toString() {
+		return super.toString() + ", originalPC=" + originalPC;
+	}
 }

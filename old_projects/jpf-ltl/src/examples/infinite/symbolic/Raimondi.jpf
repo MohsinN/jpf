@@ -1,6 +1,8 @@
 @using jpf-symbc
+
 target=infinite.symbolic.Raimondi
 finite=false
+#show_buchi=true
 
 symbolic.method=infinite.symbolic.Raimondi.test(sym)
 symbolic.dp=cvc3
@@ -10,5 +12,7 @@ classpath=${jpf-ltl}/build/examples
 sourcepath=${jpf-ltl}/src/examples
 
 search.class=gov.nasa.jpf.ltl.infinite.DDFSearch
-vm.storage.class=gov.nasa.jpf.jvm.FullStateSet
+#vm.storage.class=gov.nasa.jpf.jvm.FullStateSet
 #vm.serializer.class=gov.nasa.jpf.ltl.infinite.SymbolicFilteringSerializer
+
+#listener = gov.nasa.jpf.ltl.finite.LTLListener

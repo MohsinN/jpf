@@ -20,6 +20,6 @@
 	<classpathentry kind="lib" path="lib/jung-visualization-2.0.1.jar"/>
 	<classpathentry kind="lib" path="lib/junit-4.6.jar"/>
 	<classpathentry kind="lib" path="lib/ltl2buchi.jar"/>
-	<classpathentry kind="lib" path="lib/libcvc3.jar"/>
+	<classpathentry kind="lib" path="lib/libcvc3.jar" sourcepath="/Users/bui.khanh/Downloads/cvc3-2.4.1/java"/>
 	<classpathentry kind="output" path="build"/>
 </classpath>
