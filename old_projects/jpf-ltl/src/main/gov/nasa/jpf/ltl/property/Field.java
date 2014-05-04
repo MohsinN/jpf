@@ -1,7 +1,7 @@
 /**
  * 
  */
-package gov.nasa.jpf.ltl.finite;
+package gov.nasa.jpf.ltl.property;
 
 import java.util.Set;
 import java.util.TreeSet;
@@ -115,7 +115,7 @@ public class Field {
     return localType.substring(1);
   }
 
-  FieldInfo getFieldInfo() {
+  public FieldInfo getFieldInfo() {
     return fieldInfo;
   }
 
@@ -210,11 +210,11 @@ public class Field {
       return getConcreteValue(eis.get(instanceOrder - 1));
   }
   
-  void addElementInfo(ElementInfo ei) {
+  public void addElementInfo(ElementInfo ei) {
     eis.add(ei);
   }
   
-  void removeElementInfo(ElementInfo ei) {
+  public void removeElementInfo(ElementInfo ei) {
     int i = eis.indexOf(ei);
     if(i != -1) {
       eis.remove(ei);
@@ -248,7 +248,7 @@ public class Field {
    * @param sf
    *          The new stack frame.
    */
-  void setStackFrame(StackFrame sf) {
+  public void setStackFrame(StackFrame sf) {
     stackFrame = sf;
   }
 

@@ -1,7 +1,7 @@
 /**
  * 
  */
-package gov.nasa.jpf.ltl.finite;
+package gov.nasa.jpf.ltl.atom;
 
 import gov.nasa.jpf.symbc.numeric.Expression;
 import gov.nasa.jpf.symbc.numeric.IntegerExpression;

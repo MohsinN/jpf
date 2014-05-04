@@ -8,9 +8,9 @@ import org.antlr.runtime.RecognitionException;
 
 import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.ltl.finite.Atom;
-import gov.nasa.jpf.ltl.finite.LTLSpecLexer;
-import gov.nasa.jpf.ltl.finite.LTLSpec_SymbolicAtom;
+import gov.nasa.jpf.ltl.atom.Atom;
+import gov.nasa.jpf.ltl.parser.LTLSpecLexer;
+import gov.nasa.jpf.ltl.parser.LTLSpec_SymbolicAtom;
 import gov.nasa.jpf.symbc.numeric.Constraint;
 import gov.nasa.jpf.symbc.numeric.PCChoiceGenerator;
 import gov.nasa.jpf.symbc.numeric.PathCondition;
@@ -29,6 +29,7 @@ class AtomBuchiCG extends BuchiCG<String> {
 
 	@Override
 	protected boolean testGuard(Guard<String> g) {
+		System.err.println("BuchiCG.testGuard " + g + ", " + g.size());
 		for (Literal<String> l: g) {
 			Atom a = stringToAtom(l.getAtom());
 			System.err.println("BuchiCG.testGuard " + l.getAtom());
@@ -69,7 +70,7 @@ class AtomBuchiCG extends BuchiCG<String> {
 			Atom a = stringToAtom(l.getAtom());
 
 			Set<Constraint> constraints = a.getConstraints();
-			System.err.println("AtomBuchiCG.advance: for guard=" + l.getAtom() + ", atom=" + a.getText() + ", constraints=" + constraints);
+			System.err.println("AtomBuchiCG.advance: for guard=" + l.getAtom() + ", atom=" + a + ", atom.text=" + a.getText() + ", constraints=" + constraints);
 			if (constraints == null) {
 				continue;
 			}

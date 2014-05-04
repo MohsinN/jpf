@@ -136,14 +136,17 @@ public class SymbolicFilteringSerializer extends SimpleFilteringSerializer {
 
   protected ArrayList<Object> pathConstraints = new ArrayList<Object>();
 
-  protected int pathConditionIndex(PathCondition pc) {
+protected int pathConditionIndex(PathCondition pc) {
     if (pc == null)
       return -1;
     // TODO: 1?
     Object pcConstraint = ltlConstrains.getConstraint(pc, 1);
-    for (int i = pathConstraints.size() - 1; i >= 0; i++)
+    for (int i = pathConstraints.size() - 1; i >= 0; i--) {
+      System.out.println("pathConditionIndex " + i + ", " + pc + ", " + pcConstraint + ", " + pathConstraints.get(i));
       if (isEquivalent(pcConstraint, pathConstraints.get(i)))
         return i;
+    }
+    System.out.println("pathConditionIndex added " + pc + ", " + pcConstraint);
     pathConstraints.add(pcConstraint);
     return pathConstraints.size() - 1;
   }

@@ -20,17 +20,20 @@ package gov.nasa.jpf.symbc.numeric;
 
 import gov.nasa.jpf.jvm.IntChoiceGenerator;
 import gov.nasa.jpf.jvm.choice.IntIntervalGenerator;
-import gov.nasa.jpf.symbc.numeric.*;
 
 public class PCChoiceGenerator extends IntIntervalGenerator {
 
 	PathCondition[] PC;
 	boolean isReverseOrder;
 	
+	private static int n;
+	
 	public PCChoiceGenerator(int size) {
-		super(0, size - 1);
+		super("" + n++, 0, size - 1);
 		PC = new PathCondition[size];
 		isReverseOrder = false;
+		
+		//assert size < 2 : "kkkk";
 	}
 	
 	/*
@@ -40,7 +43,7 @@ public class PCChoiceGenerator extends IntIntervalGenerator {
 	 * the usual behavior is used.  
 	 */
 	public PCChoiceGenerator(int size, boolean reverseOrder) {
-		super(0, size - 1, reverseOrder ? -1 : 1);
+		super("" + n++, size - 1, reverseOrder ? -1 : 1);
 		PC = new PathCondition[size];
 		isReverseOrder = reverseOrder;
 	}
@@ -51,8 +54,9 @@ public class PCChoiceGenerator extends IntIntervalGenerator {
 
 	// sets the PC constraints for the current choice
 	public void setCurrentPC(PathCondition pc) {
+		System.err.println("Set PC: before setting: " + PC[getNextChoice()]);
 		PC[getNextChoice()] = pc;
-		
+		System.err.println("Set PC: after setting: " + PC[getNextChoice()]);
 	}
 	
 	// returns the PC constraints for the current choice
@@ -67,11 +71,50 @@ public class PCChoiceGenerator extends IntIntervalGenerator {
 		}
 	}
 	
+	public PathCondition getPreviousPC() {
+		PathCondition pc;
+		
+		pc = getNextChoice() - 1 >= 0 ? PC[getNextChoice() - 1] : null;
+		if (pc != null) {
+			return pc.make_copy();
+		} else {
+			return null;
+		}
+	}
+	
+	public PathCondition getNextPC() {
+		PathCondition pc;
+		
+		pc = getNextChoice() + 1 < max ? PC[getNextChoice() + 1] : null;
+		if (pc != null) {
+			return pc.make_copy();
+		} else {
+			return null;
+		}
+	}
+	
 	public IntChoiceGenerator randomize() {
 		return new PCChoiceGenerator(PC.length, random.nextBoolean()); 
 	}
 	
 	public void setNextChoice(int nextChoice){
 		super.next = nextChoice;
+	}
+
+	public void advance () {
+		super.advance();
+		try {
+			throw new Exception("CG advance: " + this.toString());
+		} catch(Exception ex) {
+			ex.printStackTrace();
+		}
+	}
+
+	public String toString () {
+		String s = super.toString();
+		for (int i = 0; i <= this.max; i++) {
+			s += "[" + PC[i] + "]";
+		}
+		return s;
 	}
 }

@@ -6,8 +6,18 @@ package gov.nasa.jpf.symbc.numeric;
 import java.util.Set;
 import java.util.TreeSet;
 
-import gov.nasa.jpf.ltl.finite.Atom;
-import gov.nasa.jpf.ltl.finite.Operand;
+import gov.nasa.jpf.ltl.atom.Atom;
+import gov.nasa.jpf.ltl.atom.Operand;
+import gov.nasa.jpf.symbc.numeric.Comparator;
+import gov.nasa.jpf.symbc.numeric.Constraint;
+import gov.nasa.jpf.symbc.numeric.Expression;
+import gov.nasa.jpf.symbc.numeric.IntegerExpression;
+import gov.nasa.jpf.symbc.numeric.LinearIntegerConstraint;
+import gov.nasa.jpf.symbc.numeric.LinearIntegerExpression;
+import gov.nasa.jpf.symbc.numeric.MixedConstraint;
+import gov.nasa.jpf.symbc.numeric.NonLinearIntegerConstraint;
+import gov.nasa.jpf.symbc.numeric.RealConstraint;
+import gov.nasa.jpf.symbc.numeric.RealExpression;
 import gov.nasa.jpf.symbc.string.StringExpression;
 
 /**
@@ -82,7 +92,7 @@ public class RelationAtom extends Atom {
       isSatisfiable = false;
     else
       isSatisfiable = isSatisfyConcreteConstraint();
-    
+    System.err.println("RelationAtom " +  text + ", o1=" + o1.isVariableNotExist() + ", o2=" + o2.isVariableNotExist() + ", isSatisfiable=" + isSatisfiable);
   }
   
   

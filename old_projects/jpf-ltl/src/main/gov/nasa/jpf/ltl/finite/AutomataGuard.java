@@ -3,8 +3,11 @@
  */
 package gov.nasa.jpf.ltl.finite;
 
+import gov.nasa.jpf.ltl.atom.Atom;
 import gov.nasa.jpf.ltl.finite.trans.Guard;
 import gov.nasa.jpf.ltl.finite.trans.Literal;
+import gov.nasa.jpf.ltl.parser.LTLSpecLexer;
+import gov.nasa.jpf.ltl.parser.LTLSpec_SymbolicAtom;
 import gov.nasa.jpf.symbc.numeric.Constraint;
 import gov.nasa.jpf.symbc.numeric.PathCondition;
 

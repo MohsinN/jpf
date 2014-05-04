@@ -119,6 +119,7 @@ public class LTLSymbolicConstraintsGeneral extends SymbolicConstraintsGeneral {
 	    NumericConstraint nc2) {
 		if (nc1 == null || nc2 == null)
 			return false;
+		System.out.println("isConstraintSubsumed " + nc1.getExpr() + ", " + nc2.getExpr());
 		if (nc1.isSubsumedBy(nc2))
 			return true;
 		return false;

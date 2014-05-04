@@ -1,18 +1,21 @@
 /**
  * 
  */
-package gov.nasa.jpf.ltl.finite;
+package gov.nasa.jpf.ltl.property;
 
 import edu.uci.ics.jung.algorithms.layout.CircleLayout;
 import edu.uci.ics.jung.algorithms.layout.Layout;
 import edu.uci.ics.jung.graph.DirectedSparseMultigraph;
 import edu.uci.ics.jung.visualization.BasicVisualizationServer;
 import edu.uci.ics.jung.visualization.renderers.Renderer.VertexLabel.Position;
+import gov.nasa.jpf.ltl.finite.LTLListener;
 import gov.nasa.jpf.ltl.finite.trans.Edge;
 import gov.nasa.jpf.ltl.finite.trans.Graph;
 import gov.nasa.jpf.ltl.finite.trans.Guard;
 import gov.nasa.jpf.ltl.finite.trans.Node;
 import gov.nasa.jpf.ltl.finite.trans.Translator;
+import gov.nasa.jpf.ltl.parser.LTLSpecLexer;
+import gov.nasa.jpf.ltl.parser.LTLSpecParser;
 import gov.nasa.ltl.trans.Formula;
 import gov.nasa.ltl.trans.LTL2Buchi;
 

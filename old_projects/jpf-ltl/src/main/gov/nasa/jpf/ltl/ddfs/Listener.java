@@ -13,7 +13,7 @@ import gov.nasa.jpf.jvm.JVM;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.ltl.finite.LTLListener;
-import gov.nasa.jpf.ltl.finite.LTLProperty;
+import gov.nasa.jpf.ltl.property.LTLProperty;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.ltl.graph.Graph;
 

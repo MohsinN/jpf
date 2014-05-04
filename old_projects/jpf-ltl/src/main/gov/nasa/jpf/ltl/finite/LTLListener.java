@@ -24,6 +24,8 @@ import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
 import gov.nasa.jpf.ltl.finite.trans.Edge;
 import gov.nasa.jpf.ltl.finite.trans.Graph;
 import gov.nasa.jpf.ltl.finite.trans.Node;
+import gov.nasa.jpf.ltl.property.Field;
+import gov.nasa.jpf.ltl.property.LTLProperty;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.symbc.bytecode.BytecodeUtils;
 import gov.nasa.jpf.symbc.numeric.Constraint;
@@ -177,7 +179,7 @@ public class LTLListener extends PropertyListenerAdapter {
    *          Full name of the needed field or variable.
    * @return A {@link Field} object representing this field, {@code null}
    *         otherwise.
-   * @see gov.nasa.jpf.ltl.finite.Operand.Var#Var(String)
+   * @see gov.nasa.jpf.ltl.atom.Operand.Var#Var(String)
    */
   public static Field getField(String fullName) {
     return fieldList.get(fullName);

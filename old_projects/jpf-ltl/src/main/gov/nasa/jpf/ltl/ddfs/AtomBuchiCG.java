@@ -11,10 +11,10 @@ import org.antlr.runtime.RecognitionException;
 
 import gov.nasa.jpf.jvm.ChoiceGenerator;
 import gov.nasa.jpf.jvm.JVM;
-import gov.nasa.jpf.ltl.finite.Atom;
+import gov.nasa.jpf.ltl.atom.Atom;
 import gov.nasa.jpf.ltl.finite.LTLListener;
-import gov.nasa.jpf.ltl.finite.LTLSpecLexer;
-import gov.nasa.jpf.ltl.finite.LTLSpec_SymbolicAtom;
+import gov.nasa.jpf.ltl.parser.LTLSpecLexer;
+import gov.nasa.jpf.ltl.parser.LTLSpec_SymbolicAtom;
 import gov.nasa.jpf.symbc.numeric.Constraint;
 import gov.nasa.jpf.symbc.numeric.PCChoiceGenerator;
 import gov.nasa.jpf.symbc.numeric.PathCondition;

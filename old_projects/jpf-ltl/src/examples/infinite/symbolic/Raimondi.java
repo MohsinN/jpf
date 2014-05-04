@@ -7,17 +7,23 @@ package infinite.symbolic;
  */
 
 import gov.nasa.jpf.ltl.LTLSpec;
+import gov.nasa.jpf.symbc.Symbolic;
 
 //@LTLSpec("[](<> done() && <> foo())")
 //@LTLSpec("[](done() && foo())")
 //@LTLSpec("[](foo())")
-@LTLSpec("<>(foo())")
+//@LTLSpec("<>(foo())")
+@LTLSpec("[]((y == 1) -> foo())")
+//@LTLSpec("[](y == 1)")
 public class Raimondi {
+	@Symbolic("true")
+	static int y = 0;
+
 	public static void main(String[] args) {
-		test(1);
+		test(0);
 	}
 
-	public static void test(int y) {
+	public static void test(int x) {
 		while (true) {
 			done();
 			if (y != 1) {

@@ -1819,6 +1819,7 @@ public class ThreadInfo
       nextPc = executeInstruction();
 
       if (ss.breakTransition()) {
+        System.err.println("executeStep breaked " + isFirstStepInsn + ", " + pc + ", " + nextPc);
         // shortcut break if there was no progress (a ChoiceGenerator was created)
         // or if the state is explicitly set as ignored
         break;
@@ -1827,7 +1828,6 @@ public class ThreadInfo
       }
 
       isFirstStepInsn = false;
-
     } while (pc != null);
 
     return true;

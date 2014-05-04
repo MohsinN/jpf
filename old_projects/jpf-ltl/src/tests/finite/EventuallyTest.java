@@ -3,7 +3,9 @@ package finite;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.ltl.LTLSpec;
 import gov.nasa.jpf.util.test.TestJPF;
+
 import org.junit.Test;
+
 import gov.nasa.jpf.ltl.finite.LTLListener;
 
 /**

@@ -1,17 +1,24 @@
 // $ANTLR 3.2 Sep 23, 2009 12:02:23 SymbolicAtom.g 2010-09-02 15:14:16
 
-	package gov.nasa.jpf.ltl.finite;
-	import java.util.Vector;
-	import gov.nasa.ltl.trans.Formula;
-	import gov.nasa.jpf.symbc.numeric.RelationAtom;
+package gov.nasa.jpf.ltl.parser;
+import gov.nasa.jpf.ltl.atom.Atom;
+import gov.nasa.jpf.ltl.atom.BinaryExpression;
+import gov.nasa.jpf.ltl.atom.MethodAtom;
+import gov.nasa.jpf.ltl.atom.Operand;
+import gov.nasa.jpf.symbc.numeric.RelationAtom;
 
+import java.util.Vector;
 
-import org.antlr.runtime.*;
-import java.util.Stack;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.HashMap;
+import org.antlr.runtime.BaseRecognizer;
+import org.antlr.runtime.BitSet;
+import org.antlr.runtime.DFA;
+import org.antlr.runtime.NoViableAltException;
+import org.antlr.runtime.Parser;
+import org.antlr.runtime.RecognitionException;
+import org.antlr.runtime.RecognizerSharedState;
+import org.antlr.runtime.Token;
+import org.antlr.runtime.TokenStream;
+
 public class LTLSpec_SymbolicAtom extends Parser {
     public static final int EVENTUALLY=10;
     public static final int EXPONENT=22;

@@ -2,7 +2,7 @@
 
 target=infinite.symbolic.Raimondi
 finite=false
-#show_buchi=true
+show_buchi=true
 
 symbolic.method=infinite.symbolic.Raimondi.test(sym)
 symbolic.dp=cvc3

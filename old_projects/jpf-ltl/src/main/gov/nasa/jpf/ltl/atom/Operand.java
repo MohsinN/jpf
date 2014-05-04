@@ -1,17 +1,19 @@
 /**
  * 
  */
-package gov.nasa.jpf.ltl.finite;
+package gov.nasa.jpf.ltl.atom;
 
-import java.util.Set;
-import java.util.TreeSet;
-
+import gov.nasa.jpf.ltl.property.Field;
+import gov.nasa.jpf.ltl.property.FieldTracker;
 import gov.nasa.jpf.symbc.numeric.Expression;
 import gov.nasa.jpf.symbc.numeric.IntegerConstant;
 import gov.nasa.jpf.symbc.numeric.IntegerExpression;
 import gov.nasa.jpf.symbc.numeric.RealConstant;
 import gov.nasa.jpf.symbc.numeric.RealExpression;
 import gov.nasa.jpf.symbc.string.StringConstant;
+
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * This is the abstract base class for all the operand of the expression in a
@@ -54,7 +56,7 @@ public abstract class Operand {
 
     /**
      * @return {@code false}, this is a constant, not a variable or field.
-     * @see gov.nasa.jpf.ltl.finite.Operand#isVariableNotExist()
+     * @see gov.nasa.jpf.ltl.atom.Operand#isVariableNotExist()
      */
     @Override
     public boolean isVariableNotExist() {
@@ -102,7 +104,8 @@ public abstract class Operand {
         varName = varName.replace(order, "");
         instanceOrder = Integer.valueOf(order.substring(1));
       }
-      field = LTLListener.getField(varName);
+      FieldTracker.printFields();
+      field = FieldTracker.getField(varName);
       if (field != null) {
         exist = true;
       }

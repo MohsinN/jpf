@@ -62,7 +62,8 @@ public abstract class BuchiCG<AtomT> extends ChoiceGenerator<Node<AtomT>> {
 
 	@Override
 	public Node<AtomT> getNextChoice() {
-		assert index <= choices - 1 : "There is no any next choice. index=" + index + ", choices=" + choices;
+		assert index <= choices - 1 : "There is no any next choice. index=" + index + ", choices=" + choices + ", bitIndex=" + bitIndex;
+		System.err.println("getNextChoice index=" + index + ", choices=" + choices + ", bitIndex=" + bitIndex);
 		return node.getOutgoingEdges().get(bitIndex).getNext();
 	}
 

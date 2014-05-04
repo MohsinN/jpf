@@ -23,7 +23,6 @@ import gov.nasa.jpf.jvm.StackFrame;
 import gov.nasa.jpf.jvm.SystemState;
 import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
-
 import gov.nasa.jpf.symbc.numeric.*;
 
 //we should factor out some of the code and put it in a parent class for all "if statements"
@@ -47,11 +46,14 @@ public class IF_ICMPEQ extends gov.nasa.jpf.jvm.bytecode.IF_ICMPEQ{
 			if (!ti.isFirstStepInsn()) { // first time around
 				cg = new PCChoiceGenerator(2);
 				ss.setNextChoiceGenerator(cg);
+				System.err.println("here? " + cg);
 				return this;
 			} else {  // this is what really returns results
 				cg = ss.getChoiceGenerator();
 				assert (cg instanceof PCChoiceGenerator) : "expected PCChoiceGenerator, got: " + cg;
 				conditionValue = (Integer)cg.getNextChoice()==0 ? false: true;
+				
+				System.err.println("or here? " + cg + ", " + cg.getNextChoice());
 			}
 
 			int	v2 = ti.pop();
@@ -64,8 +66,11 @@ public class IF_ICMPEQ extends gov.nasa.jpf.jvm.bytecode.IF_ICMPEQ{
 			// previous choice generator of the same type
 
 			ChoiceGenerator<?> prev_cg = cg.getPreviousChoiceGenerator();
+			System.err.println("IF_ICMPEQ: cg=" + cg);
+			System.err.println("IF_ICMPEQ: prev_cg=" + prev_cg);
 			while (!((prev_cg == null) || (prev_cg instanceof PCChoiceGenerator))) {
 				prev_cg = prev_cg.getPreviousChoiceGenerator();
+				System.err.println("IF_ICMPEQ: while prev_cg=" + prev_cg);
 			}
 
 			if (prev_cg == null)
@@ -88,7 +93,7 @@ public class IF_ICMPEQ extends gov.nasa.jpf.jvm.bytecode.IF_ICMPEQ{
 				}else{
 					//pc.solve();
 					((PCChoiceGenerator) cg).setCurrentPC(pc);
-				//	System.out.println(((PCChoiceGenerator) cg).getCurrentPC());
+					System.err.println("solve EQ " + ((PCChoiceGenerator) cg).getCurrentPC());
 				}
 				return getTarget();
 			} else {
@@ -104,7 +109,7 @@ public class IF_ICMPEQ extends gov.nasa.jpf.jvm.bytecode.IF_ICMPEQ{
 				}else {
 					//pc.solve();
 					((PCChoiceGenerator) cg).setCurrentPC(pc);
-					//System.out.println(((PCChoiceGenerator) cg).getCurrentPC());
+					System.err.println("solve NE " + ((PCChoiceGenerator) cg).getCurrentPC());
 				}
 				return getNext(ti);
 			}

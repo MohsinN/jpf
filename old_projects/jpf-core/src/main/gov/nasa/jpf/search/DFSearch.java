@@ -69,12 +69,15 @@ public class DFSearch extends Search {
         if (!backtrack()) { // backtrack not possible, done
           break;
         }
+        System.err.println("bt");
 
         depth--;
         notifyStateBacktracked();
       }
 
+      System.err.println("fw?");
       if (forward()) {
+    	System.err.println("fwed");
         depth++;
         notifyStateAdvanced();
 

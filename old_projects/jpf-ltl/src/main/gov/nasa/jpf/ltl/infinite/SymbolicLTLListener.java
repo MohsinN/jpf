@@ -17,7 +17,8 @@ import gov.nasa.jpf.jvm.ThreadInfo;
 import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
-import gov.nasa.jpf.ltl.finite.LTLProperty;
+import gov.nasa.jpf.ltl.property.FieldTracker;
+import gov.nasa.jpf.ltl.property.LTLProperty;
 import gov.nasa.jpf.search.Search;
 import gov.nasa.jpf.symbc.bytecode.BytecodeUtils;
 import gov.nasa.jpf.symbc.numeric.PathCondition;
@@ -39,12 +40,22 @@ public class SymbolicLTLListener extends ListenerAdapter {
 	private boolean forcedVal = false;
 	private boolean retainVal = false;
 
+	public SymbolicLTLListener() {
+		super();
+
+		FieldTracker.reset();
+	}
+
 	void setFirstStep() {
 		insnCount = 0;
 	}
 
 	@Override
 	public void executeInstruction(JVM vm) {
+		if (isIgnoreIns(vm)) {// skip initializing instructions of JVM
+			return;
+		}
+
 		ThreadInfo ti = vm.getCurrentThread();
 
 		System.err.println("-- executeInstruction: count=" + insnCount + ", stateId=" + vm.getStateId() + ", insn=" + ti.getPC() + ", source=" + ti.getPC().getSourceLocation() + ", pc=" + PathCondition.getPC(JVM.getVM()));
@@ -80,8 +91,14 @@ public class SymbolicLTLListener extends ListenerAdapter {
 
 	@Override
 	public void instructionExecuted(JVM vm) {
+		if (isIgnoreIns(vm)) {// skip initializing instructions of JVM
+			return;
+		}
+
 		ThreadInfo ti = vm.getCurrentThread();
 		SystemState ss = vm.getSystemState();
+
+		FieldTracker.extractLocalVar(ti.getTopFrame());
 
 		System.err.println("-- instructionExecuted: count=" + insnCount + ", stateId=" + vm.getStateId() + ", insn=" + ti.getPC() + ", source=" + ti.getPC().getSourceLocation() + ", pc=" + PathCondition.getPC(vm));
 
@@ -105,6 +122,8 @@ public class SymbolicLTLListener extends ListenerAdapter {
 
 				System.err.println("-- instructionExecuted: breaking transition" + ", pc=" + PathCondition.getPC(vm));
 			}
+
+			System.err.println("-- instructionExecuted: boundaryStack " + getFewNonProgressBoundaryStack());
 		}
 		insnCount++;
 	}
@@ -138,7 +157,6 @@ public class SymbolicLTLListener extends ListenerAdapter {
 		if (ai == null) {
 			ai = ci.getAnnotation("gov.nasa.jpf.ltl.LTLSpecFile");
 		}
-		System.out.println("classLoaded: " + ci + ", " + ai);
 		if (ai == null) {
 			return;
 		}
@@ -164,6 +182,9 @@ public class SymbolicLTLListener extends ListenerAdapter {
 				prop.showGraph(prop.getNegatedBuchi());
 			}
 		}
+
+		FieldTracker.setFields(prop.getFields());
+		FieldTracker.updateFieldList(ci);
 
 		if (search != null) {
 			search.setSpec(prop.getNegatedBuchi(), ltl, ci.getName());
@@ -191,6 +212,18 @@ public class SymbolicLTLListener extends ListenerAdapter {
 		}
 	    MethodInfo mi = ((InvokeInstruction) insn).getInvokedMethod();
 	    return mi.getClassName() + "." + mi.getLongName();
+	}
+
+	private boolean isIgnoreIns(JVM vm) {
+		Instruction insn = vm.getLastInstruction();
+		MethodInfo mi = insn.getMethodInfo();
+		String name = (mi != null) ? mi.getFullName() : "";
+		if (name.startsWith("java.") || name.startsWith("sun.")
+				|| name.startsWith("javax.") || name.startsWith("com.")
+				|| name.startsWith("[clinit]") || name.endsWith("<clinit>()V")) {
+			return true;
+		}
+		return false;
 	}
 
 	private void turnoffConcreteStateMatching(JVM vm, Instruction insn) {

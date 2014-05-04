@@ -1,17 +1,25 @@
 // $ANTLR 3.2 Sep 23, 2009 12:02:23 LTLSpec.g 2010-09-02 15:14:15
 
-	package gov.nasa.jpf.ltl.finite;
-	import java.util.Vector;
-	import gov.nasa.ltl.trans.Formula;
-	import gov.nasa.jpf.symbc.numeric.RelationAtom;
+package gov.nasa.jpf.ltl.parser;
 
+import gov.nasa.jpf.ltl.atom.Atom;
+import gov.nasa.jpf.ltl.atom.Operand;
+import gov.nasa.ltl.trans.Formula;
 
-import org.antlr.runtime.*;
-import java.util.Stack;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.HashMap;
+import java.util.Vector;
+
+import org.antlr.runtime.BaseRecognizer;
+import org.antlr.runtime.BitSet;
+import org.antlr.runtime.DFA;
+import org.antlr.runtime.IntStream;
+import org.antlr.runtime.MismatchedSetException;
+import org.antlr.runtime.NoViableAltException;
+import org.antlr.runtime.Parser;
+import org.antlr.runtime.RecognitionException;
+import org.antlr.runtime.RecognizerSharedState;
+import org.antlr.runtime.Token;
+import org.antlr.runtime.TokenStream;
+
 public class LTLSpecParser extends Parser {
     public static final String[] tokenNames = new String[] {
         "<invalid>", "<EOR>", "<DOWN>", "<UP>", "ID", "ALWAYS", "INT", "FLOAT", "NOT", "NEXT", "EVENTUALLY", "IMPLIES", "OR", "ROBBYJO_OR", "AND", "ROBBYJO_AND", "UNTIL", "WEAK_UNTIL", "RELEASE", "WEAK_RELEASE", "TRUE", "FALSE", "EXPONENT", "COMMENT", "WS", "ESC_SEQ", "STRING", "HEX_DIGIT", "UNICODE_ESC", "OCTAL_ESC", "'=='", "'!='", "'>='", "'<='", "'>'", "'<'", "'.'", "'('", "','", "')'", "'+'", "'-'", "'*'", "'/'", "'['", "']'", "'#'"

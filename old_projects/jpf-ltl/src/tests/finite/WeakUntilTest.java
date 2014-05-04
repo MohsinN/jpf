@@ -5,6 +5,7 @@ import gov.nasa.jpf.ltl.LTLSpec;
 import gov.nasa.jpf.ltl.finite.LTLListener;
 
 import org.junit.Test;
+
 import gov.nasa.jpf.util.test.TestJPF;
 
 /**

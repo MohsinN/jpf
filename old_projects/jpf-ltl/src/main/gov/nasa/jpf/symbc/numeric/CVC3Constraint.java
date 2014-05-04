@@ -26,7 +26,10 @@ public class CVC3Constraint extends ProblemGeneral implements NumericConstraint 
   }
 
   public Object getExpr() {
-    // if (pb == null) return new
+    if (pb == null) {
+      pb = vc.trueExpr();
+      return pb;
+    }
     if (listConstraint.size() != 0) {
       pb = vc.andExpr(listConstraint);
       if (listExistentialIntegerVar != null)
@@ -39,16 +42,17 @@ public class CVC3Constraint extends ProblemGeneral implements NumericConstraint 
   @Override
   public boolean isSubsumedBy(NumericConstraint constraint) {
     vc.push();
+
+    System.out.println("isSubsumedBy: " + constraint.getExpr());
+    assert constraint.getExpr() != null : "Can not check subsume with null expr" + constraint;
+
     Expr cc = vc.impliesExpr(pb, (Expr) (constraint.getExpr()));
     System.out.println("Implication: " + cc);
     QueryResult sr = vc.query(cc);
 
     System.out.println(sr.toString());
-    if (sr == QueryResult.VALID) {
-      vc.pop();
-      return true;
-    }
-    return false;
+    vc.pop();
+    return sr == QueryResult.VALID;
   }
 
   public String toString() {
