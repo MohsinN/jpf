@@ -24,25 +24,20 @@ package gov.nasa.jpf.symbc;
 import gov.nasa.jpf.Config;
 import gov.nasa.jpf.JPF;
 import gov.nasa.jpf.PropertyListenerAdapter;
-import gov.nasa.jpf.jvm.ChoiceGenerator;
-import gov.nasa.jpf.jvm.ClassInfo;
+import gov.nasa.jpf.vm.ChoiceGenerator;
+import gov.nasa.jpf.vm.ClassInfo;
+import gov.nasa.jpf.vm.Instruction;
+import gov.nasa.jpf.vm.LocalVarInfo;
+import gov.nasa.jpf.vm.MethodInfo;
+import gov.nasa.jpf.vm.StackFrame;
+import gov.nasa.jpf.vm.ThreadInfo;
+import gov.nasa.jpf.vm.Types;
+import gov.nasa.jpf.vm.VM;
 
-
-import gov.nasa.jpf.jvm.JVM;
-
-import gov.nasa.jpf.jvm.MethodInfo;
-
-import gov.nasa.jpf.jvm.DynamicElementInfo;
-import gov.nasa.jpf.jvm.LocalVarInfo;
-import gov.nasa.jpf.jvm.StackFrame;
-import gov.nasa.jpf.jvm.SystemState;
-import gov.nasa.jpf.jvm.ThreadInfo;
-import gov.nasa.jpf.jvm.Types;
 import gov.nasa.jpf.jvm.bytecode.ARETURN;
 import gov.nasa.jpf.jvm.bytecode.DRETURN;
 import gov.nasa.jpf.jvm.bytecode.FRETURN;
 import gov.nasa.jpf.jvm.bytecode.IRETURN;
-import gov.nasa.jpf.jvm.bytecode.Instruction;
 import gov.nasa.jpf.jvm.bytecode.InvokeInstruction;
 import gov.nasa.jpf.jvm.bytecode.LRETURN;
 import gov.nasa.jpf.jvm.bytecode.ReturnInstruction;
@@ -133,6 +128,7 @@ public class SymbolicListener extends PropertyListenerAdapter implements Publish
 //	}
 
 
+	@Override
 	public void propertyViolated (Search search){
 		//System.out.println("--------->property violated");
 
@@ -140,7 +136,7 @@ public class SymbolicListener extends PropertyListenerAdapter implements Publish
 //		if (dp[0].equalsIgnoreCase("no_solver"))
 //			return;
 
-		JVM vm = search.getVM();
+		VM vm = search.getVM();
 		//Config conf = vm.getConfig();
 		//SystemState ss = vm.getSystemState();
 		//ClassInfo ci = vm.getClassInfo();
@@ -192,42 +188,14 @@ public class SymbolicListener extends PropertyListenerAdapter implements Publish
 		//}
 	}
 	
-	/*
-	public void choiceGeneratorAdvanced(JVM vm) {
-		System.out.println("choice advanced advanced here.");
-		ChoiceGenerator<?> cg = vm.getSystemState().getChoiceGenerator();
-		int n = cg.getTotalNumberOfChoices();
-		if (cg instanceof PCChoiceGenerator) {
-			System.out.println("got a PC choice generator "+ n + " "+
-			((PCChoiceGenerator) cg).getNextChoice());//getCurrentPC());
-		}
-	}
-	*/
-	
-	public void stateAdvanced(Search search) {
-		//super.stateAdvanced(search);
-		//System.out.println("State advanced here.");
-		ChoiceGenerator<?> cg = search.getVM().getSystemState().getChoiceGenerator();
-		int n = cg.getTotalNumberOfChoices();
-		if (cg instanceof PCChoiceGenerator) {
-			//System.out.println("got a PC choice generator "+ n + " "+
-			//((PCChoiceGenerator) cg).getNextChoice() + " "+((PCChoiceGenerator) cg).getCurrentPC());
-		
-		if(((PCChoiceGenerator) cg).getNextChoice()==1) {
-			//System.out.println("backtrack");
-			//search.requestBacktrack(); //;.getVM().getSystemState().setIgnored(true);
-			search.getVM().getSystemState().setIgnored(true);
-		}
-		
-		}
-	}
-	
-	public void instructionExecuted(JVM vm) {
+	@Override
+	 public void instructionExecuted(VM vm, ThreadInfo currentThread, Instruction nextInstruction, Instruction executedInstruction) {
+
 
 		if (!vm.getSystemState().isIgnored()) {
-			Instruction insn = vm.getLastInstruction();
+			Instruction insn = executedInstruction;
 		//	SystemState ss = vm.getSystemState();
-			ThreadInfo ti = vm.getLastThreadInfo();
+			ThreadInfo ti = currentThread;
 			Config conf = vm.getConfig();
 
 			if (insn instanceof InvokeInstruction) {
@@ -467,16 +435,11 @@ public class SymbolicListener extends PropertyListenerAdapter implements Publish
 							if ((!pcs.contains(pcPair)) && (pcString.contains("SYM"))) {
 								methodSummary.addPathCondition(pcPair);
 							}
-							
-							if(allSummaries.get(longName)!=null) // recursive call
-								longName = longName + methodSummary.hashCode(); // differentiate the key for recursive calls
 							allSummaries.put(longName,methodSummary);
 							System.out.println("*************Summary***************");
 							System.out.println("PC is:"+pc.toString());
-							if(result!=null){
-								System.out.println("Return is:  "+result);
-								System.out.println("***********************************");
-							}
+							System.out.println("Return is:  "+result);
+							System.out.println("***********************************");
 						}
 					}
 				}
@@ -681,6 +644,7 @@ public class SymbolicListener extends PropertyListenerAdapter implements Publish
 
 
       //	-------- the publisher interface
+	  @Override
 	  public void publishFinished (Publisher publisher) {
 		String[] dp = SymbolicInstructionFactory.dp;
 		if (dp[0].equalsIgnoreCase("no_solver") || dp[0].equalsIgnoreCase("cvc3bitvec"))
